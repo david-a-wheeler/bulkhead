@@ -5,3 +5,5 @@ __pycache__/
 ,*
 config.local.sh
 confirmations/
+.tmp/
+.cache/

@@ -38,10 +38,13 @@ public_token="$(secrets-client --context "anon-access: ${*:-interactive shell}" 
 # outright ("arg 2 first element cannot be empty") instead of running a
 # shell at all.
 
-# We use a local tempdir, avoiding /tmp because that is shared.
+# We use a local tempdir and cache dir, avoiding /tmp and ~/.cache since
+# those are shared: a tool run in one directory (rubocop, pip, npm, ...)
+# shouldn't read or poison another directory's cached state.
 
 export TMPDIR="$PWD/.tmp"
-mkdir -p "$TMPDIR"
+export XDG_CACHE_HOME="$PWD/.cache"
+mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
 
 exec env -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
     -u SSH_AUTH_SOCK -u HEROKU_API_KEY \
