@@ -1,8 +1,4 @@
 #!/bin/sh
-# shellcheck disable=SC2046  # word-splitting noclaude-extra-options'
-# content (currently just --read flags, from config.sh's
-# NONO_EXTRA_READ_PATHS) into separate argv tokens is deliberate.
-#
 # --profile nolabs-ai/claude (installed by vm-setup.sh) is nono's own
 # maintained profile for Claude Code, not a hand-rolled --allow list: it
 # grants read-write access to $PWD, ~/.claude, and the other paths Claude
@@ -10,4 +6,9 @@
 # ~/.cache/claude, ~/.local/state/claude/locks), while explicitly denying
 # the credential/keychain/browser-data/shell-history groups a compromised
 # agent would otherwise reach for.
-exec anon-access nono run --profile nolabs-ai/claude $(cat /usr/local/etc/noclaude-extra-options 2>/dev/null) -- claude "$@"
+#
+# To modify nono defaults edit nono-default-profile.json (this repo) and
+# rerun vm-setup.sh; that's what installs it to
+# ~/.config/nono/profiles/default.json, which nolabs-ai/claude (and every
+# other pack, since it's nono's own "default" profile name) extends.
+exec anon-access nono run --profile nolabs-ai/claude --allow-cwd -- claude "$@"

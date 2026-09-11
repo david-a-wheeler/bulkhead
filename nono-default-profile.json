@@ -1,0 +1,8 @@
+{
+  "filesystem": {
+    "read": [
+      "$HOME/.rbenv",
+      "$HOME/.gitconfig"
+    ]
+  }
+}

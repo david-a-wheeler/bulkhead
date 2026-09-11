@@ -96,15 +96,11 @@ NFTABLES_ALLOWED_TCP_PORTS="22 80 443"
 
 # nono agent packs vm-setup.sh installs (see `nono search <name>` for
 # others). One of these, nolabs-ai/claude, is what noclaude runs under.
+# Filesystem access every pack should have beyond what its own profile
+# grants (toolchain dirs, etc.) isn't configured here: edit
+# nono-default-profile.json instead, since every pack below extends
+# nono's "default" profile, which is what that file becomes on install.
 NONO_AGENT_PROFILES="nolabs-ai/claude nolabs-ai/goose nolabs-ai/pi"
-
-# Extra paths noclaude grants read-only nono access to, beyond what its
-# nolabs-ai/claude nono profile already grants (the current directory,
-# ~/.claude, and the other paths Claude Code itself needs; see
-# architecture.md's VM Sandboxing section). Space separated. Add your own
-# toolchain dirs here as needed. Use $HOME rather
-# than ~, since a tilde in a double-quoted assignment doesn't expand.
-NONO_EXTRA_READ_PATHS="$HOME/.rbenv"
 
 # Set to "true" to also set up the SSH reverse tunnel (RemoteForward) for
 # reaching a host-side local inference engine (e.g. Ollama) from the VM.

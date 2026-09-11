@@ -177,6 +177,20 @@ else
   echo "  https://github.com/nolabs-ai/nono/releases" >&2
 fi
 
+echo "== Installing nono's default profile (nono-default-profile.json) =="
+# "default" is nono's own reserved profile name: nolabs-ai/claude (and
+# every other pack pulled below) declares "extends": "default" in its own
+# profile.json, and a user profile of that name takes precedence over
+# nono's built-in one. So this is the one place to grant filesystem access
+# every harness needs (currently just $HOME/.rbenv and $HOME/.gitconfig),
+# instead of a per-harness flag noclaude alone would have to carry.
+# install_unless_locally_newer, not a plain cp: same reasoning as
+# claude-CLAUDE.md below, an edit made directly to the installed copy
+# (e.g. via nono's own profile tooling) shouldn't be silently clobbered.
+mkdir -p "$HOME/.config/nono/profiles"
+install_unless_locally_newer "$SCRIPT_DIR/nono-default-profile.json" \
+  "$HOME/.config/nono/profiles/default.json"
+
 echo "== Installing nono agent profiles (config.sh's NONO_AGENT_PROFILES) =="
 # One pack per supported harness (noclaude's --profile nolabs-ai/claude
 # is one of these); add another "namespace/name" to NONO_AGENT_PROFILES
@@ -269,20 +283,17 @@ sudo cp "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-
 sudo chmod +x /usr/local/bin/heroku-session /usr/local/bin/gh-session /usr/local/bin/anon-access
 
 echo "== Installing noclaude (sandboxed Claude Code wrapper) =="
-# Plain file too; the one thing it needs from config.sh
-# (NONO_EXTRA_READ_PATHS) is written to a small side file instead of
-# templated into the script itself, so noclaude doesn't need rendering
-# either. Built fresh every run, same as everything else here. Runs
-# through anon-access above (install order doesn't matter, same
-# reasoning as vm-git-helper/secrets-client: nothing invokes noclaude
-# until well after this script has finished).
+# Plain file, no templating needed: extra filesystem access beyond
+# --profile nolabs-ai/claude now comes from nono-default-profile.json
+# (installed above), not a side file rendered here. Built fresh every
+# run, same as everything else here. Runs through anon-access above
+# (install order doesn't matter, same reasoning as
+# vm-git-helper/secrets-client: nothing invokes noclaude until well
+# after this script has finished).
 sudo cp "$SCRIPT_DIR/noclaude" /usr/local/bin/noclaude
 sudo chmod +x /usr/local/bin/noclaude
-nono_extra_read_args=""
-for path in $NONO_EXTRA_READ_PATHS; do
-  nono_extra_read_args="${nono_extra_read_args}--read ${path} "
-done
-echo "$nono_extra_read_args" | sudo tee /usr/local/etc/noclaude-extra-options >/dev/null
+# Cleanup from the pre-default.json layout; harmless if never present.
+sudo rm -f /usr/local/etc/noclaude-extra-options
 
 echo "== Configuring git niceties =="
 configure_git_niceties
