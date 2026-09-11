@@ -26,6 +26,11 @@ prose, code comments, commit messages, PR descriptions, and docs:
     "load-bearing", etc.
 - Use logical quotation (punctuation outside quotes unless part of the quoted
   material) and the Oxford comma.
+- Hedge in first person: use "I think" and "I believe" over
+  impersonal hedging ("it could be argued", "some might say").
+- Write to the reader (second person): "you need", "you want", "your program".
+- Spell out Latin abbreviations with periods: "e.g." and "i.e.",
+  not "eg"/"ie" and not always expanded into "for example"/"that is".
 - No corporate jargon.
 
 ## Constraints
