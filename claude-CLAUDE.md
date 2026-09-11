@@ -50,5 +50,6 @@ You are running in an Ubuntu Linux VM running on top of a MacOS host via UTM.
 * Proposed changes should generally be on a branch unless we're
   early in development.
 * Temporary files destinated for deletion can be stored in the current directory but I generally prefer them prefixed with `,` to make that clear.
+* Don't use /tmp to avoid sharing and interference.
 
 Thanks!
