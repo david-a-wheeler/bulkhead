@@ -37,6 +37,12 @@ public_token="$(secrets-client --context "anon-access: ${*:-interactive shell}" 
 # expands to ONE empty-string argument, not zero - execvp() then fails
 # outright ("arg 2 first element cannot be empty") instead of running a
 # shell at all.
+
+# We use a local tempdir, avoiding /tmp because that is shared.
+
+export TMPDIR="$PWD/.tmp"
+mkdir -p "$TMPDIR"
+
 exec env -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
     -u SSH_AUTH_SOCK -u HEROKU_API_KEY \
     -u BULKHEAD_AUTH_SESSION \
