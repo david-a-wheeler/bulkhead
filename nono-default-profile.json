@@ -2,7 +2,10 @@
   "filesystem": {
     "read": [
       "$HOME/.rbenv",
-      "$HOME/.gitconfig"
+      "$HOME/.gitconfig",
+      "/etc/fstab",
+      "/etc/gnutls/config",
+      "/etc/magic"
     ]
   }
 }
