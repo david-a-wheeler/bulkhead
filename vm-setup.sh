@@ -20,11 +20,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 linux_only "vm-setup.sh"
 
 # Local tempdir, not /tmp: same reasoning as anon-access's TMPDIR (/tmp is
-# shared across every user/process on the VM). Exported, not just set: it
-# needs to reach mktemp too (common.sh's install_managed_block), not only
-# the explicit "$TMPDIR/..." paths below. Created this early since the
-# very next step already needs it.
-export TMPDIR="$SCRIPT_DIR/.tmp"
+# shared across every user/process on the VM). Only defaults TMPDIR if the
+# caller hasn't already set one; an already-set TMPDIR (e.g. from a caller
+# that scopes its own) is used as-is, never overridden. Exported, not just
+# set: it needs to reach mktemp too (common.sh's install_managed_block),
+# not only the explicit "$TMPDIR/..." paths below. Created this early
+# since the very next step already needs it.
+: "${TMPDIR:=$SCRIPT_DIR/.tmp}"
+export TMPDIR
 mkdir -p "$TMPDIR"
 
 echo "== Installing base packages =="
