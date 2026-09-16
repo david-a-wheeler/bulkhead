@@ -19,6 +19,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # apt/systemctl/etc. produce confusing errors on a machine without them.
 linux_only "vm-setup.sh"
 
+# Local tempdir, not /tmp: same reasoning as anon-access's TMPDIR (/tmp is
+# shared across every user/process on the VM). Exported, not just set: it
+# needs to reach mktemp too (common.sh's install_managed_block), not only
+# the explicit "$TMPDIR/..." paths below. Created this early since the
+# very next step already needs it.
+export TMPDIR="$SCRIPT_DIR/.tmp"
+mkdir -p "$TMPDIR"
+
 echo "== Installing base packages =="
 # openssh/avahi/cups/nftables per architecture.md's discovery+services
 # phase. curl has to land here, before anything else (the gh repo setup
@@ -70,10 +78,10 @@ echo "== Adding the GitHub CLI (gh) apt repo and installing gh =="
 # two "apt-get update"s total rather than the one everything else shares.
 sudo mkdir -p -m 755 /etc/apt/keyrings
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-  -o /tmp/githubcli-archive-keyring.gpg
-sudo install -m 644 /tmp/githubcli-archive-keyring.gpg \
+  -o "$TMPDIR/githubcli-archive-keyring.gpg"
+sudo install -m 644 "$TMPDIR/githubcli-archive-keyring.gpg" \
   /etc/apt/keyrings/githubcli-archive-keyring.gpg
-rm -f /tmp/githubcli-archive-keyring.gpg
+rm -f "$TMPDIR/githubcli-archive-keyring.gpg"
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
   | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 sudo apt-get update
@@ -124,10 +132,10 @@ if [ -z "$HOST_GATEWAY_IP" ]; then
   echo "ERROR: couldn't determine the default gateway; can't scope the secrets-server firewall rule safely." >&2
   exit 1
 fi
-render_template "$SCRIPT_DIR/nftables.template.conf" /tmp/nftables.conf.rendered \
+render_template "$SCRIPT_DIR/nftables.template.conf" "$TMPDIR/nftables.conf.rendered" \
   NFTABLES_ALLOWED_TCP_PORTS_NFT HOST_GATEWAY_IP SECRETS_SERVER_PORT
-sudo cp /tmp/nftables.conf.rendered /etc/nftables.conf
-rm -f /tmp/nftables.conf.rendered
+sudo cp "$TMPDIR/nftables.conf.rendered" /etc/nftables.conf
+rm -f "$TMPDIR/nftables.conf.rendered"
 sudo nft -f /etc/nftables.conf
 
 echo "== Hardening CUPS (unix socket only, no TCP listener) =="
@@ -163,9 +171,9 @@ if [ -n "$nono_deb_url" ]; then
   if [ -n "$nono_old_version" ] && [ "$nono_old_version" = "$nono_new_version" ]; then
     echo "nono is already up to date (version $nono_new_version)."
   else
-    curl -fsSL "$nono_deb_url" -o /tmp/nono-cli.deb
-    sudo dpkg -i /tmp/nono-cli.deb
-    rm -f /tmp/nono-cli.deb
+    curl -fsSL "$nono_deb_url" -o "$TMPDIR/nono-cli.deb"
+    sudo dpkg -i "$TMPDIR/nono-cli.deb"
+    rm -f "$TMPDIR/nono-cli.deb"
     if [ -n "$nono_old_version" ]; then
       echo "Updated nono: $nono_old_version -> $nono_new_version"
     else
@@ -265,11 +273,11 @@ sudo rm -f /usr/local/bin/vm-git-helper.py
 echo "== Installing secrets-client (generic secrets-server CLI, used by heroku-session/gh-session) =="
 # Installed without a ".py" extension (see secrets-client.template.py):
 # callers shouldn't need to know or care this happens to be Python.
-render_template "$SCRIPT_DIR/secrets-client.template.py" /tmp/secrets-client.rendered \
+render_template "$SCRIPT_DIR/secrets-client.template.py" "$TMPDIR/secrets-client.rendered" \
   SECRETS_SERVER_PORT
-sudo cp /tmp/secrets-client.rendered /usr/local/bin/secrets-client
+sudo cp "$TMPDIR/secrets-client.rendered" /usr/local/bin/secrets-client
 sudo chmod +x /usr/local/bin/secrets-client
-rm -f /tmp/secrets-client.rendered
+rm -f "$TMPDIR/secrets-client.rendered"
 # Cleanup from the pre-rename layout (secrets-client.py); harmless if
 # never present.
 sudo rm -f /usr/local/bin/secrets-client.py
@@ -338,15 +346,15 @@ if [ "$want_claude" = true ]; then
           }]
         }])
       end
-  ' "$settings_file" > /tmp/claude-settings.json.rendered
-  cp /tmp/claude-settings.json.rendered "$settings_file"
-  rm -f /tmp/claude-settings.json.rendered
+  ' "$settings_file" > "$TMPDIR/claude-settings.json.rendered"
+  cp "$TMPDIR/claude-settings.json.rendered" "$settings_file"
+  rm -f "$TMPDIR/claude-settings.json.rendered"
 fi
 
 echo "== Managing ~/.bash_aliases block (editor, BULKHEAD_AUTH_SESSION) =="
 # Plain file, not rendered: no @@VAR@@ substitution left in it.
 install_managed_block "$SCRIPT_DIR/vm-bash-aliases-block.sh" "$HOME/.bash_aliases"
-rm -f /tmp/bash-aliases-block.rendered
+rm -f "$TMPDIR/bash-aliases-block.rendered"
 
 if [ "$ENABLE_INFERENCE_SSH_TUNNEL" = "true" ]; then
   # Reserved for the "MAYBE" host-inference-engine SSH reverse tunnel from
