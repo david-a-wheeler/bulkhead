@@ -196,5 +196,13 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   so this isn't installed by host-setup.sh). If you've edited the installed
   copy directly and it's newer than this file, vm-setup.sh warns instead of
   overwriting it; see the printed command to pull your edit back in here.
+- `check-prose-style.sh`: a Claude Code `PreToolUse` hook that blocks
+  `Write`/`Edit`/`NotebookEdit` calls introducing common AI-writing tells
+  (em dashes, banned filler phrases, canned stock phrases). Installed to
+  each VM's `~/.claude/hooks/check-prose-style.sh` the same
+  `install_unless_locally_newer` way as `claude-CLAUDE.md` above, and
+  wired into `~/.claude/settings.json`'s `hooks.PreToolUse` by
+  `vm-setup.sh` (merged in via `jq`, so any other hand-edited settings
+  survive; re-running never appends a duplicate entry).
 A `*.template.*` file gets rendered (placeholders substituted) before
 install; anything else is copied or run as-is.

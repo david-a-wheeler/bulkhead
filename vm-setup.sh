@@ -302,6 +302,45 @@ if [ "$want_claude" = true ]; then
   echo "== Installing Claude Code global instructions (CLAUDE.md) =="
   mkdir -p "$HOME/.claude"
   install_unless_locally_newer "$SCRIPT_DIR/claude-CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+
+  echo "== Installing check-prose-style.sh (AI-writing-tell PreToolUse hook) =="
+  # Same install_unless_locally_newer treatment as claude-CLAUDE.md above:
+  # an edit made straight to the installed copy isn't silently overwritten.
+  mkdir -p "$HOME/.claude/hooks"
+  install_unless_locally_newer "$SCRIPT_DIR/check-prose-style.sh" \
+    "$HOME/.claude/hooks/check-prose-style.sh"
+  chmod +x "$HOME/.claude/hooks/check-prose-style.sh"
+
+  echo "== Wiring check-prose-style.sh into ~/.claude/settings.json =="
+  # A script sitting in ~/.claude/hooks does nothing on its own; Claude
+  # Code only runs it once it's registered as a PreToolUse hook in
+  # settings.json. That file is hand-edited too (theme, permissions,
+  # other hooks), so this can't just overwrite it like
+  # install_unless_locally_newer does for a whole-file install: it has to
+  # merge one entry in via jq, seeding an empty "{}" first if the file's
+  # missing or empty, and leaving everything else in the file untouched.
+  # The "any(...)" check is what makes this idempotent: skip if an entry
+  # calling this hook is already present (whatever its matcher), so
+  # re-running vm-setup.sh never appends a duplicate.
+  settings_file="$HOME/.claude/settings.json"
+  [ -s "$settings_file" ] || printf '%s' '{}' > "$settings_file"
+  jq '
+    (.hooks.PreToolUse // []) as $existing
+    | if ($existing | any(.hooks[]?.command == "~/.claude/hooks/check-prose-style.sh"))
+      then .
+      else .hooks.PreToolUse = ($existing + [{
+          matcher: "Write|Edit|NotebookEdit",
+          hooks: [{
+            type: "command",
+            command: "~/.claude/hooks/check-prose-style.sh",
+            timeout: 10,
+            statusMessage: "Checking prose style..."
+          }]
+        }])
+      end
+  ' "$settings_file" > /tmp/claude-settings.json.rendered
+  cp /tmp/claude-settings.json.rendered "$settings_file"
+  rm -f /tmp/claude-settings.json.rendered
 fi
 
 echo "== Managing ~/.bash_aliases block (editor, BULKHEAD_AUTH_SESSION) =="

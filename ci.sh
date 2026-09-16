@@ -55,6 +55,18 @@ if ! shellcheck -x -s bash vm-bash-aliases-block.sh; then
   fail=1
 fi
 
+# Also bash-only (heredoc <<<, process substitution <(...)), so it gets the
+# same bash -n treatment as vm-bash-aliases-block.sh above rather than
+# joining PLAIN_SCRIPTS's dash -n loop; unlike that file it does have its
+# own shebang, so shellcheck needs no "-s bash" to pick the right dialect.
+if ! bash -n check-prose-style.sh; then
+  echo "FAILED: check-prose-style.sh (bash -n)" >&2
+  fail=1
+fi
+if ! shellcheck -x check-prose-style.sh; then
+  fail=1
+fi
+
 render_template secrets-client.template.py "$tmp/secrets-client" SECRETS_SERVER_PORT
 render_template secrets-server.template.py "$tmp/secrets-server.py" \
   SECRETS_SERVER_PORT KEYCHAIN_PREFIX UTMCTL
