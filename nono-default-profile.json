@@ -5,7 +5,14 @@
       "$HOME/.gitconfig",
       "/etc/fstab",
       "/etc/gnutls/config",
-      "/etc/magic"
+      "/etc/magic",
+      "/etc/man_db.conf",
+      "/etc/manpath.config",
+      "/etc/groff",
+      "/usr/man",
+      "/usr/local/man",
+      "/usr/local/share/man",
+      "/var/cache/man"
     ]
   }
 }
