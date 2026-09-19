@@ -182,7 +182,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   directories under `/usr/local`, `/opt`, and `~/.local/share` for software
   installed outside the system package manager. Some entries are absent on
   Ubuntu (e.g. `/etc/man_db.conf`, `/usr/man`, `/opt/man`) but cover other
-  distributions; nono ignores nonexistent paths. All of it is read-only.
+  distributions, because nono silently skips nonexistent paths. The catch:
+  a grant applies only if the path exists when the sandbox starts, so a
+  directory you create afterward stays denied until you restart the
+  sandbox (see `architecture.md`). All of it is read-only.
   Installed by `vm-setup.sh` to
   `~/.config/nono/profiles/default.json`, nono's own reserved "default"
   profile name; `nolabs-ai/claude` and every other pack below already
