@@ -12,6 +12,12 @@
       "/usr/man",
       "/usr/local/man",
       "/usr/local/share/man",
+      "/usr/local/share/info",
+      "/usr/local/share/doc",
+      "/opt/man",
+      "$HOME/.local/share/man",
+      "$HOME/.local/share/info",
+      "$HOME/.local/share/doc",
       "/var/cache/man"
     ]
   }

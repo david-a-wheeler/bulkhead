@@ -176,12 +176,14 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   executable file, not a bash function: any shell can run it.
 - `nono-default-profile.json`: filesystem access every nono-sandboxed
   harness should have beyond what its own pack grants: `~/.rbenv`,
-  `~/.gitconfig`, a few small read-only `/etc` files, and the man-page
-  configuration, local page directories, and index cache (so `man`,
-  `apropos`, and `whatis` work in the sandbox; the `/etc/man_db.conf`,
-  `/usr/man`, and `/usr/local/man` entries are absent on Ubuntu but cover
-  other distributions, and nono ignores nonexistent paths). All of it is
-  read-only. Installed by `vm-setup.sh` to
+  `~/.gitconfig`, a few small read-only `/etc` files, and local
+  documentation: the man-page configuration and index cache (so `man`,
+  `apropos`, and `whatis` work in the sandbox) plus the man, info, and doc
+  directories under `/usr/local`, `/opt`, and `~/.local/share` for software
+  installed outside the system package manager. Some entries are absent on
+  Ubuntu (e.g. `/etc/man_db.conf`, `/usr/man`, `/opt/man`) but cover other
+  distributions; nono ignores nonexistent paths. All of it is read-only.
+  Installed by `vm-setup.sh` to
   `~/.config/nono/profiles/default.json`, nono's own reserved "default"
   profile name; `nolabs-ai/claude` and every other pack below already
   declares `"extends": "default"`, so this one file covers all of them,
