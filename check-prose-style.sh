@@ -1,44 +1,42 @@
 #!/usr/bin/env bash
 # Blocks Write/Edit/NotebookEdit calls that introduce text matching common
-# "signs of AI writing": filler AI-vocabulary words, promotional-puffery
-# clichés, canned AI-assistant stock phrases, structural contrast clichés,
-# em dashes, and a required-full-name check. Mechanical check, PreToolUse
-# so the bad content never lands. The actual style rules come from
-# whatever CLAUDE.md / system prompt governs this session; this hook just
-# enforces the character-level tells at write time so they never need a
-# manual re-read pass.
+# "signs of AI writing".
 #
-# Performance note: the phrase list below is a plain multi-line variable
-# assignment (no `cat`/heredoc subshell needed to build it), and it's
-# checked with one `grep -oF -f` call against the whole list at once
-# (grep does the looping in C, not bash). -o reports the matched
-# substrings directly, so there's no second pass to figure out what
-# matched. Violations accumulate in a plain "; "-joined string rather
-# than a bash array, since a string append does everything needed here.
-set -euo pipefail
+# It's written to have reasonable performance (e.g., grep a pattern list)
+# yet be easy to reead.
 
-input="$(cat)"
-tool_name="$(printf '%s' "$input" | jq -r '.tool_name // empty')"
+set -eu
 
-case "$tool_name" in
-  Write) field='.tool_input.content' ;;
-  Edit) field='.tool_input.new_string' ;;
-  NotebookEdit) field='.tool_input.new_source' ;;
-  *) exit 0 ;;
-esac
+# Treat all text as UTF-8, whatever locale the hook is run with, so
+# tools see “ and ” as single characters.
+export LC_ALL=C.UTF-8
 
-text="$(printf '%s' "$input" | jq -r "${field} // empty")"
+# Remove curly-double-quoted text (“...”) from stdin, including the
+# end or beginning of such a quote, so quoting a source
+# that uses a banned word or an em dash isn't flagged.
+strip_quotes() {
+  sed -e 's/“[^”]*”//g' -e 's/^[^“]*”//' -e 's/“[^”]*$//'
+}
+
+# One jq call reads the hook's JSON from stdin and emits just the text
+# being written (nothing for other tools), so the JSON is never stored.
+text="$(jq -r '
+  if .tool_name == "Write" then .tool_input.content
+  elif .tool_name == "Edit" then .tool_input.new_string
+  elif .tool_name == "NotebookEdit" then .tool_input.new_source
+  else empty end // empty')"
+text="$(strip_quotes <<< "$text")"
 [ -z "$text" ] && exit 0
 
 violations=""
 
-if printf '%s' "$text" | grep -qF '—'; then
+if grep -qF '—' <<< "$text"; then
   violations="${violations}em dash character: avoid this and similar constructs, use a colon, semicolon, parentheses, or two sentences instead; "
 fi
 
 # Name accuracy: the middle initial is required; always write out
 # "David A. Wheeler" in full, never the shortened "David Wheeler".
-if printf '%s' "$text" | grep -qF "David Wheeler"; then
+if grep -qF "David Wheeler" <<< "$text"; then
   violations="${violations}incomplete name: \"David Wheeler\" found; \"David A. Wheeler\" is required instead; "
 fi
 
@@ -110,7 +108,7 @@ in conclusion,
 in summary,
 to summarize,"
 
-matches="$(printf '%s' "$text" | grep -oiF -f <(printf '%s\n' "$phrase_list") | tr '[:upper:]' '[:lower:]' | sort -u || true)"
+matches="$(grep -oiF -e "$phrase_list" <<< "$text" | tr '[:upper:]' '[:lower:]' | sort -u)"
 if [ -n "$matches" ]; then
   while IFS= read -r m; do
     violations="${violations}banned AI-giveaway phrase: \"$m\"; "
@@ -125,7 +123,7 @@ isn't (just|only) [^.!?]{0,80} it's
 plays a (key|pivotal|vital|crucial) role
 in today's (ever-evolving|fast-paced|digital age)"
 
-pattern_matches="$(printf '%s' "$text" | grep -oiE -f <(printf '%s\n' "$pattern_list") | tr '[:upper:]' '[:lower:]' | sort -u || true)"
+pattern_matches="$(grep -oiE -e "$pattern_list" <<< "$text" | tr '[:upper:]' '[:lower:]' | sort -u)"
 if [ -n "$pattern_matches" ]; then
   while IFS= read -r m; do
     violations="${violations}banned pattern: \"$m\"; "
@@ -149,10 +147,10 @@ fi
 # line-filterable the same way, so it's named as a known non-issue in
 # the warning text instead. Never denies, only "allow" + a message: the
 # false-positive rate here is too high to block on.
-dash_matches="$(printf '%s' "$text" | grep -vE '^[[:space:]]*[-*+][[:space:]]' \
-    | grep -oiE '[[:alpha:]]{2,} (--|-) [[:alpha:]]{2,}' | tr '[:upper:]' '[:lower:]' | sort -u || true)"
+dash_matches="$(grep -vE '^[[:space:]]*[-*+][[:space:]]' <<< "$text" \
+    | grep -oiE '[[:alpha:]]{2,} (--|-) [[:alpha:]]{2,}' | tr '[:upper:]' '[:lower:]' | sort -u)"
 if [ -n "$dash_matches" ]; then
-  dash_list="$(printf '%s' "$dash_matches" | sed 's/^/"/;s/$/"; /' | tr -d '\n')"
+  dash_list="$(sed 's/^/"/;s/$/"; /' <<< "$dash_matches" | tr -d '\n')"
   warn_msg="Heuristic flag (not a hard rule): found ${dash_list}each a word/hyphen(s)/word shape that's sometimes a disguised em dash. Double-check: if it's joining or breaking a clause the way an em dash would, rewrite it (colon, semicolon, parentheses, or two sentences). Known non-issues, ignore these: CLI/git end-of-options syntax (e.g. \"git diff -- path/to/file\"), a markdown list's \"term - description\" separator, and ordinary word ranges (\"Monday - Friday\")."
   jq -n --arg msg "$warn_msg" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse", permissionDecision:"allow", systemMessage:$msg, additionalContext:$msg}}'
