@@ -3,7 +3,7 @@
 # "signs of AI writing".
 #
 # It's written to have reasonable performance (e.g., grep a pattern list)
-# yet be easy to reead.
+# yet be easy to read.
 
 set -eu
 
@@ -18,39 +18,59 @@ strip_quotes() {
   sed -e 's/“[^”]*”//g' -e 's/^[^“]*”//' -e 's/“[^”]*$//'
 }
 
-# One jq call reads the hook's JSON from stdin and emits just the text
-# being written (nothing for other tools), so the JSON is never stored.
+# Extract the text being written and, for Edit, the text it replaces.
+# Each jq runs as a plain command (not in a pipeline), so set -e catches
+# a jq failure, e.g., bad JSON or a missing jq. Never eval anything
+# derived from this input.
+# read is a builtin, so this needs no subshell or cat process. It
+# returns 1 at end of input (there's no NUL delimiter), hence || true.
+IFS= read -r -d '' input || true
 text="$(jq -r '
   if .tool_name == "Write" then .tool_input.content
   elif .tool_name == "Edit" then .tool_input.new_string
   elif .tool_name == "NotebookEdit" then .tool_input.new_source
-  else empty end // empty')"
+  else empty end // empty' <<< "$input")"
 text="$(strip_quotes <<< "$text")"
 [ -z "$text" ] && exit 0
+# Skip a jq when there's clearly no old_string. This test can only be
+# wrong in the safe direction: a false match just runs jq for nothing.
+old=""
+if [[ "$input" == *'"old_string"'* ]]; then
+  old="$(jq -r 'if .tool_name == "Edit" then .tool_input.old_string else empty end // empty' <<< "$input")"
+  [ -n "$old" ] && old="$(strip_quotes <<< "$old")"
+fi
+
+# Print what "grep -oi <args>" finds in the new text more often than in
+# the old text, so an edit isn't blocked for keeping text that was
+# already there (which would push the AI to rewrite someone else's
+# words). Comparisons ignore case; each hit is printed once, as it first
+# appears in the new text. awk checks FILENAME, not NR == FNR, since the
+# old text often has no hits, making its "file" empty. With no old
+# text, only the new text needs a grep.
+new_hits() {
+  if [ -z "$old" ]; then
+    grep -oi "$@" <<< "$text" | awk '!seen[tolower($0)]++'
+    return
+  fi
+  awk 'FILENAME == ARGV[1] { old[tolower($0)]++; next }
+       old[tolower($0)]-- > 0 { next }
+       !seen[tolower($0)]++' \
+    <(grep -oi "$@" <<< "$old") <(grep -oi "$@" <<< "$text")
+}
 
 violations=""
 
-if grep -qF '—' <<< "$text"; then
-  violations="${violations}em dash character: avoid this and similar constructs, use a colon, semicolon, parentheses, or two sentences instead; "
-fi
-
-# Name accuracy: the middle initial is required; always write out
-# "David A. Wheeler" in full, never the shortened "David Wheeler".
-if grep -qF "David Wheeler" <<< "$text"; then
-  violations="${violations}incomplete name: \"David Wheeler\" found; \"David A. Wheeler\" is required instead; "
-fi
-
-# Literal AI-giveaway words/phrases. Curated from published "signs of AI
-# writing" lists (Wikipedia's Signs_of_AI_writing, AI-detector
-# word-frequency studies) down to the subset unlikely to appear in
-# ordinary Rails/security prose, so this stays a low-noise mechanical
-# filter rather than banning working vocabulary (deliberately excludes
-# words with real technical meaning here, e.g. "landscape"/"ecosystem"/
-# "robust"). No '$' or backtick characters appear below, so the plain
-# double-quoted multi-line assignment is safe (no unwanted expansion).
-phrase_list="dive into
+# Banned text, as extended regexes (grep -E), one per line: the em
+# dash, the incomplete name (the middle initial is required: "David A.
+# Wheeler", never "David Wheeler"), then AI-giveaway words/phrases,
+# curated from published "signs of AI writing" lists (Wikipedia's
+# Signs_of_AI_writing, AI-detector word-frequency studies).
+# The first two get specific messages below; keep their case labels in sync.
+pattern_list="—
+David Wheeler
+dive into
 diving into
-let's dive in
+let['’]s dive in
 unleash
 unleashing
 game-changing
@@ -92,42 +112,40 @@ stands as a testament
 serves as a reminder
 serves as a testament
 cannot be overstated
-it's important to note that
+it['’]s important to note that
 it is important to note that
-it's worth noting that
+it['’]s worth noting that
 it is worth noting that
 needless to say
 a plethora of
 as an ai language model
 as an ai assistant
-i'm just an ai
+i['’]m just an ai
 i hope this helps
 i hope that helps
 great question
 in conclusion,
 in summary,
-to summarize,"
-
-matches="$(grep -oiF -e "$phrase_list" <<< "$text" | tr '[:upper:]' '[:lower:]' | sort -u)"
-if [ -n "$matches" ]; then
-  while IFS= read -r m; do
-    violations="${violations}banned AI-giveaway phrase: \"$m\"; "
-  done <<< "$matches"
-fi
-
-# Structural AI tell patterns checked as extended regexes (grep -E).
-# Same one-call-against-the-whole-list shape
-# as the phrase list above, so adding a new pattern is a one-line change.
-pattern_list="it's not (just|only) [^.!?]{0,80} it's 
-isn't (just|only) [^.!?]{0,80} it's 
+to summarize,
+it['’]s not (just|only) [^.!?]{0,80} it['’]s 
+isn['’]t (just|only) [^.!?]{0,80} it['’]s 
 plays a (key|pivotal|vital|crucial) role
-in today's (ever-evolving|fast-paced|digital age)"
+in today['’]s (ever-evolving|fast-paced|digital age)"
 
-pattern_matches="$(grep -oiE -e "$pattern_list" <<< "$text" | tr '[:upper:]' '[:lower:]' | sort -u)"
-if [ -n "$pattern_matches" ]; then
+# One grep finds every new hit; then each hit gets its message.
+matches="$(new_hits -E -e "$pattern_list")"
+if [ -n "$matches" ]; then
+  shopt -s nocasematch
   while IFS= read -r m; do
-    violations="${violations}banned pattern: \"$m\"; "
-  done <<< "$pattern_matches"
+    # Remove control characters (e.g., terminal escape sequences) from
+    # text we're about to echo back in a message.
+    m="${m//[[:cntrl:]]/}"
+    case "$m" in
+      —) violations="${violations}em dash character: avoid this and similar constructs, use a colon, semicolon, parentheses, or two sentences instead; " ;;
+      "David Wheeler") violations="${violations}incomplete name: \"$m\" found; \"David A. Wheeler\" is required instead; " ;;
+      *) violations="${violations}banned AI-giveaway phrase: \"$m\"; " ;;
+    esac
+  done <<< "$matches"
 fi
 
 if [ -n "$violations" ]; then
@@ -139,16 +157,15 @@ fi
 
 # Soft heuristic, not a hard rule: "word - word" or "word -- word"
 # (letters on both sides, spaces around one or two hyphens) is sometimes
-# a disguised em dash. The bullet-list filter (grep -v) drops the
-# single biggest false-positive source in this repo's own docs: markdown
+# a disguised em dash. We ignore markdown
 # "- term - description" lines (see AGENTS.md's command lists), where
 # the dash is a field separator, not clause-joining. CLI/git
 # end-of-options syntax (e.g. "git diff -- path/to/file") isn't
 # line-filterable the same way, so it's named as a known non-issue in
 # the warning text instead. Never denies, only "allow" + a message: the
-# false-positive rate here is too high to block on.
+# false-positive rate here is too high to implement a block.
 dash_matches="$(grep -vE '^[[:space:]]*[-*+][[:space:]]' <<< "$text" \
-    | grep -oiE '[[:alpha:]]{2,} (--|-) [[:alpha:]]{2,}' | tr '[:upper:]' '[:lower:]' | sort -u)"
+    | grep -oiE '[[:alpha:]]{2,} (--|-) [[:alpha:]]{2,}' | awk '!seen[tolower($0)]++')"
 if [ -n "$dash_matches" ]; then
   dash_list="$(sed 's/^/"/;s/$/"; /' <<< "$dash_matches" | tr -d '\n')"
   warn_msg="Heuristic flag (not a hard rule): found ${dash_list}each a word/hyphen(s)/word shape that's sometimes a disguised em dash. Double-check: if it's joining or breaking a clause the way an em dash would, rewrite it (colon, semicolon, parentheses, or two sentences). Known non-issues, ignore these: CLI/git end-of-options syntax (e.g. \"git diff -- path/to/file\"), a markdown list's \"term - description\" separator, and ordinary word ranges (\"Monday - Friday\")."
