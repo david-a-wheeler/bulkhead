@@ -40,9 +40,11 @@ step "rendering and checking templates"
 . "$SCRIPT_DIR/config.sh"
 . "$SCRIPT_DIR/common.sh"
 
-# No shebang (sourced into ~/.bash_aliases, never run directly), so
-# shellcheck needs an explicit "-s bash" rather than joining PLAIN_SCRIPTS
-# above, which relies on each file's own shebang for shell detection.
+# No shebang (sourced into ~/.bash_aliases, never run directly), so it
+# needs an explicit "shellcheck -s bash" rather than joining
+# PLAIN_SCRIPTS above, which relies on each file's own shebang for shell
+# detection. (No comment line may start with the word "shellcheck", or
+# that tool parses the line as a directive.)
 if ! dash -n vm-bash-aliases-block.sh; then
   echo "FAILED: vm-bash-aliases-block.sh (dash -n)" >&2
   fail=1
@@ -107,6 +109,20 @@ result="$(jq -r '
 if [ "$result" != "OLD-1111-1111-1111-111111111111" ]; then
   echo "FAILED: expected only the old entry's ID, got:" >&2
   echo "$result" >&2
+  fail=1
+fi
+
+step "check-prose-style.sh self-test"
+# Runs sample hook inputs through check-prose-style.sh and checks that
+# each is allowed or denied as expected (see test-check-prose-style.sh).
+if ! bash -n test-check-prose-style.sh; then
+  echo "FAILED: test-check-prose-style.sh (bash -n)" >&2
+  fail=1
+fi
+if ! shellcheck -x test-check-prose-style.sh; then
+  fail=1
+fi
+if ! ./test-check-prose-style.sh; then
   fail=1
 fi
 
