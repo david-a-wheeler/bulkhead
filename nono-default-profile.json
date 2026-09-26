@@ -1,4 +1,7 @@
 {
+  "meta": {
+    "name": "default"
+  },
   "filesystem": {
     "read": [
       "$HOME/.rbenv",
@@ -18,7 +21,9 @@
       "$HOME/.local/share/man",
       "$HOME/.local/share/info",
       "$HOME/.local/share/doc",
-      "/var/cache/man"
+      "/var/cache/man",
+      "/snap",
+      "/etc/fonts"
     ]
   }
 }
