@@ -51,25 +51,80 @@ macos_only "host-setup.sh"
 echo "== Locking down home directory (macOS grants 'staff' group read by default) =="
 chmod go-rwx "$HOME"
 
-echo "== Checking for the $MACOS_INFER_USER account =="
-if ! id "$MACOS_INFER_USER" >/dev/null 2>&1; then
-  cat <<EOF
-
-The $MACOS_INFER_USER account doesn't exist yet. It runs local inference
-engines (llama.cpp, Stable Diffusion, ...) under an account that can't read
-your home directory, so a compromised inference engine can't reach your
-files or keys. Create it now:
-
-  1. Open macOS System Settings.
-  2. Users & Groups > Add User.
-  3. Create a *standard* (non-administrator) user named "$MACOS_INFER_USER".
-
-EOF
-  printf '%s' "Press Enter once you've created it (or Ctrl-C to skip for now): "
-  read -r _
-  if ! id "$MACOS_INFER_USER" >/dev/null 2>&1; then
-    echo "WARNING: $MACOS_INFER_USER still not found. Continuing anyway; re-run this script after creating it." >&2
+echo "== Creating the $MACOS_INFER_USER role account (if missing) =="
+# We run local inference engines (llama.cpp, Stable Diffusion, ...) under
+# an account "_infer" that can't read a real home directory. Thus, a compromised
+# inference engine can't reach user files or keys. This _infer is a hidden role
+# account, not a user created in System Settings. A user created in System Settings
+# gets more perms, e.g., a login shell, a password, the "staff" group (whose members can read
+# group-readable files across the system), sometimes File Sharing
+# groups, and possibly a Secure Token that can unlock FileVault. This
+# _infer account gets none of that: its own group, no interactive shell, no password, and
+# /var/empty as its home. launchd needs none of those to run a daemon
+# as it (UserName). dscl, not sysadminctl -addUser, since the latter
+# creates a home directory and may grant a Secure Token.
+#
+# Everything else refers to the account by name. Its numeric ID only
+# matters here, since dscl won't pick one: use the lowest ID from 400 to
+# 499 (under 500, the range macOS uses for system and role accounts)
+# that no user or group has, for both the group and the user. Scan
+# rather than assume, since Apple's own accounts use some of that range.
+#
+# free_id KIND...: print the lowest ID from 400 to 499 that no user
+# (KIND=Users) or group (KIND=Groups) in the listed KINDs has.
+free_id() {
+  for kind in "$@"; do
+    if [ "$kind" = Users ]; then key=UniqueID; else key=PrimaryGroupID; fi
+    dscl . -list "/$kind" "$key"
+  done | awk '{ used[$2] = 1 }
+    END { for (id = 400; id < 500; id++) if (!(id in used)) { print id; exit } }'
+}
+if ! dscl . -read "/Groups/$MACOS_INFER_USER" >/dev/null 2>&1; then
+  gid="$(free_id Users Groups)"
+  if [ -z "$gid" ]; then
+    echo "ERROR: no unused ID from 400 to 499 for the $MACOS_INFER_USER group." >&2
+    exit 1
   fi
+  sudo dscl . -create "/Groups/$MACOS_INFER_USER"
+  sudo dscl . -create "/Groups/$MACOS_INFER_USER" PrimaryGroupID "$gid"
+  sudo dscl . -create "/Groups/$MACOS_INFER_USER" RealName "Local AI inference"
+  sudo dscl . -create "/Groups/$MACOS_INFER_USER" Password '*'
+fi
+if ! id "$MACOS_INFER_USER" >/dev/null 2>&1; then
+  gid="$(dscl . -read "/Groups/$MACOS_INFER_USER" PrimaryGroupID | awk '{ print $2 }')"
+  # Match the group's ID if no user has it (e.g., the group was just
+  # created above); otherwise take the next free user ID.
+  if dscl . -list /Users UniqueID | awk -v id="$gid" '$2 == id { found = 1 } END { exit !found }'; then
+    uid="$(free_id Users)"
+  else
+    uid="$gid"
+  fi
+  if [ -z "$uid" ]; then
+    echo "ERROR: no unused user ID from 400 to 499 for $MACOS_INFER_USER." >&2
+    exit 1
+  fi
+  sudo dscl . -create "/Users/$MACOS_INFER_USER"
+  sudo dscl . -create "/Users/$MACOS_INFER_USER" UniqueID "$uid"
+  sudo dscl . -create "/Users/$MACOS_INFER_USER" PrimaryGroupID "$gid"
+  sudo dscl . -create "/Users/$MACOS_INFER_USER" RealName "Local AI inference"
+  sudo dscl . -create "/Users/$MACOS_INFER_USER" UserShell /usr/bin/false
+  sudo dscl . -create "/Users/$MACOS_INFER_USER" NFSHomeDirectory /var/empty
+  sudo dscl . -create "/Users/$MACOS_INFER_USER" Password '*'
+  sudo dscl . -create "/Users/$MACOS_INFER_USER" IsHidden 1
+fi
+
+echo "== Checking $MACOS_INFER_USER's group memberships =="
+# Every local account is automatically in "everyone" and
+# "localaccounts"; anything beyond those and its own group (e.g.,
+# "staff" or a File Sharing group) would give it access it shouldn't
+# have. Group memberships are stored by short name, so a group can
+# still list an old, deleted account of the same name. Warns rather
+# than fixes, since removing someone else's group setup could be wrong.
+extra_groups="$(id -Gn "$MACOS_INFER_USER" | tr ' ' '\n' |
+  grep -vxE "$MACOS_INFER_USER|everyone|localaccounts" | tr '\n' ' ' || true)"
+if [ -n "$extra_groups" ]; then
+  echo "WARNING: $MACOS_INFER_USER is in unexpected groups: $extra_groups" >&2
+  echo "  Remove each with: sudo dseditgroup -o edit -d $MACOS_INFER_USER -t user GROUP" >&2
 fi
 
 echo "== Installing secrets-server.py =="

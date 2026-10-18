@@ -23,6 +23,8 @@ VM_USER="dwheeler"
 
 # Unprivileged macOS account that runs local inference engines, kept unable
 # to read the primary user's home directory. See architecture.md.
+# host-setup.sh creates it as a hidden role account with a group of the
+# same name.
 MACOS_INFER_USER="_infer"
 
 # Port the host secrets server (secrets-server.py) listens on, and that
