@@ -20,7 +20,7 @@ step() {
 }
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-setup.sh vm-setup.sh host-secrets.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-setup.sh vm-setup.sh host-secrets.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -54,18 +54,6 @@ if ! bash -n vm-bash-aliases-block.sh; then
   fail=1
 fi
 if ! shellcheck -x -s bash vm-bash-aliases-block.sh; then
-  fail=1
-fi
-
-# Also bash-only (heredoc <<<, process substitution <(...)), so it gets the
-# same bash -n treatment as vm-bash-aliases-block.sh above rather than
-# joining PLAIN_SCRIPTS's dash -n loop; unlike that file it does have its
-# own shebang, so shellcheck needs no "-s bash" to pick the right dialect.
-if ! bash -n check-prose-style.sh; then
-  echo "FAILED: check-prose-style.sh (bash -n)" >&2
-  fail=1
-fi
-if ! shellcheck -x check-prose-style.sh; then
   fail=1
 fi
 

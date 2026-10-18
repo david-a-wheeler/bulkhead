@@ -71,6 +71,12 @@ write "pattern, straight apostrophes" deny "It's not just fast, it's cheap."
 write "pattern, curly apostrophes" deny 'It’s not just fast, it’s cheap.'
 write "hyphen heuristic only warns" allow 'This works - mostly.'
 
+# Matches respect word boundaries, and inflections are listed explicitly.
+write "banned word inside a longer word" allow 'Call IORegisterForSystemPower now.'
+write "phrase continuing into a longer word" allow 'We harness thermal energy.'
+write "inflected banned word" deny 'We leveraged it.'
+write "another inflected banned word" deny 'It empowers users.'
+
 # Text in curly double quotes (someone else's words) is ignored.
 write "quoted banned word" allow 'Rohlf says “we are leveraging tools.” [R].'
 write "quoted em dash" allow "It says “code${em}in particular” [A]."
@@ -118,6 +124,38 @@ esac
 count=$((count + 1))
 if "$hook" <<< 'not json' >/dev/null 2>&1; then
   echo "FAIL: bad JSON didn't make the hook exit nonzero"
+  fail=1
+fi
+
+# text NAME WANT_STATUS WANT_LINES TEXT [OPTION]: run the hook with
+# OPTION (default --text) on TEXT, and check that it exits WANT_STATUS,
+# prints nothing on stdout, and prints WANT_LINES lines on stderr.
+text() {
+  local out err lines status
+  count=$((count + 1))
+  err="$(printf '%s' "$4" | "$hook" "${5:---text}" 2>&1 >/dev/null)"
+  status=$?
+  out="$(printf '%s' "$4" | "$hook" "${5:---text}" 2>/dev/null)"
+  lines="$(printf '%s' "$err" | grep -c '')"
+  if [ "$status" -ne "$2" ] || [ -n "$out" ] || [ "$lines" -ne "$3" ]; then
+    echo "FAIL: $1: wanted status $2 and $3 stderr lines, got status $status, $lines lines, stdout \"$out\""
+    fail=1
+  fi
+}
+
+# --text mode checks plain text, not hook JSON.
+text "text mode, clean" 0 0 'Nothing wrong here.'
+text "text mode, empty" 0 0 ''
+text "text mode, banned word" 1 1 'We leverage this.'
+text "text mode, one line per violation" 1 3 "We leverage it ${em} said David Wheeler."
+text "text mode, heuristic only warns" 0 1 'This works - mostly.'
+text "text mode, violation plus warning" 1 2 'We leverage it - mostly.'
+text "text mode, quoted text is ignored" 0 0 'Rohlf says “we are leveraging tools.”'
+text "text mode, JSON is just text" 1 1 '{"tool_name":"Bash","tool_input":{"command":"leverage"}}'
+text "unknown option" 2 1 'Nothing wrong here.' --bogus
+count=$((count + 1))
+if ! "$hook" --help </dev/null | grep -q '^Usage:'; then
+  echo "FAIL: --help didn't print usage on stdout and exit 0"
   fail=1
 fi
 
