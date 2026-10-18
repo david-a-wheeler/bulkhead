@@ -114,17 +114,21 @@ if ! id "$MACOS_INFER_USER" >/dev/null 2>&1; then
 fi
 
 echo "== Checking $MACOS_INFER_USER's group memberships =="
-# Every local account is automatically in "everyone" and
-# "localaccounts"; anything beyond those and its own group (e.g.,
-# "staff" or a File Sharing group) would give it access it shouldn't
-# have. Group memberships are stored by short name, so a group can
-# still list an old, deleted account of the same name. Warns rather
-# than fixes, since removing someone else's group setup could be wrong.
+# Every account is in some groups through nested groups: e.g., each File
+# Sharing group (com.apple.sharepoint.group.N) nests "everyone", and
+# _lpoperator nests "localaccounts". So compare with "nobody", which
+# has only those, and flag any other group (e.g., "staff"), which would
+# give it access it shouldn't have. Group memberships are stored by
+# short name, so a group can still list an old, deleted account of the
+# same name. Warns rather than fixes, since removing someone else's
+# group setup could be wrong.
+baseline_groups="$(id -Gn nobody | tr ' ' '\n')"
 extra_groups="$(id -Gn "$MACOS_INFER_USER" | tr ' ' '\n' |
-  grep -vxE "$MACOS_INFER_USER|everyone|localaccounts" | tr '\n' ' ' || true)"
+  grep -vx "$MACOS_INFER_USER" | grep -vxF "$baseline_groups" | tr '\n' ' ' || true)"
 if [ -n "$extra_groups" ]; then
-  echo "WARNING: $MACOS_INFER_USER is in unexpected groups: $extra_groups" >&2
-  echo "  Remove each with: sudo dseditgroup -o edit -d $MACOS_INFER_USER -t user GROUP" >&2
+  echo "WARNING: $MACOS_INFER_USER is in groups that nobody isn't: $extra_groups" >&2
+  echo "  For a direct membership, remove it with: sudo dseditgroup -o edit -d $MACOS_INFER_USER -t user GROUP" >&2
+  echo "  Otherwise, see how the group gets members: dscl . -read /Groups/GROUP GroupMembership NestedGroups" >&2
 fi
 
 echo "== Installing secrets-server.py =="
