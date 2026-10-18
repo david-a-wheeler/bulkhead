@@ -309,6 +309,39 @@ sudo rm -f /usr/local/etc/noclaude-extra-options
 echo "== Configuring git niceties =="
 configure_git_niceties
 
+echo "== Installing commit-msg git hook (check-prose-style --text) =="
+# Checks every commit message in every repository, whoever writes it (a
+# human, Claude Code, goose, pi, ...), so it's installed even without
+# Claude Code. Root-owned under /usr/local, like the other tools here,
+# so a sandboxed agent can't edit it (though "git commit --no-verify"
+# still skips it: it's a style check, not a security control). A global
+# core.hooksPath disables every repository's own .git/hooks, so each
+# other client-side hook name links to git-hook-passthrough, which runs
+# the repository's hook of that name if it has one; commit-msg does the
+# same after its check. reference-transaction is left out, since a hook
+# there would run on every ref update. A repository that sets its own
+# core.hooksPath (e.g., husky) overrides this one and skips the check.
+sudo cp "$SCRIPT_DIR/check-prose-style.sh" /usr/local/bin/check-prose-style
+sudo chmod +x /usr/local/bin/check-prose-style
+git_hooks_dir=/usr/local/libexec/bulkhead/git-hooks
+current_hooks_path="$(git config --global --get core.hooksPath || true)"
+if [ -n "$current_hooks_path" ] && [ "$current_hooks_path" != "$git_hooks_dir" ]; then
+  echo "WARNING: git's global core.hooksPath is already $current_hooks_path;" >&2
+  echo "  leaving it alone, so commit messages won't be checked." >&2
+else
+  sudo mkdir -p "$git_hooks_dir"
+  sudo cp "$SCRIPT_DIR/git-commit-msg" "$git_hooks_dir/commit-msg"
+  sudo cp "$SCRIPT_DIR/git-hook-passthrough" "$git_hooks_dir/passthrough"
+  sudo chmod +x "$git_hooks_dir/commit-msg" "$git_hooks_dir/passthrough"
+  for hook in applypatch-msg pre-applypatch post-applypatch pre-commit \
+      pre-merge-commit prepare-commit-msg post-commit pre-rebase \
+      post-checkout post-merge pre-push post-rewrite pre-auto-gc \
+      sendemail-validate; do
+    sudo ln -sfn passthrough "$git_hooks_dir/$hook"
+  done
+  git config --global core.hooksPath "$git_hooks_dir"
+fi
+
 if [ "$want_claude" = true ]; then
   echo "== Installing Claude Code global instructions (CLAUDE.md) =="
   mkdir -p "$HOME/.claude"

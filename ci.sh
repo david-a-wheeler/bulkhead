@@ -20,7 +20,7 @@ step() {
 }
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-setup.sh vm-setup.sh host-secrets.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-setup.sh vm-setup.sh host-secrets.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -99,6 +99,46 @@ if [ "$result" != "OLD-1111-1111-1111-111111111111" ]; then
   echo "$result" >&2
   fail=1
 fi
+
+step "commit-msg git hook"
+# Builds the hooks directory vm-setup.sh installs, in a scratch repo
+# with its own global config, and checks that the hook rejects a bad
+# message, accepts a good one, ignores a "git commit -v" diff, and still
+# runs the repository's own hooks.
+(
+  set -e
+  mkdir -p "$tmp/bin" "$tmp/hooks"
+  ln -s "$SCRIPT_DIR/check-prose-style.sh" "$tmp/bin/check-prose-style"
+  cp git-commit-msg "$tmp/hooks/commit-msg"
+  cp git-hook-passthrough "$tmp/hooks/passthrough"
+  ln -s passthrough "$tmp/hooks/pre-commit"
+  PATH="$tmp/bin:$PATH"
+  GIT_CONFIG_GLOBAL="$tmp/gitconfig"
+  GIT_CONFIG_NOSYSTEM=1
+  export PATH GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
+  git config --global user.name Test
+  git config --global user.email test@example.com
+  git config --global core.hooksPath "$tmp/hooks"
+  git init -q "$tmp/repo"
+  cd "$tmp/repo"
+  echo a > f
+  git add f
+  if git commit -q -m 'We leverage this.' 2>/dev/null; then
+    echo "FAILED: commit-msg accepted a banned phrase" >&2
+    exit 1
+  fi
+  git commit -q -m 'Add f.'
+  printf '#!/bin/sh\ntouch ran-pre-commit\n' > .git/hooks/pre-commit
+  printf '#!/bin/sh\ntouch ran-commit-msg\n' > .git/hooks/commit-msg
+  chmod +x .git/hooks/pre-commit .git/hooks/commit-msg
+  echo 'We leverage this.' >> f
+  git add f
+  GIT_EDITOR='sed -i 1s/^/Change.f./' git commit -q -v
+  if [ ! -e ran-pre-commit ] || [ ! -e ran-commit-msg ]; then
+    echo "FAILED: the repository's own hooks didn't run" >&2
+    exit 1
+  fi
+) || fail=1
 
 step "check-prose-style.sh self-test"
 # Runs sample hook inputs through check-prose-style.sh and checks that

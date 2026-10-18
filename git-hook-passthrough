@@ -1,0 +1,13 @@
+#!/bin/sh
+# Git hook that only runs the repository's own hook of the same name, if
+# it has one. A global core.hooksPath disables every hook in a
+# repository's .git/hooks, so vm-setup.sh links each client-side hook
+# name in that directory (except commit-msg, which does this itself) to
+# this file. It uses --git-common-dir, not --git-path, since --git-path
+# hooks follows core.hooksPath right back here.
+
+set -eu
+
+hook="$(git rev-parse --git-common-dir)/hooks/${0##*/}"
+[ -x "$hook" ] || exit 0
+exec "$hook" "$@"

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Git commit-msg hook: rejects a commit message with AI-writing tells,
+# using check-prose-style --text. vm-setup.sh installs it in the global
+# core.hooksPath directory. To bypass it once, use
+# "git commit --no-verify".
+
+set -eu
+
+# Check only what git will keep: drop everything from the
+# "git commit -v" scissors line on (the diff), then comment lines.
+if ! sed '/^. -\{24\} >8 -\{24\}$/,$d' "$1" | git stripspace --strip-comments \
+    | check-prose-style --text; then
+  echo "commit-msg: message rejected. It's saved, so you can fix it with:" >&2
+  echo "  git commit -e -F $1" >&2
+  exit 1
+fi
+
+# A global core.hooksPath disables the repository's own hooks, so run
+# its commit-msg hook too, if it has one.
+local_hook="$(git rev-parse --git-common-dir)/hooks/commit-msg"
+if [ -x "$local_hook" ]; then
+  exec "$local_hook" "$@"
+fi
