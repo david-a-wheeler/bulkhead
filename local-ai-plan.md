@@ -122,7 +122,11 @@ be malicious and try to send my sensitive data out. So:
   `vX.Y.Z` release, then the build (`bNNNNN`) its `nightly-tag.txt`
   names; llama.cpp also publishes a build for nearly every commit, as
   prereleases. Each download is checked against the SHA-256 GitHub
-  publishes for it. A floor (`LLAMA_CPP_MIN`, `LLAMA_SWAP_MIN`: the
+  publishes for it. GitHub release files can be replaced later (these
+  repositories don't use immutable releases), and that SHA-256 is of
+  the current file, so a file is accepted only if it was last changed
+  within an hour of its release's publication, or not for the whole
+  cooling period. A floor (`LLAMA_CPP_MIN`, `LLAMA_SWAP_MIN`: the
   releases we last tested) keeps it from going back to an older
   release, and stops mattering once a newer one is old enough. A pin
   (`*_PIN`) holds back from a release that breaks something, and

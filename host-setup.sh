@@ -412,6 +412,21 @@ fetch_asset() {
       return 1
       ;;
   esac
+  # Anyone with write access to the repository (or a stolen token) can
+  # replace a release's files at any time, and GitHub computes the
+  # SHA-256 above from whatever file is there now. So an old release
+  # doesn't mean an old file, and the cooling period alone wouldn't stop
+  # a file swapped in yesterday. Accept a file only if it was last
+  # changed within an hour of its release's publication (the normal
+  # upload), or hasn't changed for the whole cooling period.
+  replaced="$(jq -r --arg n "$3" --arg cutoff "$cooling_cutoff" '
+    (.published_at | fromdateiso8601 + 3600 | todateiso8601) as $upload_window
+    | .assets[] | select(.name == $n) | .updated_at
+    | if . <= $upload_window or . <= $cutoff then empty else . end' "$infer_tmp/release.json")"
+  if [ -n "$replaced" ]; then
+    echo "ERROR: $3 in $1 $2 was replaced at $replaced, after its release was published; not using it." >&2
+    return 1
+  fi
   curl -fsSL -o "$infer_tmp/$3" "https://github.com/$1/releases/download/$2/$3" || return 1
   if [ "$(shasum -a 256 "$infer_tmp/$3" | cut -d ' ' -f 1)" != "$sha256" ]; then
     rm -f "${infer_tmp:?}/${3:?}"
