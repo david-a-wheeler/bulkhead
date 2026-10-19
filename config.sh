@@ -46,7 +46,7 @@ https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffus
 # window in tokens, the most tokens one reply may use, and a description
 # (the rest of the line, with no quotes or backslashes). host-setup.sh
 # generates llama-swap's config from this, and vm-setup.sh generates pi's
-# models.json, so they can't disagree. The first one is pi-local's
+# models.json, so they can't disagree. The first one is nopi's
 # default.
 INFER_MODELS="qwen3.8-27b Qwen3.8-27B-Q8_0.gguf 262144 16384 Qwen3.8-27B Q8_0
 qwen3-0.6b Qwen3-0.6B-Q4_0.gguf 32768 4096 Qwen3-0.6B Q4_0 (tests)"

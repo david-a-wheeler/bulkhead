@@ -68,9 +68,9 @@ for f in secrets-client secrets-server.py; do
 done
 
 INFER_DEFAULT_MODEL="${INFER_MODELS%% *}"
-render_template pi-local.template.sh "$tmp/pi-local" INFER_DEFAULT_MODEL
+render_template nopi.template.sh "$tmp/nopi" INFER_DEFAULT_MODEL
 render_template infer-logs.template.sh "$tmp/infer-logs" INFER_PORT
-for f in pi-local infer-logs; do
+for f in nopi infer-logs; do
   if ! dash -n "$tmp/$f" || ! shellcheck "$tmp/$f"; then
     echo "FAILED: $f" >&2
     fail=1

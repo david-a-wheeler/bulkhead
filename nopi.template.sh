@@ -1,5 +1,5 @@
 #!/bin/sh
-# pi-local: run pi against the Mac's local AI models, which llama-swap
+# nopi: run pi against the Mac's local AI models, which llama-swap
 # serves through this VM's SSH tunnel (see local-ai-plan.md). pi runs
 # under nono (the nolabs-ai/pi profile, through anon-access like
 # noclaude), with no automatic network activity of its own (no model
@@ -8,8 +8,8 @@
 # vm-setup.sh renders and installs this, and generates the models pi
 # knows (~/.pi/agent/models.json) from config.sh's INFER_MODELS.
 #
-# Usage: pi-local [pi arguments...], e.g., pi-local --print "Say hello"
-# or pi-local --model qwen3-0.6b (a later --model overrides the default).
+# Usage: nopi [pi arguments...], e.g., nopi --print "Say hello"
+# or nopi --model qwen3-0.6b (a later --model overrides the default).
 
 set -eu
 

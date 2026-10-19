@@ -393,7 +393,7 @@ echo "== Managing ~/.bash_aliases block (editor, BULKHEAD_AUTH_SESSION) =="
 install_managed_block "$SCRIPT_DIR/vm-bash-aliases-block.sh" "$HOME/.bash_aliases"
 rm -f "$TMPDIR/bash-aliases-block.rendered"
 
-echo "== Local AI: pi, pi-local, and infer-logs (if this VM has the engine's API key) =="
+echo "== Local AI: pi, nopi, and infer-logs (if this VM has the engine's API key) =="
 # See local-ai-plan.md. Only a VM with the engine's API key can use the
 # Mac's engine, so a VM without one skips all of this. To set one up,
 # run "mkdir -p ~/.config/bulkhead" here, then on the Mac:
@@ -462,10 +462,12 @@ if [ -s "$INFER_KEY_FILE" ]; then
   mv "$TMPDIR/models.json" "$HOME/.pi/agent/models.json"
 
   INFER_DEFAULT_MODEL="${INFER_MODELS%% *}"
-  render_template "$SCRIPT_DIR/pi-local.template.sh" "$TMPDIR/pi-local" INFER_DEFAULT_MODEL
+  render_template "$SCRIPT_DIR/nopi.template.sh" "$TMPDIR/nopi" INFER_DEFAULT_MODEL
   render_template "$SCRIPT_DIR/infer-logs.template.sh" "$TMPDIR/infer-logs" INFER_PORT
-  sudo install -m 755 "$TMPDIR/pi-local" "$TMPDIR/infer-logs" /usr/local/bin/
-  rm -f "$TMPDIR/pi-local" "$TMPDIR/infer-logs"
+  sudo install -m 755 "$TMPDIR/nopi" "$TMPDIR/infer-logs" /usr/local/bin/
+  rm -f "$TMPDIR/nopi" "$TMPDIR/infer-logs"
+  # nopi's old name.
+  sudo rm -f /usr/local/bin/pi-local
   # A systemd user unit, but root-owned in /etc/systemd/user.
   sudo mkdir -p /etc/systemd/user
   sudo install -m 644 "$SCRIPT_DIR/infer-logs@.service" /etc/systemd/user/
@@ -483,7 +485,7 @@ if [ -s "$INFER_KEY_FILE" ]; then
   systemctl --user enable infer-logs@proxy.service infer-logs@upstream.service
   # Restart, not just start, to pick up a new infer-logs.
   systemctl --user restart infer-logs@proxy.service infer-logs@upstream.service
-  echo "Once the Mac gives this VM access (./infer-access.sh shared), try: pi-local --print 'Say hello in five words.'"
+  echo "Once the Mac gives this VM access (./infer-access.sh shared), try: nopi --print 'Say hello in five words.'"
   echo "Engine logs: journalctl --user -u 'infer-logs@*'"
 else
   echo "Skipping: no $INFER_KEY_FILE (see the comment in vm-setup.sh to add one)."

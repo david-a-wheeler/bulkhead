@@ -241,7 +241,7 @@ infer_engine_answers() {
 # Usage: infer_pi_models_json
 # Prints pi's ~/.pi/agent/models.json for config.sh's INFER_MODELS: one
 # "mac-local" provider, reached through the VM's tunnel on INFER_PORT.
-# pi reads the literal ${INFER_API_KEY} from its environment (pi-local
+# pi reads the literal ${INFER_API_KEY} from its environment (nopi
 # sets it). Every model so far is a reasoning model; add a field to
 # INFER_MODELS if that changes.
 infer_pi_models_json() {
