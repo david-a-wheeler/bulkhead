@@ -31,8 +31,10 @@ VM yet (mytux is a normal VM with full network access).
   `setup-models.sh`, `delete-infer.sh`, `check-groups.sh`,
   `infer-ramdisk`, and `infer-start` are earlier experiments, kept for
   reference; their results are in "Test results".
-* Next: rerun `vm-pi-trial.sh` on mytux to install the two-stream
-  `infer-logs@` collector, then step 1 of "Remaining work".
+* On mytux, the `infer-logs@proxy` and `infer-logs@upstream` user
+  services copy llama-swap's and llama-server's logs into the journal
+  (checked 2026-10-19).
+* Next: step 1 of "Remaining work".
 
 ## Background and goals
 
@@ -742,13 +744,6 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-0. **Install and check the VM log collector**: rerun
-   `,infer-test/vm-pi-trial.sh` on mytux, then check
-   `journalctl --user -u 'infer-logs@*'` shows both llama-swap's and
-   llama-server's lines. (The first try, on 2026-10-19, collected only
-   llama-swap's lines, since plain `/logs/stream` omits llama-server's
-   output; it now collects both streams.)
-
 1. **Move the trial into the repo** (sudo): each model defined once in
    `config.sh`; `host-setup.sh` installs llama-swap (pinned release,
    checked SHA-256), generates its config, and installs the profile,
@@ -771,7 +766,10 @@ here.
    and usability in real use, including MTP speculative decoding.
    Check that agent turns stay about as fast with `--cache-ram 0`
    (the earlier 4-5 s for a 2k-token turn was measured with the
-   prompt cache on), using the timing lines in the VM's journal.
+   prompt cache on), using the timing lines in the VM's journal. With
+   it off, a first turn of 2,004 prompt tokens and 55 output tokens
+   took 5.6 s (prompt 756 tokens/s, output 18.45 tokens/s), but the
+   cache can't help a first turn; check later turns in a long session.
 6. **File Sharing**: turn it off, or at least guest access (my action).
 7. **Documentation**: move the lasting parts into `architecture.md` and
    `README.md`.
