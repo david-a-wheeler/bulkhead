@@ -403,28 +403,33 @@ echo "== Local AI: pi, pi-local, and infer-logs (if this VM has the engine's API
 # and rerun this. pi is pinned; update it only deliberately. npm pins
 # only pi itself, not its dependencies.
 PI_VERSION=1.3.0
-pi_prefix=/usr/local/lib/pi
+pi_package=@earendil-works/pi-coding-agent
 infer_key_file="$HOME/.config/bulkhead/infer-api-key"
 if [ -s "$infer_key_file" ]; then
   chmod 600 "$infer_key_file"
   # pi needs Node.js (Claude Code, above, doesn't).
   sudo apt-get install -y nodejs npm
-  pi_package="$pi_prefix/node_modules/@earendil-works/pi-coding-agent/package.json"
-  if [ "$(jq -r .version "$pi_package" 2>/dev/null)" != "$PI_VERSION" ]; then
-    # Installed as you, then copied root-owned, so npm never runs as root
-    # and a sandboxed agent can't change pi. --ignore-scripts: pi needs
-    # no install scripts (its CLI is one bundled file), and this keeps
-    # dependencies from running any.
-    rm -rf "$TMPDIR/pi" "$TMPDIR/npm-cache"
-    npm install --prefix "$TMPDIR/pi" --ignore-scripts --no-audit --no-fund \
-      --cache "$TMPDIR/npm-cache" "@earendil-works/pi-coding-agent@$PI_VERSION"
-    sudo rm -rf "$pi_prefix"
-    sudo cp -R "$TMPDIR/pi" "$pi_prefix"
-    sudo chown -R root:root "$pi_prefix"
-    sudo chmod -R go-w "$pi_prefix"
-    rm -rf "$TMPDIR/pi" "$TMPDIR/npm-cache"
+  # Where "npm install -g" would put it: /usr/local/lib/node_modules,
+  # linked from /usr/local/bin/pi.
+  pi_dir="/usr/local/lib/node_modules/$pi_package"
+  if [ "$(jq -r .version "$pi_dir/package.json" 2>/dev/null)" != "$PI_VERSION" ]; then
+    # Installed as you into a scratch prefix, then copied root-owned, so
+    # npm never runs as root and a sandboxed agent can't change pi.
+    # --ignore-scripts: pi needs no install scripts (its CLI is one
+    # bundled file), and this keeps dependencies from running any.
+    rm -rf "${TMPDIR:?}/pi" "${TMPDIR:?}/npm-cache"
+    npm install -g --prefix "$TMPDIR/pi" --ignore-scripts --no-audit --no-fund \
+      --cache "$TMPDIR/npm-cache" "$pi_package@$PI_VERSION"
+    sudo mkdir -p "$(dirname "$pi_dir")"
+    sudo rm -rf "$pi_dir"
+    sudo cp -R "$TMPDIR/pi/lib/node_modules/$pi_package" "$pi_dir"
+    sudo chown -R root:root "$pi_dir"
+    sudo chmod -R go-w "$pi_dir"
+    # A relative link (../lib/node_modules/...), so it works from here too.
+    sudo cp -P "$TMPDIR/pi/bin/pi" /usr/local/bin/pi
+    rm -rf "${TMPDIR:?}/pi" "${TMPDIR:?}/npm-cache"
   fi
-  "$pi_prefix/node_modules/.bin/pi" --version
+  /usr/local/bin/pi --version
 
   # pi's models, from config.sh's INFER_MODELS. Keep a hand-edited copy.
   mkdir -p "$HOME/.pi/agent"

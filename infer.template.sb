@@ -19,7 +19,7 @@
   (literal "/dev/dtracehelper"))
 
 ; No file reads under /Users, except the models. The engine itself is
-; under /usr/local, outside /Users.
+; under /opt, outside /Users.
 (deny file-read* (subpath "/Users"))
 (allow file-read* (subpath "@@MODELS_DIR@@"))
 (allow file-read-metadata

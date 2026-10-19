@@ -13,7 +13,8 @@
 
 set -eu
 
-PI_PREFIX=/usr/local/lib/pi
+# vm-setup.sh installs pi where "npm install -g" would.
+PI_DIR=/usr/local/lib/node_modules/@earendil-works/pi-coding-agent
 KEY_FILE="$HOME/.config/bulkhead/infer-api-key"
 
 INFER_API_KEY="$(cat "$KEY_FILE")"
@@ -22,5 +23,5 @@ PI_SKIP_VERSION_CHECK=1
 PI_TELEMETRY=0
 export INFER_API_KEY PI_OFFLINE PI_SKIP_VERSION_CHECK PI_TELEMETRY
 
-exec anon-access nono run --profile nolabs-ai/pi --allow-cwd --read "$PI_PREFIX" -- \
-  "$PI_PREFIX/node_modules/.bin/pi" --provider mac-local --model @@INFER_DEFAULT_MODEL@@ "$@"
+exec anon-access nono run --profile nolabs-ai/pi --allow-cwd --read "$PI_DIR" -- \
+  /usr/local/bin/pi --provider mac-local --model @@INFER_DEFAULT_MODEL@@ "$@"

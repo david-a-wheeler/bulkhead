@@ -181,8 +181,13 @@ ask_once() {
 # just that port. The backend has no API key of its own, so
 # --cors-origins names an origin no web page can have (.invalid is
 # reserved): otherwise any page open in a browser on the Mac could query
-# it directly and read the replies. See local-ai-plan.md for the other
-# flags.
+# it directly and read the replies. --cache-ram 0 turns off the prompt
+# cache (by default 8192 MiB), which keeps earlier prompts' KV state in
+# ordinary, swappable memory. With one agent it barely helps, since the
+# slot's own KV cache is reused as each turn extends the last. We may
+# raise it later (or use more slots) to speed up several agents taking
+# turns, since each switch otherwise reprocesses the whole context. See
+# local-ai-plan.md for the other flags.
 infer_llama_swap_yaml() {
   printf 'healthCheckTimeout: 500\nlogLevel: info\napiKeys:\n  - "%s"\nmodels:\n' "$1"
   while read -r name file ctx max desc; do

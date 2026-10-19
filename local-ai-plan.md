@@ -111,10 +111,37 @@ be malicious and try to send my sensitive data out. So:
   a timeout. llama-swap listens on 127.0.0.1 on the tunneled port; each
   backend `llama-server` listens on one fixed localhost port (hard-coded
   in each model's command and its `proxy` URL, instead of llama-swap's
-  default dynamic `${PORT}`; verify this works). Turn on its API key,
-  pin a specific release, check its SHA-256 like a model, and update it
-  only deliberately. See "Alternatives considered" for why not
-  llama-server's own router mode.
+  default dynamic `${PORT}`; verify this works). Turn on its API key.
+  See "Alternatives considered" for why not llama-server's own router
+  mode.
+* Releases (decided 2026-10-19): rather than pinning llama.cpp and
+  llama-swap forever, which would miss improvements and security
+  fixes, `host-setup.sh` installs the newest release of each that's at
+  least `INFER_COOLING_DAYS` (7) old, so others have had time to notice
+  a bad or malicious release. For llama.cpp, that's the newest stable
+  `vX.Y.Z` release, then the build (`bNNNNN`) its `nightly-tag.txt`
+  names; llama.cpp also publishes a build for nearly every commit, as
+  prereleases. Each download is checked against the SHA-256 GitHub
+  publishes for it. A floor (`LLAMA_CPP_MIN`, `LLAMA_SWAP_MIN`: the
+  releases we last tested) keeps it from going back to an older
+  release, and stops mattering once a newer one is old enough. A pin
+  (`*_PIN`) holds back from a release that breaks something, and
+  `host-setup.sh` warns while one is set. Going back from the tested
+  b11721 to v0.6.0 (b11429) would have been a small loss: all our
+  flags and Qwen3.8-27B's architecture (`qwen35`) are in both, but
+  v0.7.0 (b11669) has Metal fixes and a stack-overflow fix, so the
+  floor is v0.7.0.
+* Locations (decided 2026-10-19), conventional rather than under a
+  "bulkhead" name, since others might use these tools too: each
+  release in its own root-owned directory, `/opt/llama.cpp/BUILD` and
+  `/opt/llama-swap/VERSION`, with a `current` symlink that the daemon's
+  files name; the commands linked into `/usr/local/bin`; the service's
+  own config in `/usr/local/etc/infer` (`llama-swap.yaml`, `infer.sb`);
+  the daemon `local.infer`; and the sudoers rule
+  `/etc/sudoers.d/infer`. `host-setup.sh` refuses to install unless
+  every directory the daemon depends on is root-owned and writable
+  only by root, since otherwise a process running as me could swap in
+  its own engine and see the secure VM's prompts.
 * Settings:
   * Q8_0 models by default (nearly lossless; see "Test results");
   * `-fa on` and the default physical batch size (`-ub` 512);
@@ -604,23 +631,23 @@ The strict profile, if built:
 * `vm-setup.sh` installs `check-prose-style --text` as a global
   commit-msg git hook.
 * Written 2026-10-19, not yet run: the trial, moved into the repo.
-  * `host-setup.sh` installs llama.cpp b11721 and llama-swap v265 (each
-    with a checked SHA-256) root-owned under
-    `/usr/local/libexec/bulkhead/infer`; generates the API key (if
-    missing) and llama-swap's config from `INFER_MODELS`; renders
+  * `host-setup.sh` installs llama.cpp and llama-swap (see "Releases"
+    and "Locations" under "Inference engine"); generates the API key
+    (if missing) and llama-swap's config from `INFER_MODELS`; renders
     `infer.template.sb` and `infer.template.plist`; and installs them,
-    root-owned, as `/usr/local/etc/bulkhead/llama-swap.yaml` (readable
-    only by `_infer`), `/usr/local/etc/bulkhead/infer.sb`, and
-    `/Library/LaunchDaemons/local.bulkhead.infer.plist`, plus the
-    sudoers rule `/etc/sudoers.d/bulkhead-infer`. It first checks the
+    root-owned, as `/usr/local/etc/infer/llama-swap.yaml` (readable
+    only by `_infer`), `/usr/local/etc/infer/infer.sb`, and
+    `/Library/LaunchDaemons/local.infer.plist`, plus the sudoers rule
+    `/etc/sudoers.d/infer`. It first checks the
     rendered profile (blocks outbound HTTPS, reading my home directory,
     and writes), and it restarts the daemon only when something
     changed. After a restart it checks for HTTP 401 without the key, and
     checks the sudoers rule by restarting again with `sudo -k` and
     `sudo -n`. It removes the trial's `local.infer-trial` daemon.
   * `vm-setup.sh`, on a VM with `~/.config/bulkhead/infer-api-key`,
-    installs Node.js, pi 1.3.0 (root-owned in `/usr/local/lib/pi`;
-    npm runs as me, never as root), `pi-local` and `infer-logs` in
+    installs Node.js, pi 1.3.0 (root-owned where `npm install -g`
+    would put it, `/usr/local/lib/node_modules`, linked from
+    `/usr/local/bin/pi`; npm runs as me, never as root), `pi-local` and `infer-logs` in
     `/usr/local/bin`, `infer-logs@.service` in `/etc/systemd/user`, and
     pi's `models.json` generated from `INFER_MODELS`, and removes the
     trial's copies in my home directory. A VM without the key skips

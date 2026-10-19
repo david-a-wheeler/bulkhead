@@ -300,62 +300,183 @@ echo "== Installing the local AI engine (llama.cpp and llama-swap) =="
 # that denies outbound network (except to its backend), file writes
 # (except the Metal shader cache), and reads under /Users (except the
 # models). No code of ours runs as root: launchd starts it, and the one
-# sudoers rule below allows only restarting it. Everything is
-# root-owned, so neither _infer nor you (without sudo) can change it.
-# Pinned releases with checked SHA-256s; update them only deliberately.
-LLAMA_BUILD=b11721
-LLAMA_TARBALL="llama-$LLAMA_BUILD-bin-macos-arm64.tar.gz"
-LLAMA_SHA256=2ace55512ee1ab4e2703f80c135c2a92d40d3367a5b3a98d21b103ffa7f0eb82
-SWAP_VERSION=265
-SWAP_TARBALL="llama-swap_${SWAP_VERSION}_darwin_arm64.tar.gz"
-SWAP_SHA256=01d8d543198973dcfa52fd263e5696230ee1a77fb204f48c5d542761a67623b0
-INFER_LIBEXEC=/usr/local/libexec/bulkhead/infer
-INFER_ETC=/usr/local/etc/bulkhead
+# sudoers rule below allows only restarting it.
+#
+# Each release goes in its own root-owned directory under /opt, with a
+# "current" symlink, which the daemon's files name; the commands are
+# also linked into /usr/local/bin for your own use. config.sh's
+# INFER_COOLING_DAYS, *_MIN, and *_PIN settings choose the releases.
+INFER_ETC=/usr/local/etc/infer
 INFER_PROFILE="$INFER_ETC/infer.sb"
 INFER_CONFIG="$INFER_ETC/llama-swap.yaml"
-INFER_LABEL=local.bulkhead.infer
+INFER_LABEL=local.infer
 INFER_PLIST="/Library/LaunchDaemons/$INFER_LABEL.plist"
-INFER_SUDOERS=/etc/sudoers.d/bulkhead-infer
+INFER_SUDOERS=/etc/sudoers.d/infer
 # Each backend llama-server listens here, one at a time.
 INFER_BACKEND_PORT=8999
 INFER_KEY_FILE="$HOME/.config/bulkhead/infer-api-key"
-LLAMA_DIR="$INFER_LIBEXEC/llama-$LLAMA_BUILD"
-SWAP_DIR="$INFER_LIBEXEC/llama-swap-$SWAP_VERSION"
-SWAP_BIN="$SWAP_DIR/llama-swap"
+LLAMA_OPT=/opt/llama.cpp
+SWAP_OPT=/opt/llama-swap
+SWAP_BIN="$SWAP_OPT/current/llama-swap"
 infer_tmp="$SCRIPT_DIR/.tmp/infer"
-rm -rf "$infer_tmp"
+rm -rf "${infer_tmp:?}"
 mkdir -p "$infer_tmp"
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is missing (macOS 15 and later include /usr/bin/jq)." >&2
+  exit 1
+fi
 
-# install_release URL SHA256 DEST [SUBDIR]: download a release tarball,
-# check its SHA-256, and unpack it (or just its SUBDIR) into DEST,
-# root-owned, unless DEST exists. It's unpacked as you, then copied, so
-# the tarball's own file owners don't matter.
-install_release() {
-  [ -d "$3" ] && return 0
-  tarball="$infer_tmp/$(basename "$1")"
-  curl -fL -o "$tarball" "$1"
-  if [ "$(shasum -a 256 "$tarball" | cut -d ' ' -f 1)" != "$2" ]; then
-    echo "ERROR: $tarball doesn't match its SHA-256." >&2
+# The daemon runs what's in these directories, so only root may change
+# them: otherwise a process running as you could swap in its own engine
+# and see the secure VM's prompts. (An old Intel Homebrew install, e.g.,
+# made parts of /usr/local yours.)
+for d in /opt "$LLAMA_OPT" "$SWAP_OPT" /usr/local /usr/local/etc "$INFER_ETC"; do
+  sudo mkdir -p "$d"
+  case "$(stat -f '%Su %Sp' "$d")" in
+    "root d"????-??-?) ;;
+    *)
+      echo "ERROR: $d must be owned by root and writable only by root; it's $(stat -f '%Su %Sp' "$d")." >&2
+      echo "  To fix it: sudo chown root $d && sudo chmod go-w $d" >&2
+      exit 1
+      ;;
+  esac
+done
+
+case "$INFER_COOLING_DAYS" in
+  "" | *[!0-9]*)
+    echo "ERROR: config.sh's INFER_COOLING_DAYS isn't a number of days." >&2
     exit 1
-  fi
-  mkdir "$infer_tmp/unpack"
-  tar xzf "$tarball" -C "$infer_tmp/unpack"
-  sudo mkdir -p "$(dirname "$3")"
-  sudo rm -rf "$3.partial"
-  sudo cp -R "$infer_tmp/unpack${4:+/$4}" "$3.partial"
-  sudo chown -R root:wheel "$3.partial"
-  sudo chmod -R go-w "$3.partial"
-  sudo mv "$3.partial" "$3"
-  rm -rf "$infer_tmp/unpack" "$tarball"
+    ;;
+esac
+cooling_cutoff="$(date -u -v-"${INFER_COOLING_DAYS}"d +%Y-%m-%dT%H:%M:%SZ)"
+
+# github_api PATH: get PATH under a repository from GitHub's REST API.
+# Unauthenticated, which allows 60 requests an hour; this makes a few.
+github_api() {
+  curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$1"
 }
-# The llama.cpp tarball holds one directory, llama-BUILD.
-install_release \
-  "https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_BUILD/$LLAMA_TARBALL" \
-  "$LLAMA_SHA256" "$LLAMA_DIR" "llama-$LLAMA_BUILD"
-install_release \
-  "https://github.com/mostlygeek/llama-swap/releases/download/v$SWAP_VERSION/$SWAP_TARBALL" \
-  "$SWAP_SHA256" "$SWAP_DIR"
-"$SWAP_BIN" -version
+# version_older A B: true if release tag A (vX.Y.Z or vN) is older than B.
+version_older() {
+  jq -en --arg a "$1" --arg b "$2" \
+    'def v: ltrimstr("v") | split(".") | map(tonumber); ($a | v) < ($b | v)' >/dev/null
+}
+# cooled_release REPO TAG_REGEX: print the tag of the newest release
+# (not a draft or prerelease) whose tag matches TAG_REGEX and that's at
+# least INFER_COOLING_DAYS old, or nothing if there's none in the last
+# 500 releases. llama.cpp publishes a build for nearly every commit, as
+# prereleases, so its stable releases can be a few pages back.
+cooled_release() {
+  page=1
+  while [ "$page" -le 5 ]; do
+    github_api "$1/releases?per_page=100&page=$page" > "$infer_tmp/releases.json" || return 1
+    tag="$(jq -r --arg re "$2" --arg cutoff "$cooling_cutoff" '
+      [.[] | select((.draft or .prerelease) | not) | select(.tag_name | test($re))
+        | select(.published_at <= $cutoff)][0].tag_name // empty' "$infer_tmp/releases.json")"
+    if [ -n "$tag" ]; then
+      echo "$tag"
+      return 0
+    fi
+    page=$((page + 1))
+  done
+}
+# pick_release REPO TAG_REGEX MIN PIN: print the release tag to install:
+# the newest one that's old enough (see cooled_release), but not one
+# older than MIN; or PIN, if set.
+pick_release() {
+  if cooled="$(cooled_release "$1" "$2")"; then
+    if [ -z "$cooled" ] || { [ -n "$3" ] && version_older "$cooled" "$3"; }; then
+      cooled="$3"
+    fi
+  else
+    # Can't reach GitHub; a pin needs it only to install.
+    [ -n "$4" ] || return 1
+    cooled=""
+  fi
+  if [ -n "$4" ]; then
+    echo "WARNING: $1 is pinned to $4${cooled:+ (without it, the choice would be $cooled)}. Clear the pin in config.sh when you can." >&2
+    echo "$4"
+  else
+    [ -n "$cooled" ] || return 1
+    echo "$cooled"
+  fi
+}
+# fetch_asset REPO TAG NAME: download release TAG's file NAME into
+# $infer_tmp, checked against the SHA-256 GitHub publishes for it.
+fetch_asset() {
+  github_api "$1/releases/tags/$2" > "$infer_tmp/release.json" || return 1
+  sha256="$(jq -r --arg n "$3" '.assets[] | select(.name == $n) | .digest // empty' "$infer_tmp/release.json")"
+  case "$sha256" in
+    sha256:*) sha256="${sha256#sha256:}" ;;
+    *)
+      echo "ERROR: GitHub lists no SHA-256 for $3 in $1 $2." >&2
+      return 1
+      ;;
+  esac
+  curl -fsSL -o "$infer_tmp/$3" "https://github.com/$1/releases/download/$2/$3" || return 1
+  if [ "$(shasum -a 256 "$infer_tmp/$3" | cut -d ' ' -f 1)" != "$sha256" ]; then
+    rm -f "${infer_tmp:?}/${3:?}"
+    echo "ERROR: $3 from $1 $2 doesn't match its SHA-256." >&2
+    return 1
+  fi
+}
+# choose_llama_build: print the llama.cpp build (bNNNNN) to install. A
+# stable release names its build in its nightly-tag.txt; a pin may name
+# a build directly.
+choose_llama_build() {
+  tag="$(pick_release ggml-org/llama.cpp '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+    "$LLAMA_CPP_MIN" "$LLAMA_CPP_PIN")" || return 1
+  case "$tag" in
+    b*) build="$tag" ;;
+    *)
+      fetch_asset ggml-org/llama.cpp "$tag" nightly-tag.txt || return 1
+      build="$(tr -d '[:space:]' < "$infer_tmp/nightly-tag.txt")"
+      ;;
+  esac
+  printf '%s\n' "$build" | grep -qE '^b[0-9]+$' || return 1
+  echo "$build"
+}
+# With GitHub unreachable, keep what's installed.
+if llama_build="$(choose_llama_build)"; then
+  echo "llama.cpp: $llama_build"
+elif [ -L "$LLAMA_OPT/current" ]; then
+  llama_build="$(readlink "$LLAMA_OPT/current")"
+  echo "WARNING: couldn't choose a llama.cpp release; keeping $llama_build." >&2
+else
+  echo "ERROR: couldn't choose a llama.cpp release to install." >&2
+  exit 1
+fi
+if swap_tag="$(pick_release mostlygeek/llama-swap '^v[0-9]+$' "$LLAMA_SWAP_MIN" "$LLAMA_SWAP_PIN")"; then
+  swap_version="${swap_tag#v}"
+  echo "llama-swap: $swap_tag"
+elif [ -L "$SWAP_OPT/current" ]; then
+  swap_version="$(readlink "$SWAP_OPT/current")"
+  echo "WARNING: couldn't choose a llama-swap release; keeping $swap_version." >&2
+else
+  echo "ERROR: couldn't choose a llama-swap release to install." >&2
+  exit 1
+fi
+
+# install_release REPO TAG NAME DEST [SUBDIR]: unless DEST exists,
+# download release TAG's tarball NAME (see fetch_asset) and unpack it (or
+# just its SUBDIR) into DEST, root-owned. It's unpacked as you, then
+# copied, so the tarball's own file owners don't matter.
+install_release() {
+  [ -d "$4" ] && return 0
+  fetch_asset "$1" "$2" "$3" || exit 1
+  mkdir "$infer_tmp/unpack"
+  tar xzf "$infer_tmp/$3" -C "$infer_tmp/unpack"
+  sudo rm -rf "${4:?}.partial"
+  sudo cp -R "$infer_tmp/unpack${5:+/$5}" "$4.partial"
+  sudo chown -R root:wheel "$4.partial"
+  sudo chmod -R go-w "$4.partial"
+  sudo mv "$4.partial" "$4"
+  rm -rf "${infer_tmp:?}/unpack" "${infer_tmp:?}/${3:?}"
+}
+install_release ggml-org/llama.cpp "$llama_build" "llama-$llama_build-bin-macos-arm64.tar.gz" \
+  "$LLAMA_OPT/$llama_build" "llama-$llama_build"
+install_release mostlygeek/llama-swap "v$swap_version" "llama-swap_${swap_version}_darwin_arm64.tar.gz" \
+  "$SWAP_OPT/$swap_version"
+"$SWAP_OPT/$swap_version/llama-swap" -version
 
 # The API key: clients send it as "Authorization: Bearer KEY". Copy it
 # to each VM that should use the engine (see vm-setup.sh).
@@ -379,7 +500,7 @@ case "$metal_cache" in
 esac
 
 # Render everything first.
-if ! infer_llama_swap_yaml "$infer_key" "$LLAMA_DIR/llama-server" "$INFER_BACKEND_PORT" \
+if ! infer_llama_swap_yaml "$infer_key" "$LLAMA_OPT/current/llama-server" "$INFER_BACKEND_PORT" \
     > "$infer_tmp/llama-swap.yaml"; then
   echo "ERROR: config.sh's INFER_MODELS has a malformed line." >&2
   exit 1
@@ -425,11 +546,19 @@ fi
 # Install only what changed, so rerunning this doesn't restart the engine
 # (and unload its model) for nothing.
 infer_changed=false
+# set_current DIR VERSION: point DIR/current at DIR/VERSION.
+set_current() {
+  if [ "$(readlink "$1/current" 2>/dev/null)" != "$2" ]; then
+    sudo ln -sfn "$2" "$1/current"
+    infer_changed=true
+  fi
+}
+set_current "$LLAMA_OPT" "$llama_build"
+set_current "$SWAP_OPT" "$swap_version"
 # install_root SRC DEST GROUP MODE: install SRC as DEST, root-owned, if
 # it differs. sudo cmp, since llama-swap.yaml isn't readable by you.
 install_root() {
   if ! sudo cmp -s "$1" "$2"; then
-    sudo mkdir -p "$(dirname "$2")"
     sudo install -o root -g "$3" -m "$4" "$1" "$2"
     infer_changed=true
   fi
@@ -454,6 +583,39 @@ if ! sudo cmp -s "$infer_tmp/sudoers" "$INFER_SUDOERS"; then
   sudo mv "$INFER_SUDOERS.new" "$INFER_SUDOERS"
   infer_sudoers_changed=true
 fi
+
+# Your own commands: each llama.cpp program and llama-swap, linked into
+# /usr/local/bin, without replacing anything else there. Links to
+# programs a newer release dropped are removed.
+# link_command TARGET: link /usr/local/bin/NAME to TARGET.
+link_command() {
+  link="/usr/local/bin/$(basename "$1")"
+  if [ -e "$link" ] || [ -L "$link" ]; then
+    case "$(readlink "$link" 2>/dev/null)" in
+      "$LLAMA_OPT"/* | "$SWAP_OPT"/*) ;;
+      *)
+        echo "WARNING: $link already exists; not replacing it." >&2
+        return 0
+        ;;
+    esac
+  fi
+  sudo ln -sfn "$1" "$link"
+}
+sudo mkdir -p /usr/local/bin
+for f in "$LLAMA_OPT/current"/*; do
+  case "$f" in *.dylib) continue ;; esac
+  if [ -f "$f" ] && [ -x "$f" ]; then
+    link_command "$f"
+  fi
+done
+link_command "$SWAP_BIN"
+for link in /usr/local/bin/*; do
+  if [ -L "$link" ] && [ ! -e "$link" ]; then
+    case "$(readlink "$link")" in
+      "$LLAMA_OPT"/* | "$SWAP_OPT"/*) sudo rm -f "$link" ;;
+    esac
+  fi
+done
 
 # stop_daemon LABEL: unload a system daemon and wait until it's gone;
 # loading the label again before then fails with "Bootstrap failed: 5:
@@ -504,11 +666,14 @@ if [ "$infer_changed" = true ] || ! sudo launchctl print "system/$INFER_LABEL" >
   fi
   infer_restarted=true
 fi
-# Earlier pinned releases, no longer used.
-for d in "$INFER_LIBEXEC"/*; do
-  [ "$d" = "$LLAMA_DIR" ] || [ "$d" = "$SWAP_DIR" ] || sudo rm -rf "$d"
+# Earlier releases, no longer used (and any unfinished install).
+for d in "$LLAMA_OPT"/* "$SWAP_OPT"/*; do
+  case "$d" in
+    */current | "$LLAMA_OPT/$llama_build" | "$SWAP_OPT/$swap_version") ;;
+    /opt/llama.cpp/?* | /opt/llama-swap/?*) sudo rm -rf "$d" ;;
+  esac
 done
-rm -rf "$infer_tmp"
+rm -rf "${infer_tmp:?}"
 if [ "$infer_restarted" = true ] || [ "$infer_sudoers_changed" = true ]; then
   # Check the sudoers rule: forget sudo's cached password, then restart
   # the engine without one, as infer-access will. Nothing after this

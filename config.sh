@@ -51,6 +51,23 @@ https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffus
 INFER_MODELS="qwen3.8-27b Qwen3.8-27B-Q8_0.gguf 262144 16384 Qwen3.8-27B Q8_0
 qwen3-0.6b Qwen3-0.6B-Q4_0.gguf 32768 4096 Qwen3-0.6B Q4_0 (tests)"
 
+# The local AI engine's releases. host-setup.sh installs the newest
+# release of llama.cpp (a stable vX.Y.Z release, then the build it names)
+# and of llama-swap that's at least INFER_COOLING_DAYS old, so we get
+# improvements and security fixes, but others have had time to notice a
+# bad or malicious release first. It never picks one older than the
+# floor (*_MIN), e.g., the release we last tested; once a newer release
+# is old enough, the floor stops mattering, so there's no need to update
+# it. A pin (*_PIN; for llama.cpp, a release like "v0.7.0" or a build
+# like "b11721") overrides both, e.g., to hold back from a release that
+# breaks something; host-setup.sh warns while one is set, so clear it
+# when you can.
+INFER_COOLING_DAYS="7"
+LLAMA_CPP_MIN="v0.7.0"
+LLAMA_CPP_PIN=""
+LLAMA_SWAP_MIN="v265"
+LLAMA_SWAP_PIN=""
+
 # Port the local AI engine (llama-swap) listens on, on the Mac's
 # 127.0.0.1. A VM's SSH reverse tunnel forwards the same port on the VM's
 # own 127.0.0.1 to it.
