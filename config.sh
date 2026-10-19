@@ -27,6 +27,15 @@ VM_USER="dwheeler"
 # same name.
 MACOS_INFER_USER="_infer"
 
+# Local AI models, readable by MACOS_INFER_USER, writable only by you, and
+# downloaded once. host-setup.sh downloads each model in MODEL_DOWNLOADS
+# whose file isn't in MODELS_DIR yet. One model per line: URL, then its
+# SHA-256 from the publisher (e.g., on Hugging Face), then its license.
+MODELS_DIR="/Users/Shared/models"
+MODEL_DOWNLOADS="https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-Q8_0.gguf a680f44a06920e5d689774823782006aa3acc8db95750323373b24139b67e348 apache-2.0
+https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_M.gguf 322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482 apache-2.0
+https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_0.gguf da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4 apache-2.0"
+
 # Port the host secrets server (secrets-server.py) listens on, and that
 # secrets-client (and any other VM-side caller) talks to.
 SECRETS_SERVER_PORT="9876"

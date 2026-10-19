@@ -235,4 +235,34 @@ fi
 echo "== Configuring git niceties =="
 configure_git_niceties
 
+echo "== Downloading local AI models into $MODELS_DIR (if missing) =="
+# Last, since a download can take a while. Each goes to FILE.partial
+# first (rerunning resumes it), so an unfinished or wrong download never
+# looks like a model. A checksum mismatch deletes it and stops. Files
+# are read-only; SHA256SUMS and SOURCES.tsv record each one's checksum
+# and source. A here-document, not a pipe, so the loop runs in this
+# shell and set -e can stop the script.
+mkdir -p "$MODELS_DIR"
+chmod 755 "$MODELS_DIR"
+tmutil addexclusion "$MODELS_DIR"
+[ -f "$MODELS_DIR/SOURCES.tsv" ] ||
+  printf 'file\tsource_url\tlicense\tadded\n' > "$MODELS_DIR/SOURCES.tsv"
+while read -r url sha256 license; do
+  file="$(basename "$url")"
+  [ -f "$MODELS_DIR/$file" ] && continue
+  echo "Downloading $file"
+  curl -fL -C - -o "$MODELS_DIR/$file.partial" "$url"
+  if [ "$(shasum -a 256 "$MODELS_DIR/$file.partial" | cut -d ' ' -f 1)" != "$sha256" ]; then
+    rm -f "$MODELS_DIR/$file.partial"
+    echo "ERROR: $file doesn't match its SHA-256; deleted it." >&2
+    exit 1
+  fi
+  mv "$MODELS_DIR/$file.partial" "$MODELS_DIR/$file"
+  chmod 444 "$MODELS_DIR/$file"
+  printf '%s  %s\n' "$sha256" "$file" >> "$MODELS_DIR/SHA256SUMS"
+  printf '%s\t%s\t%s\t%s\n' "$file" "$url" "$license" "$(date +%Y-%m-%d)" >> "$MODELS_DIR/SOURCES.tsv"
+done <<EOF
+$MODEL_DOWNLOADS
+EOF
+
 echo "== host-setup.sh done =="
