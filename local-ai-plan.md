@@ -212,10 +212,38 @@ be malicious and try to send my sensitive data out. So:
   (`system_profiler SPPowerDataType` shows the negotiated wattage.)
   Keep the Mac on a stand, not a soft surface, so air reaches its
   underside: the 14-inch case's cooling limits sustained speed too.
-  Low Power Mode is the fallback if it still drains. I expect it to
-  cost prefill more than generation, since generation is mostly
-  limited by memory bandwidth; measure it with llama-server's
-  tokens/s after a long run.
+  Measurements may miss the worst cases, so the watcher (see "Kill on
+  sleep") also switches to Low Power Mode when the battery runs low. I
+  expect Low Power Mode to cost prefill more than generation, since
+  generation is mostly limited by memory bandwidth; measure it with
+  llama-server's tokens/s after a long run.
+* Energy Mode is set per power source, and this Mac already has
+  `powermode 2` (High) on AC and `0` (Automatic) on battery
+  (`pmset -g custom`), so unplugging leaves High Power Mode without
+  any help. The watcher handles only a low battery, on either source:
+  * Below 30%: remember both sources' `powermode`, then set Low on both
+    (`pmset -a powermode 1`).
+  * At 40% or more and plugged in: if the watcher set Low and both are
+    still Low, restore the remembered values; if I changed either by
+    hand meanwhile, forget them and change nothing. It only undoes its
+    own changes.
+  * The 10-point gap keeps it from flapping. 40% is low enough to let
+    a task finish at full speed once charging catches up.
+  * `pmset` needs root, so this uses sudoers rules for exact commands of
+    Apple's tool, no root code of ours: `pmset -a powermode 1` and the
+    six restores (`-b` or `-c`, each with 0, 1, or 2). I believe 1 is
+    Low and 0 Automatic; check before relying on it.
+  * The watcher reads the battery level, charging state, and adapter
+    through IOKit's power-source notifications, which don't need root.
+  * Not built: if Low Power Mode isn't enough, pause `llama-server` at a
+    critical level (e.g., 10% and still draining) with SIGSTOP and
+    resume with SIGCONT (e.g., at 20%). It keeps the model, KV cache,
+    and request in memory. It's about 20 lines plus sudoers rules
+    running `pkill -STOP -x llama-server` and `-CONT` as `_infer` (not
+    root), but needs testing: the sleep handler must send SIGCONT
+    before unloading, a `llama-server` started during a pause isn't
+    stopped, and pi, llama-swap, and the tunnel must survive a long
+    pause without timing out.
 
 ### Image generation
 
@@ -844,7 +872,9 @@ here.
    time). Verify the watcher can delay sleep long enough, that freed
    pages aren't in the sleep image (I believe macOS writes only in-use
    pages), and that forced sleep at critically low battery still sends
-   the notification.
+   the notification. Include the low-battery power modes (see "Power
+   and cooling"); test them by lowering the thresholds temporarily
+   rather than draining the battery.
 3. **Tunnels and `infer-access`**: written 2026-10-19; `shared` works.
    After step 1, stop the hand-started tunnel, run
    `./infer-access.sh shared`, and check `./infer-access.sh status`,
