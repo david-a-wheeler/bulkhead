@@ -242,6 +242,14 @@ echo "== Downloading local AI models into $MODELS_DIR (if missing) =="
 # are read-only; SHA256SUMS and SOURCES.tsv record each one's checksum
 # and source. A here-document, not a pipe, so the loop runs in this
 # shell and set -e can stop the script.
+#
+# Only formats that can't run code when loaded are allowed: GGUF and
+# safetensors, both just a header plus raw numbers. Pickle-based formats
+# (PyTorch's .bin, .pt, .pth, and .ckpt, and plain .pkl) can run
+# arbitrary code when loaded, so a URL with one of those extensions is
+# refused before downloading, and every download's first bytes must show
+# GGUF (the bytes "GGUF") or safetensors (an 8-byte header length, then
+# the JSON header's "{"); anything else is deleted and stops the script.
 mkdir -p "$MODELS_DIR"
 chmod 755 "$MODELS_DIR"
 tmutil addexclusion "$MODELS_DIR"
@@ -251,6 +259,12 @@ while read -r url sha256 license subdir; do
   # A multi-file model (e.g., an image model) names a subdirectory.
   file="${subdir:+$subdir/}$(basename "$url")"
   [ -f "$MODELS_DIR/$file" ] && continue
+  case "$file" in
+    *.bin | *.pt | *.pth | *.ckpt | *.pkl | *.pickle)
+      echo "ERROR: $file is a pickle-based format, which can run code when loaded; refusing to download it." >&2
+      exit 1
+      ;;
+  esac
   if [ -n "$subdir" ]; then
     mkdir -p "$MODELS_DIR/$subdir"
     chmod 755 "$MODELS_DIR/$subdir"
@@ -262,6 +276,16 @@ while read -r url sha256 license subdir; do
     echo "ERROR: $file doesn't match its SHA-256; deleted it." >&2
     exit 1
   fi
+  # The first 9 bytes as hex: 18 digits.
+  case "$(head -c 9 "$MODELS_DIR/$file.partial" | od -An -tx1 | tr -d ' \n')" in
+    47475546*) ;;          # GGUF
+    ????????????????7b) ;; # safetensors
+    *)
+      rm -f "$MODELS_DIR/$file.partial"
+      echo "ERROR: $file is neither GGUF nor safetensors; deleted it." >&2
+      exit 1
+      ;;
+  esac
   mv "$MODELS_DIR/$file.partial" "$MODELS_DIR/$file"
   chmod 444 "$MODELS_DIR/$file"
   printf '%s  %s\n' "$sha256" "$file" >> "$MODELS_DIR/SHA256SUMS"

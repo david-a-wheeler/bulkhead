@@ -394,7 +394,16 @@ The strict profile, if built:
   FLUX.2-klein 4B for images; all Apache-2.0.
 * Safety against malicious models:
   * GGUF or safetensors only, never pickle formats (`.bin`, `.pt`,
-    `.ckpt`), which run code on load;
+    `.ckpt`), which run code on load. `host-setup.sh` enforces this: it
+    refuses URLs ending in `.bin`, `.pt`, `.pth`, `.ckpt`, `.pkl`, or
+    `.pickle` before downloading, and deletes any download whose first
+    bytes aren't GGUF (`GGUF`) or safetensors (an 8-byte header length,
+    then `{`). As of 2026-10-18, all six model files pass (checked by
+    their first bytes, not their names; the VAE's name
+    `diffusion_pytorch_model.safetensors` is just diffusers' naming
+    convention). Safe formats still need parsing, and a crafted file can
+    exploit a parser bug, which is what `_infer` and the host sandbox
+    contain;
   * never `trust_remote_code` (model-supplied Python) on the host; do any
     conversion (e.g., `convert_hf_to_gguf.py`) in a disposable VM and
     copy only the resulting weights;
