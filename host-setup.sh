@@ -714,13 +714,15 @@ echo "== Installing the sleep watcher (infer-watch) =="
 # while the battery is low. See local-ai-plan.md, "Kill on sleep". It
 # runs as you, as a launchd agent. I don't know of a trusted prebuilt
 # tool that does this, so it's a small C program built here with Apple's
-# Command Line Tools. It's rebuilt only when its source changes.
+# Command Line Tools. It's rebuilt only when its source changes. There's
+# no -Werror here: a new compiler or SDK may add warnings, and those
+# shouldn't stop the install (ci.sh's strict build catches our mistakes).
 WATCH_BIN="$HOME/bin/infer-watch"
 mkdir -p "$HOME/bin" "$HOME/Library/Logs"
 if [ -x "$WATCH_BIN" ] && cmp -s "$SCRIPT_DIR/infer-watch.c" "$WATCH_BIN.c"; then
   :
 elif xcode-select -p >/dev/null 2>&1; then
-  cc -O2 -Wall -Wextra -Werror -framework IOKit -framework CoreFoundation \
+  cc -O2 -Wall -Wextra -framework IOKit -framework CoreFoundation \
     -o "$WATCH_BIN.new" "$SCRIPT_DIR/infer-watch.c"
   mv "$WATCH_BIN.new" "$WATCH_BIN"
   cp "$SCRIPT_DIR/infer-watch.c" "$WATCH_BIN.c"
