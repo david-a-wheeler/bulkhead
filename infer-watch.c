@@ -55,10 +55,10 @@ static char power_event[] = "power";
 static char *hook;
 static io_connect_t root_port = MACH_PORT_NULL;
 
-/* say: log a timestamped line, like the hook's own. */
-static void say(const char *format, ...)
+/* log_line: log a timestamped line, in the same format as the hook's. */
+static void log_line(const char *format, ...)
     __attribute__((format(printf, 1, 2)));
-static void say(const char *format, ...) {
+static void log_line(const char *format, ...) {
   char stamp[32] = "";
   time_t now = time(NULL);
   struct tm local;
@@ -83,9 +83,8 @@ static double seconds_since(const struct timespec *start) {
          (double) (now.tv_nsec - start->tv_nsec) / 1e9;
 }
 
-/* reap: wait for PID to exit, retrying if a signal interrupts. Returns
- * waitpid's result. */
-static pid_t reap(pid_t pid, int *status, int options) {
+/* waitpid_retry: waitpid, retried if a signal interrupts it. */
+static pid_t waitpid_retry(pid_t pid, int *status, int options) {
   pid_t result;
 
   do {
@@ -106,7 +105,7 @@ static void run_hook(char *event, int seconds) {
 
   err = posix_spawnattr_init(&attr);
   if (err != 0) {
-    say("posix_spawnattr_init failed: %s", strerror(err));
+    log_line("posix_spawnattr_init failed: %s", strerror(err));
     return;
   }
   err = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP);
@@ -116,35 +115,35 @@ static void run_hook(char *event, int seconds) {
     err = posix_spawn(&pid, hook, NULL, &attr, argv, environ);
   (void) posix_spawnattr_destroy(&attr);
   if (err != 0) {
-    say("can't run %s %s: %s", hook, event, strerror(err));
+    log_line("can't run %s %s: %s", hook, event, strerror(err));
     return;
   }
   if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) {
-    say("clock_gettime failed: %s", strerror(errno));
+    log_line("clock_gettime failed: %s", strerror(errno));
     start.tv_sec = 0;
     start.tv_nsec = 0;
   }
   for (;;) {
-    result = reap(pid, &status, WNOHANG);
+    result = waitpid_retry(pid, &status, WNOHANG);
     if (result == pid) {
       if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
-        say("%s %s failed", hook, event);
+        log_line("%s %s failed", hook, event);
       return;
     }
     if (result < 0) {
-      say("waitpid failed: %s", strerror(errno));
+      log_line("waitpid failed: %s", strerror(errno));
       return;
     }
     if (seconds_since(&start) >= seconds)
       break;
     (void) nanosleep(&tenth, NULL);
   }
-  say("%s %s took over %d seconds; stopped it", hook, event, seconds);
+  log_line("%s %s took over %d seconds; stopped it", hook, event, seconds);
   /* PID hasn't been reaped, so its process group still exists. */
   if (kill(-pid, SIGKILL) != 0)
-    say("kill failed: %s", strerror(errno));
-  if (reap(pid, &status, 0) < 0)
-    say("waitpid failed: %s", strerror(errno));
+    log_line("kill failed: %s", strerror(errno));
+  if (waitpid_retry(pid, &status, 0) < 0)
+    log_line("waitpid failed: %s", strerror(errno));
 }
 
 /* allow_power_change: tell macOS it may go ahead with ARGUMENT's
@@ -153,12 +152,14 @@ static void allow_power_change(void *argument) {
   IOReturn result = IOAllowPowerChange(root_port, (intptr_t) argument);
 
   if (result != kIOReturnSuccess)
-    say("IOAllowPowerChange failed: 0x%x", (unsigned) result);
+    log_line("IOAllowPowerChange failed: 0x%x", (unsigned) result);
 }
 
-/* system_power: handle macOS's sleep and wake notifications. */
-static void system_power(void *refcon, io_service_t service,
-                         uint32_t message, void *argument) {
+/* on_sleep_or_wake: handle macOS's sleep and wake notifications. */
+static void on_sleep_or_wake(void *refcon, io_service_t service,
+                             uint32_t message, void *argument) {
+  /* Apple's callback type needs these parameters, but we don't use them;
+   * this keeps -Wunused-parameter quiet. */
   (void) refcon;
   (void) service;
   switch (message) {
@@ -178,40 +179,43 @@ static void system_power(void *refcon, io_service_t service,
   }
 }
 
-/* power_source: handle a power source change. */
-static void power_source(void *context) {
-  (void) context;
+/* on_power_source_change: handle a power source change. */
+static void on_power_source_change(void *context) {
+  (void) context; /* Unused, as in on_sleep_or_wake. */
   run_hook(power_event, OTHER_SECONDS);
 }
 
 /* main: register for power events, then handle them until the run loop
  * stops (it shouldn't). */
 int main(int argc, char **argv) {
-  IONotificationPortRef port = NULL;
+  IONotificationPortRef sleep_wake_port = NULL;
   io_object_t notifier = MACH_PORT_NULL;
-  CFRunLoopSourceRef sources;
+  CFRunLoopSourceRef power_source_changes;
 
   if (argc != 2 || argv[1][0] != '/') {
     (void) fprintf(stderr, "Usage: infer-watch /ABSOLUTE/PATH/TO/HOOK\n");
     return 2;
   }
   hook = argv[1];
-  root_port = IORegisterForSystemPower(NULL, &port, system_power, &notifier);
-  if (root_port == MACH_PORT_NULL || port == NULL) {
-    say("IORegisterForSystemPower failed");
+  root_port = IORegisterForSystemPower(NULL, &sleep_wake_port,
+                                       on_sleep_or_wake, &notifier);
+  if (root_port == MACH_PORT_NULL || sleep_wake_port == NULL) {
+    log_line("IORegisterForSystemPower failed");
     return 1;
   }
   CFRunLoopAddSource(CFRunLoopGetCurrent(),
-                     IONotificationPortGetRunLoopSource(port),
+                     IONotificationPortGetRunLoopSource(sleep_wake_port),
                      kCFRunLoopDefaultMode);
-  sources = IOPSNotificationCreateRunLoopSource(power_source, NULL);
-  if (sources == NULL) {
-    say("IOPSNotificationCreateRunLoopSource failed");
+  power_source_changes =
+      IOPSNotificationCreateRunLoopSource(on_power_source_change, NULL);
+  if (power_source_changes == NULL) {
+    log_line("IOPSNotificationCreateRunLoopSource failed");
     return 1;
   }
-  CFRunLoopAddSource(CFRunLoopGetCurrent(), sources, kCFRunLoopDefaultMode);
+  CFRunLoopAddSource(CFRunLoopGetCurrent(), power_source_changes,
+                     kCFRunLoopDefaultMode);
   run_hook(power_event, OTHER_SECONDS);
   CFRunLoopRun();
-  say("the run loop stopped");
+  log_line("the run loop stopped");
   return 1;
 }

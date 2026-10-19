@@ -24,15 +24,15 @@ struct IONotificationPort {
 };
 
 static struct __CFRunLoop loop;
-static struct __CFRunLoopSource port_source, power_source;
+static struct __CFRunLoopSource sleep_wake_source, power_change_source;
 static const struct __CFString default_mode;
 static struct IONotificationPort notification_port;
 const CFRunLoopMode kCFRunLoopDefaultMode = &default_mode;
 
-static IOServiceInterestCallback system_callback;
-static void *system_refcon;
-static IOPowerSourceCallbackType power_callback;
-static void *power_context;
+static IOServiceInterestCallback sleep_wake_callback;
+static void *sleep_wake_refcon;
+static IOPowerSourceCallbackType power_change_callback;
+static void *power_change_context;
 static int sources_added;
 
 /* CFRunLoopGetCurrent: return the one fake run loop. */
@@ -42,7 +42,7 @@ CFRunLoopRef CFRunLoopGetCurrent(void) { return &loop; }
 void CFRunLoopAddSource(CFRunLoopRef rl, CFRunLoopSourceRef source,
                         CFRunLoopMode mode) {
   if (rl != &loop || mode != kCFRunLoopDefaultMode ||
-      (source != &port_source && source != &power_source)) {
+      (source != &sleep_wake_source && source != &power_change_source)) {
     (void) fprintf(stderr, "stubs: bad CFRunLoopAddSource\n");
     exit(3);
   }
@@ -51,20 +51,25 @@ void CFRunLoopAddSource(CFRunLoopRef rl, CFRunLoopSourceRef source,
 
 /* CFRunLoopRun: send the fixed sequence of power events, then return. */
 void CFRunLoopRun(void) {
-  if (sources_added != 2 || system_callback == NULL || power_callback == NULL) {
+  if (sources_added != 2 || sleep_wake_callback == NULL ||
+      power_change_callback == NULL) {
     (void) fprintf(stderr, "stubs: CFRunLoopRun before setup\n");
     exit(3);
   }
-  power_callback(power_context);
-  system_callback(system_refcon, 1, kIOMessageCanSystemSleep, (void *) 11);
-  system_callback(system_refcon, 1, kIOMessageSystemWillSleep, (void *) 12);
-  system_callback(system_refcon, 1, kIOMessageSystemHasPoweredOn, NULL);
+  power_change_callback(power_change_context);
+  sleep_wake_callback(sleep_wake_refcon, 1, kIOMessageCanSystemSleep,
+                      (void *) 11);
+  sleep_wake_callback(sleep_wake_refcon, 1, kIOMessageSystemWillSleep,
+                      (void *) 12);
+  sleep_wake_callback(sleep_wake_refcon, 1, kIOMessageSystemHasPoweredOn,
+                      NULL);
   (void) fflush(stdout);
 }
 
 /* IONotificationPortGetRunLoopSource: return the fake port's source. */
-CFRunLoopSourceRef IONotificationPortGetRunLoopSource(IONotificationPortRef notify) {
-  return notify == &notification_port ? &port_source : NULL;
+CFRunLoopSourceRef
+IONotificationPortGetRunLoopSource(IONotificationPortRef notify) {
+  return notify == &notification_port ? &sleep_wake_source : NULL;
 }
 
 /* IORegisterForSystemPower: record the callback for CFRunLoopRun. */
@@ -72,8 +77,8 @@ io_connect_t IORegisterForSystemPower(void *refcon,
                                       IONotificationPortRef *thePortRef,
                                       IOServiceInterestCallback callback,
                                       io_object_t *notifier) {
-  system_refcon = refcon;
-  system_callback = callback;
+  sleep_wake_refcon = refcon;
+  sleep_wake_callback = callback;
   *thePortRef = &notification_port;
   *notifier = 7;
   return 5;
@@ -90,7 +95,7 @@ IOReturn IOAllowPowerChange(io_connect_t kernelPort, intptr_t notificationID) {
  * CFRunLoopRun. */
 CFRunLoopSourceRef IOPSNotificationCreateRunLoopSource(
     IOPowerSourceCallbackType callback, void *context) {
-  power_callback = callback;
-  power_context = context;
-  return &power_source;
+  power_change_callback = callback;
+  power_change_context = context;
+  return &power_change_source;
 }
