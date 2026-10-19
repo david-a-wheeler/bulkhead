@@ -1,0 +1,45 @@
+(version 1)
+; Sandbox profile for the local AI engine (llama-swap and the llama-server
+; it starts), rendered and installed root-owned by host-setup.sh. See
+; local-ai-plan.md's "Host sandbox": this is the Phase B1 profile plus
+; three allowances. Allow everything except what's denied below. Later
+; rules take precedence over earlier ones.
+(allow default)
+
+; No outbound IP network, except llama-swap to its backend.
+(deny network-outbound (remote ip "*:*"))
+(allow network-outbound (remote ip "localhost:@@INFER_BACKEND_PORT@@"))
+
+; No file writes, except _infer's Metal shader cache (compiled GPU code,
+; not prompt data) and two devices.
+(deny file-write*)
+(allow file-write*
+  (subpath "@@METAL_CACHE@@")
+  (literal "/dev/null")
+  (literal "/dev/dtracehelper"))
+
+; No file reads under /Users, except the models. The engine itself is
+; under /usr/local, outside /Users.
+(deny file-read* (subpath "/Users"))
+(allow file-read* (subpath "@@MODELS_DIR@@"))
+(allow file-read-metadata
+  (literal "/Users")
+  (literal "/Users/Shared"))
+
+; Little about other accounts: no reading the local account and group
+; files or the login record (who). The directory service (what dscl and
+; id use) stays available, since libraries often look up the current
+; user.
+(deny file-read*
+  (literal "/private/etc/passwd")
+  (literal "/private/etc/group")
+  (literal "/private/var/run/utmpx"))
+
+; No detailed queries about other processes, only its own and those in
+; the same sandbox (llama-swap and the llama-server it starts). This
+; doesn't hide the process list itself: names, PIDs, and owners of all
+; processes stay visible (they come through sysctl, not process-info).
+; Accepted, since the engine can't send them anywhere; see the plan.
+(deny process-info*)
+(allow process-info* (target self))
+(allow process-info* (target same-sandbox))

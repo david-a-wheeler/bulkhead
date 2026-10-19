@@ -41,6 +41,21 @@ https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-
 https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d apache-2.0 flux2-klein-4b
 https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffusion_pytorch_model.safetensors ca70d2202afe6415bdbcb8793ba8cd99fd159cfe6192381504d6c4d3036e0f04 apache-2.0 flux2-klein-4b"
 
+# Text models the local AI engine serves (see local-ai-plan.md), one per
+# line: the name harnesses request, its file in MODELS_DIR, its context
+# window in tokens, the most tokens one reply may use, and a description
+# (the rest of the line, with no quotes or backslashes). host-setup.sh
+# generates llama-swap's config from this, and vm-setup.sh generates pi's
+# models.json, so they can't disagree. The first one is pi-local's
+# default.
+INFER_MODELS="qwen3.8-27b Qwen3.8-27B-Q8_0.gguf 262144 16384 Qwen3.8-27B Q8_0
+qwen3-0.6b Qwen3-0.6B-Q4_0.gguf 32768 4096 Qwen3-0.6B Q4_0 (tests)"
+
+# Port the local AI engine (llama-swap) listens on, on the Mac's
+# 127.0.0.1. A VM's SSH reverse tunnel forwards the same port on the VM's
+# own 127.0.0.1 to it.
+INFER_PORT="8089"
+
 # Port the host secrets server (secrets-server.py) listens on, and that
 # secrets-client (and any other VM-side caller) talks to.
 SECRETS_SERVER_PORT="9876"

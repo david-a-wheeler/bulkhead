@@ -1,0 +1,11 @@
+[Unit]
+Description=Copy the Mac's local AI engine logs (llama-swap %i) into this VM's journal
+
+[Service]
+ExecStart=/usr/local/bin/infer-logs %i
+# Reconnect after the tunnel or llama-swap restarts.
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

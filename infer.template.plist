@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The local AI engine's launchd daemon, rendered and installed by
+     host-setup.sh. It runs llama-swap as _infer under the sandbox
+     profile, with nowhere to write: /var/empty isn't writable, and
+     output goes to /dev/null (llama-swap keeps recent logs in memory).
+     Core 0 means a core dump, which would hold the KV cache, is never
+     written. Umask 63 is 077. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>@@INFER_LABEL@@</string>
+
+    <key>UserName</key>
+    <string>@@MACOS_INFER_USER@@</string>
+    <key>GroupName</key>
+    <string>@@MACOS_INFER_USER@@</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/sandbox-exec</string>
+        <string>-f</string>
+        <string>@@INFER_PROFILE@@</string>
+        <string>@@SWAP_BIN@@</string>
+        <string>-config</string>
+        <string>@@INFER_CONFIG@@</string>
+        <string>-listen</string>
+        <string>127.0.0.1:@@INFER_PORT@@</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/var/empty</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/var/empty</string>
+        <key>TMPDIR</key>
+        <string>/var/empty/</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/dev/null</string>
+    <key>StandardErrorPath</key>
+    <string>/dev/null</string>
+
+    <key>Umask</key>
+    <integer>63</integer>
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>Core</key>
+        <integer>0</integer>
+    </dict>
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>Core</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>

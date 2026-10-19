@@ -67,6 +67,43 @@ for f in secrets-client secrets-server.py; do
   fi
 done
 
+INFER_DEFAULT_MODEL="${INFER_MODELS%% *}"
+render_template pi-local.template.sh "$tmp/pi-local" INFER_DEFAULT_MODEL
+render_template infer-logs.template.sh "$tmp/infer-logs" INFER_PORT
+for f in pi-local infer-logs; do
+  if ! dash -n "$tmp/$f" || ! shellcheck "$tmp/$f"; then
+    echo "FAILED: $f" >&2
+    fail=1
+  fi
+done
+INFER_LABEL=test.label MACOS_INFER_USER=_infer INFER_PROFILE=/p SWAP_BIN=/b INFER_CONFIG=/c
+render_template infer.template.plist "$tmp/infer.plist" \
+  INFER_LABEL MACOS_INFER_USER INFER_PROFILE SWAP_BIN INFER_CONFIG INFER_PORT
+if ! python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' "$tmp/infer.plist" ||
+    grep -q '@@' "$tmp/infer.plist"; then
+  echo "FAILED: infer.template.plist" >&2
+  fail=1
+fi
+
+step "local AI model lists (INFER_MODELS)"
+# llama-swap's config and pi's models.json must list the same models.
+if ! infer_llama_swap_yaml sk-test /llama-server 8999 > "$tmp/llama-swap.yaml"; then
+  echo "FAILED: infer_llama_swap_yaml rejected config.sh's INFER_MODELS" >&2
+  fail=1
+fi
+yaml_models="$(sed -n 's/^  "\([^"]*\)":$/\1/p' "$tmp/llama-swap.yaml")"
+pi_models="$(infer_pi_models_json | jq -r '.providers["mac-local"].models[].id')"
+config_models="$(printf '%s\n' "$INFER_MODELS" | cut -d ' ' -f 1)"
+if [ "$yaml_models" != "$config_models" ] || [ "$pi_models" != "$config_models" ]; then
+  echo "FAILED: model names differ: config.sh: $config_models; llama-swap: $yaml_models; pi: $pi_models" >&2
+  fail=1
+fi
+if (INFER_MODELS='bad Bad.gguf 4096 512 A "quoted" name'
+    infer_llama_swap_yaml k /s 1 >/dev/null); then
+  echo "FAILED: infer_llama_swap_yaml accepted a description with quotes" >&2
+  fail=1
+fi
+
 step "python unit tests (tests/)"
 # tests/render_helper.py renders a template in memory and imports it as a
 # real module, so these exercise the actual logic (not a reimplementation

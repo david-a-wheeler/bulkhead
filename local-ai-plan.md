@@ -34,7 +34,11 @@ VM yet (mytux is a normal VM with full network access).
 * On mytux, the `infer-logs@proxy` and `infer-logs@upstream` user
   services copy llama-swap's and llama-server's logs into the journal
   (checked 2026-10-19).
-* Next: step 1 of "Remaining work".
+* Step 1 of "Remaining work" (moving the trial into the repo) is
+  written but not yet run: on the Mac, `host-setup.sh` now installs the
+  engine and replaces the trial daemon; on mytux, `vm-setup.sh` replaces
+  the trial's copies of pi, `pi-local`, and `infer-logs`. Next: run both
+  and check them (see step 1).
 
 ## Background and goals
 
@@ -157,8 +161,9 @@ be malicious and try to send my sensitive data out. So:
     both read): its name, file, context window, and maximum reply
     length. `host-setup.sh` generates llama-swap's config from that
     (`--ctx-size`), and `vm-setup.sh` generates pi's `models.json`
-    (`contextWindow`, `maxTokens`), so they can't disagree. (The
-    `,infer-test` trial scripts still set these separately.)
+    (`contextWindow`, `maxTokens`), so they can't disagree. That's
+    `config.sh`'s `INFER_MODELS`, read by `common.sh`'s
+    `infer_llama_swap_yaml` and `infer_pi_models_json`.
 * To try in real use: speculative decoding with Qwen3.8-27B's MTP heads
   (`--spec-type draft-mtp`; Unsloth publishes them as
   `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, 1.4 GB), and the n-gram methods,
@@ -598,6 +603,28 @@ The strict profile, if built:
   entries.
 * `vm-setup.sh` installs `check-prose-style --text` as a global
   commit-msg git hook.
+* Written 2026-10-19, not yet run: the trial, moved into the repo.
+  * `host-setup.sh` installs llama.cpp b11721 and llama-swap v265 (each
+    with a checked SHA-256) root-owned under
+    `/usr/local/libexec/bulkhead/infer`; generates the API key (if
+    missing) and llama-swap's config from `INFER_MODELS`; renders
+    `infer.template.sb` and `infer.template.plist`; and installs them,
+    root-owned, as `/usr/local/etc/bulkhead/llama-swap.yaml` (readable
+    only by `_infer`), `/usr/local/etc/bulkhead/infer.sb`, and
+    `/Library/LaunchDaemons/local.bulkhead.infer.plist`, plus the
+    sudoers rule `/etc/sudoers.d/bulkhead-infer`. It first checks the
+    rendered profile (blocks outbound HTTPS, reading my home directory,
+    and writes), and it restarts the daemon only when something
+    changed. After a restart it checks for HTTP 401 without the key, and
+    checks the sudoers rule by restarting again with `sudo -k` and
+    `sudo -n`. It removes the trial's `local.infer-trial` daemon.
+  * `vm-setup.sh`, on a VM with `~/.config/bulkhead/infer-api-key`,
+    installs Node.js, pi 1.3.0 (root-owned in `/usr/local/lib/pi`;
+    npm runs as me, never as root), `pi-local` and `infer-logs` in
+    `/usr/local/bin`, `infer-logs@.service` in `/etc/systemd/user`, and
+    pi's `models.json` generated from `INFER_MODELS`, and removes the
+    trial's copies in my home directory. A VM without the key skips
+    all of it.
 
 ## Test results (2026-10-18 and 2026-10-19)
 
@@ -744,13 +771,13 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-1. **Move the trial into the repo** (sudo): each model defined once in
-   `config.sh`; `host-setup.sh` installs llama-swap (pinned release,
-   checked SHA-256), generates its config, and installs the profile,
-   the launchd plist, and the sudoers rule for `launchctl kickstart -k`,
-   in root-owned locations rather than under `/Users/Shared/infer-test`;
-   `vm-setup.sh` installs pi (pinned), `pi-local`, and the `infer-logs`
-   service, and generates pi's `models.json`.
+1. **Run and check the moved trial** (sudo; see "Implemented"): on the
+   Mac, `./host-setup.sh` (then delete `/Users/Shared/infer-test` and
+   `/Users/Shared/trial.sh`); on mytux, `./vm-setup.sh`, then
+   `pi-local --print 'Say hello in five words.'` through the tunnel,
+   `journalctl --user -u 'infer-logs@*'`, and the macOS log for sandbox
+   denials (`log show --last 10m --predicate 'sender == "Sandbox"'`).
+   A second `./host-setup.sh` should say the engine is up to date.
 2. **Sleep watcher** (sudo): check whether every lid close writes RAM to
    `/private/var/vm/sleepimage` (`pmset -g`, the file's modification
    time). Verify the watcher can delay sleep long enough, that freed

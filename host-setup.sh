@@ -236,7 +236,7 @@ echo "== Configuring git niceties =="
 configure_git_niceties
 
 echo "== Downloading local AI models into $MODELS_DIR (if missing) =="
-# Last, since a download can take a while. Each goes to FILE.partial
+# Near the end, since a download can take a while. Each goes to FILE.partial
 # first (rerunning resumes it), so an unfinished or wrong download never
 # looks like a model. A checksum mismatch deletes it and stops. Files
 # are read-only; SHA256SUMS and SOURCES.tsv record each one's checksum
@@ -293,5 +293,235 @@ while read -r url sha256 license subdir; do
 done <<EOF
 $MODEL_DOWNLOADS
 EOF
+
+echo "== Installing the local AI engine (llama.cpp and llama-swap) =="
+# See local-ai-plan.md. llama-swap, which starts llama-server on demand,
+# runs as a launchd daemon as MACOS_INFER_USER, under a sandbox profile
+# that denies outbound network (except to its backend), file writes
+# (except the Metal shader cache), and reads under /Users (except the
+# models). No code of ours runs as root: launchd starts it, and the one
+# sudoers rule below allows only restarting it. Everything is
+# root-owned, so neither _infer nor you (without sudo) can change it.
+# Pinned releases with checked SHA-256s; update them only deliberately.
+LLAMA_BUILD=b11721
+LLAMA_TARBALL="llama-$LLAMA_BUILD-bin-macos-arm64.tar.gz"
+LLAMA_SHA256=2ace55512ee1ab4e2703f80c135c2a92d40d3367a5b3a98d21b103ffa7f0eb82
+SWAP_VERSION=265
+SWAP_TARBALL="llama-swap_${SWAP_VERSION}_darwin_arm64.tar.gz"
+SWAP_SHA256=01d8d543198973dcfa52fd263e5696230ee1a77fb204f48c5d542761a67623b0
+INFER_LIBEXEC=/usr/local/libexec/bulkhead/infer
+INFER_ETC=/usr/local/etc/bulkhead
+INFER_PROFILE="$INFER_ETC/infer.sb"
+INFER_CONFIG="$INFER_ETC/llama-swap.yaml"
+INFER_LABEL=local.bulkhead.infer
+INFER_PLIST="/Library/LaunchDaemons/$INFER_LABEL.plist"
+INFER_SUDOERS=/etc/sudoers.d/bulkhead-infer
+# Each backend llama-server listens here, one at a time.
+INFER_BACKEND_PORT=8999
+INFER_KEY_FILE="$HOME/.config/bulkhead/infer-api-key"
+LLAMA_DIR="$INFER_LIBEXEC/llama-$LLAMA_BUILD"
+SWAP_DIR="$INFER_LIBEXEC/llama-swap-$SWAP_VERSION"
+SWAP_BIN="$SWAP_DIR/llama-swap"
+infer_tmp="$SCRIPT_DIR/.tmp/infer"
+rm -rf "$infer_tmp"
+mkdir -p "$infer_tmp"
+
+# install_release URL SHA256 DEST [SUBDIR]: download a release tarball,
+# check its SHA-256, and unpack it (or just its SUBDIR) into DEST,
+# root-owned, unless DEST exists. It's unpacked as you, then copied, so
+# the tarball's own file owners don't matter.
+install_release() {
+  [ -d "$3" ] && return 0
+  tarball="$infer_tmp/$(basename "$1")"
+  curl -fL -o "$tarball" "$1"
+  if [ "$(shasum -a 256 "$tarball" | cut -d ' ' -f 1)" != "$2" ]; then
+    echo "ERROR: $tarball doesn't match its SHA-256." >&2
+    exit 1
+  fi
+  mkdir "$infer_tmp/unpack"
+  tar xzf "$tarball" -C "$infer_tmp/unpack"
+  sudo mkdir -p "$(dirname "$3")"
+  sudo rm -rf "$3.partial"
+  sudo cp -R "$infer_tmp/unpack${4:+/$4}" "$3.partial"
+  sudo chown -R root:wheel "$3.partial"
+  sudo chmod -R go-w "$3.partial"
+  sudo mv "$3.partial" "$3"
+  rm -rf "$infer_tmp/unpack" "$tarball"
+}
+# The llama.cpp tarball holds one directory, llama-BUILD.
+install_release \
+  "https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_BUILD/$LLAMA_TARBALL" \
+  "$LLAMA_SHA256" "$LLAMA_DIR" "llama-$LLAMA_BUILD"
+install_release \
+  "https://github.com/mostlygeek/llama-swap/releases/download/v$SWAP_VERSION/$SWAP_TARBALL" \
+  "$SWAP_SHA256" "$SWAP_DIR"
+"$SWAP_BIN" -version
+
+# The API key: clients send it as "Authorization: Bearer KEY". Copy it
+# to each VM that should use the engine (see vm-setup.sh).
+if [ ! -s "$INFER_KEY_FILE" ]; then
+  mkdir -p "$(dirname "$INFER_KEY_FILE")"
+  (umask 077 && printf 'sk-%s\n' "$(head -c 32 /dev/urandom | base64 | tr -d '/+=')" > "$INFER_KEY_FILE")
+fi
+chmod 600 "$INFER_KEY_FILE"
+infer_key="$(cat "$INFER_KEY_FILE")"
+
+# _infer's per-user cache directory, for the Metal shader cache. The
+# sandbox sees real paths, and /var is a symlink to /private/var.
+metal_cache="$(sudo -u "$MACOS_INFER_USER" /usr/bin/getconf DARWIN_USER_CACHE_DIR)"
+case "$metal_cache" in
+  /var/folders/*) METAL_CACHE="/private${metal_cache%/}/com.apple.metal" ;;
+  /private/var/folders/*) METAL_CACHE="${metal_cache%/}/com.apple.metal" ;;
+  *)
+    echo "ERROR: unexpected cache directory for $MACOS_INFER_USER: $metal_cache" >&2
+    exit 1
+    ;;
+esac
+
+# Render everything first.
+if ! infer_llama_swap_yaml "$infer_key" "$LLAMA_DIR/llama-server" "$INFER_BACKEND_PORT" \
+    > "$infer_tmp/llama-swap.yaml"; then
+  echo "ERROR: config.sh's INFER_MODELS has a malformed line." >&2
+  exit 1
+fi
+render_template "$SCRIPT_DIR/infer.template.sb" "$infer_tmp/infer.sb" \
+  INFER_BACKEND_PORT METAL_CACHE MODELS_DIR
+render_template "$SCRIPT_DIR/infer.template.plist" "$infer_tmp/infer.plist" \
+  INFER_LABEL MACOS_INFER_USER INFER_PROFILE SWAP_BIN INFER_CONFIG INFER_PORT
+plutil -lint "$infer_tmp/infer.plist"
+# Only you may restart the engine without a password, and only this way.
+printf '%s ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/%s\n' \
+  "$(id -un)" "$INFER_LABEL" > "$infer_tmp/sudoers"
+
+# A few checks that the profile blocks what matters most; if one fails,
+# install nothing. Run as you, with no listener needed. (The trial in
+# local-ai-plan.md's "Test results" checked more.)
+sandboxed() {
+  /usr/bin/sandbox-exec -f "$infer_tmp/infer.sb" "$@" >/dev/null 2>&1
+}
+infer_check_failed=false
+if ! sandboxed /usr/bin/true; then
+  echo "FAIL: the sandbox profile doesn't load" >&2
+  infer_check_failed=true
+fi
+if sandboxed /usr/bin/curl -sS -m 10 -o /dev/null https://example.com; then
+  echo "FAIL: the sandbox allows outbound HTTPS" >&2
+  infer_check_failed=true
+fi
+if sandboxed /bin/ls "$HOME"; then
+  echo "FAIL: the sandbox allows reading your home directory" >&2
+  infer_check_failed=true
+fi
+if sandboxed /usr/bin/touch /private/var/tmp/bulkhead-infer-denied; then
+  rm -f /private/var/tmp/bulkhead-infer-denied
+  echo "FAIL: the sandbox allows writing to /private/var/tmp" >&2
+  infer_check_failed=true
+fi
+if [ "$infer_check_failed" = true ]; then
+  echo "ERROR: sandbox checks failed; not installing the engine's configuration." >&2
+  exit 1
+fi
+
+# Install only what changed, so rerunning this doesn't restart the engine
+# (and unload its model) for nothing.
+infer_changed=false
+# install_root SRC DEST GROUP MODE: install SRC as DEST, root-owned, if
+# it differs. sudo cmp, since llama-swap.yaml isn't readable by you.
+install_root() {
+  if ! sudo cmp -s "$1" "$2"; then
+    sudo mkdir -p "$(dirname "$2")"
+    sudo install -o root -g "$3" -m "$4" "$1" "$2"
+    infer_changed=true
+  fi
+}
+# The config holds the API key, so only _infer can read it.
+install_root "$infer_tmp/llama-swap.yaml" "$INFER_CONFIG" "$MACOS_INFER_USER" 640
+install_root "$infer_tmp/infer.sb" "$INFER_PROFILE" wheel 644
+install_root "$infer_tmp/infer.plist" "$INFER_PLIST" wheel 644
+# As _infer (which can read the config), never as root.
+sudo -u "$MACOS_INFER_USER" "$SWAP_BIN" -config "$INFER_CONFIG" -validate
+# sudo ignores sudoers.d files whose names contain a dot, so check the
+# new rule there before moving it into place: a broken sudoers file can
+# lock you out of sudo.
+infer_sudoers_changed=false
+if ! sudo cmp -s "$infer_tmp/sudoers" "$INFER_SUDOERS"; then
+  sudo install -o root -g wheel -m 440 "$infer_tmp/sudoers" "$INFER_SUDOERS.new"
+  if ! sudo /usr/sbin/visudo -cf "$INFER_SUDOERS.new"; then
+    sudo rm -f "$INFER_SUDOERS.new"
+    echo "ERROR: visudo rejected the sudoers rule." >&2
+    exit 1
+  fi
+  sudo mv "$INFER_SUDOERS.new" "$INFER_SUDOERS"
+  infer_sudoers_changed=true
+fi
+
+# stop_daemon LABEL: unload a system daemon and wait until it's gone;
+# loading the label again before then fails with "Bootstrap failed: 5:
+# Input/output error". Stopping it stops llama-server too.
+stop_daemon() {
+  sudo launchctl bootout "system/$1" 2>/dev/null || true
+  n=0
+  while sudo launchctl print "system/$1" >/dev/null 2>&1; do
+    if [ "$n" -ge 30 ]; then
+      echo "ERROR: $1 is still loaded after 30 seconds." >&2
+      exit 1
+    fi
+    sleep 1
+    n=$((n + 1))
+  done
+}
+# wait_for_engine: wait until llama-swap answers with the API key.
+wait_for_engine() {
+  n=0
+  until /usr/bin/curl -sf -m 2 -H "Authorization: Bearer $infer_key" \
+      "http://127.0.0.1:$INFER_PORT/v1/models" >/dev/null; do
+    if [ "$n" -ge 30 ]; then
+      echo "ERROR: llama-swap didn't start (its output goes to /dev/null). To see why, run it by hand:" >&2
+      echo "  sudo -u $MACOS_INFER_USER /usr/bin/sandbox-exec -f $INFER_PROFILE $SWAP_BIN -config $INFER_CONFIG -listen 127.0.0.1:$INFER_PORT" >&2
+      exit 1
+    fi
+    sleep 1
+    n=$((n + 1))
+  done
+}
+
+# Cleanup from the trial (,infer-test/trial.sh), which used the same port.
+if [ -f /Library/LaunchDaemons/local.infer-trial.plist ]; then
+  stop_daemon local.infer-trial
+  sudo rm -f /Library/LaunchDaemons/local.infer-trial.plist
+  echo "Removed the trial daemon. You can delete /Users/Shared/infer-test and /Users/Shared/trial.sh."
+fi
+
+infer_restarted=false
+if [ "$infer_changed" = true ] || ! sudo launchctl print "system/$INFER_LABEL" >/dev/null 2>&1; then
+  stop_daemon "$INFER_LABEL"
+  sudo launchctl bootstrap system "$INFER_PLIST"
+  wait_for_engine
+  code="$(/usr/bin/curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$INFER_PORT/v1/models")" || true
+  if [ "$code" != 401 ]; then
+    echo "ERROR: llama-swap answered a request without the API key with HTTP $code, not 401." >&2
+    exit 1
+  fi
+  infer_restarted=true
+fi
+# Earlier pinned releases, no longer used.
+for d in "$INFER_LIBEXEC"/*; do
+  [ "$d" = "$LLAMA_DIR" ] || [ "$d" = "$SWAP_DIR" ] || sudo rm -rf "$d"
+done
+rm -rf "$infer_tmp"
+if [ "$infer_restarted" = true ] || [ "$infer_sudoers_changed" = true ]; then
+  # Check the sudoers rule: forget sudo's cached password, then restart
+  # the engine without one, as infer-access will. Nothing after this
+  # needs sudo.
+  sudo -k
+  if ! sudo -n /bin/launchctl kickstart -k "system/$INFER_LABEL"; then
+    echo "ERROR: the sudoers rule in $INFER_SUDOERS doesn't allow restarting the engine." >&2
+    exit 1
+  fi
+  wait_for_engine
+  echo "Started $INFER_LABEL; the sudoers rule works."
+else
+  echo "$INFER_LABEL is running and up to date."
+fi
 
 echo "== host-setup.sh done =="

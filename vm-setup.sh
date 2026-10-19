@@ -395,6 +395,72 @@ echo "== Managing ~/.bash_aliases block (editor, BULKHEAD_AUTH_SESSION) =="
 install_managed_block "$SCRIPT_DIR/vm-bash-aliases-block.sh" "$HOME/.bash_aliases"
 rm -f "$TMPDIR/bash-aliases-block.rendered"
 
+echo "== Local AI: pi, pi-local, and infer-logs (if this VM has the engine's API key) =="
+# See local-ai-plan.md. Only a VM with the engine's API key can use the
+# Mac's engine, so a VM without one skips all of this. To set one up,
+# run "mkdir -p ~/.config/bulkhead" here, then on the Mac:
+#   scp ~/.config/bulkhead/infer-api-key VMNAME:.config/bulkhead/
+# and rerun this. pi is pinned; update it only deliberately. npm pins
+# only pi itself, not its dependencies.
+PI_VERSION=1.3.0
+pi_prefix=/usr/local/lib/pi
+infer_key_file="$HOME/.config/bulkhead/infer-api-key"
+if [ -s "$infer_key_file" ]; then
+  chmod 600 "$infer_key_file"
+  # pi needs Node.js (Claude Code, above, doesn't).
+  sudo apt-get install -y nodejs npm
+  pi_package="$pi_prefix/node_modules/@earendil-works/pi-coding-agent/package.json"
+  if [ "$(jq -r .version "$pi_package" 2>/dev/null)" != "$PI_VERSION" ]; then
+    # Installed as you, then copied root-owned, so npm never runs as root
+    # and a sandboxed agent can't change pi. --ignore-scripts: pi needs
+    # no install scripts (its CLI is one bundled file), and this keeps
+    # dependencies from running any.
+    rm -rf "$TMPDIR/pi" "$TMPDIR/npm-cache"
+    npm install --prefix "$TMPDIR/pi" --ignore-scripts --no-audit --no-fund \
+      --cache "$TMPDIR/npm-cache" "@earendil-works/pi-coding-agent@$PI_VERSION"
+    sudo rm -rf "$pi_prefix"
+    sudo cp -R "$TMPDIR/pi" "$pi_prefix"
+    sudo chown -R root:root "$pi_prefix"
+    sudo chmod -R go-w "$pi_prefix"
+    rm -rf "$TMPDIR/pi" "$TMPDIR/npm-cache"
+  fi
+  "$pi_prefix/node_modules/.bin/pi" --version
+
+  # pi's models, from config.sh's INFER_MODELS. Keep a hand-edited copy.
+  mkdir -p "$HOME/.pi/agent"
+  infer_pi_models_json > "$TMPDIR/models.json"
+  if [ -f "$HOME/.pi/agent/models.json" ] &&
+      ! cmp -s "$TMPDIR/models.json" "$HOME/.pi/agent/models.json"; then
+    cp "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/models.json.bak"
+    echo "Backed up the old ~/.pi/agent/models.json to models.json.bak"
+  fi
+  mv "$TMPDIR/models.json" "$HOME/.pi/agent/models.json"
+
+  INFER_DEFAULT_MODEL="${INFER_MODELS%% *}"
+  render_template "$SCRIPT_DIR/pi-local.template.sh" "$TMPDIR/pi-local" INFER_DEFAULT_MODEL
+  render_template "$SCRIPT_DIR/infer-logs.template.sh" "$TMPDIR/infer-logs" INFER_PORT
+  sudo install -m 755 "$TMPDIR/pi-local" "$TMPDIR/infer-logs" /usr/local/bin/
+  rm -f "$TMPDIR/pi-local" "$TMPDIR/infer-logs"
+  # A systemd user unit, but root-owned in /etc/systemd/user.
+  sudo mkdir -p /etc/systemd/user
+  sudo install -m 644 "$SCRIPT_DIR/infer-logs@.service" /etc/systemd/user/
+  # Cleanup from the trial (,infer-test/vm-pi-trial.sh), whose copies in
+  # your home directory would override these.
+  rm -f "$HOME/.local/bin/pi-local" "$HOME/.local/bin/infer-logs" \
+    "$HOME/.config/systemd/user/infer-logs@.service"
+  rm -rf "$HOME/.local/lib/pi"
+  systemctl --user daemon-reload
+  for stream in proxy upstream; do
+    systemctl --user enable "infer-logs@$stream.service"
+    # Restart, not just start, to pick up a new infer-logs.
+    systemctl --user restart "infer-logs@$stream.service"
+  done
+  echo "With the tunnel running, try: pi-local --print 'Say hello in five words.'"
+  echo "Engine logs: journalctl --user -u 'infer-logs@*'"
+else
+  echo "Skipping: no $infer_key_file (see the comment in vm-setup.sh to add one)."
+fi
+
 if [ "$ENABLE_INFERENCE_SSH_TUNNEL" = "true" ]; then
   # Reserved for the "MAYBE" host-inference-engine SSH reverse tunnel from
   # architecture.md. The VM side needs nothing beyond sshd (already enabled
