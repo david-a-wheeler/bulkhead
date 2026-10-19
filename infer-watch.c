@@ -156,6 +156,7 @@ static void allow_power_change(void *argument) {
     say("IOAllowPowerChange failed: 0x%x", (unsigned) result);
 }
 
+/* system_power: handle macOS's sleep and wake notifications. */
 static void system_power(void *refcon, io_service_t service,
                          uint32_t message, void *argument) {
   (void) refcon;
@@ -177,11 +178,14 @@ static void system_power(void *refcon, io_service_t service,
   }
 }
 
+/* power_source: handle a power source change. */
 static void power_source(void *context) {
   (void) context;
   run_hook(power_event, OTHER_SECONDS);
 }
 
+/* main: register for power events, then handle them until the run loop
+ * stops (it shouldn't). */
 int main(int argc, char **argv) {
   IONotificationPortRef port = NULL;
   io_object_t notifier = MACH_PORT_NULL;

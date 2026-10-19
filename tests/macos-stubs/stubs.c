@@ -35,8 +35,10 @@ static IOPowerSourceCallbackType power_callback;
 static void *power_context;
 static int sources_added;
 
+/* CFRunLoopGetCurrent: return the one fake run loop. */
 CFRunLoopRef CFRunLoopGetCurrent(void) { return &loop; }
 
+/* CFRunLoopAddSource: check that it's one of our sources, and count it. */
 void CFRunLoopAddSource(CFRunLoopRef rl, CFRunLoopSourceRef source,
                         CFRunLoopMode mode) {
   if (rl != &loop || mode != kCFRunLoopDefaultMode ||
@@ -47,6 +49,7 @@ void CFRunLoopAddSource(CFRunLoopRef rl, CFRunLoopSourceRef source,
   sources_added++;
 }
 
+/* CFRunLoopRun: send the fixed sequence of power events, then return. */
 void CFRunLoopRun(void) {
   if (sources_added != 2 || system_callback == NULL || power_callback == NULL) {
     (void) fprintf(stderr, "stubs: CFRunLoopRun before setup\n");
@@ -59,10 +62,12 @@ void CFRunLoopRun(void) {
   (void) fflush(stdout);
 }
 
+/* IONotificationPortGetRunLoopSource: return the fake port's source. */
 CFRunLoopSourceRef IONotificationPortGetRunLoopSource(IONotificationPortRef notify) {
   return notify == &notification_port ? &port_source : NULL;
 }
 
+/* IORegisterForSystemPower: record the callback for CFRunLoopRun. */
 io_connect_t IORegisterForSystemPower(void *refcon,
                                       IONotificationPortRef *thePortRef,
                                       IOServiceInterestCallback callback,
@@ -74,12 +79,15 @@ io_connect_t IORegisterForSystemPower(void *refcon,
   return 5;
 }
 
+/* IOAllowPowerChange: print what it was called with, for the test. */
 IOReturn IOAllowPowerChange(io_connect_t kernelPort, intptr_t notificationID) {
   printf("allowed %u %ld\n", kernelPort, (long) notificationID);
   (void) fflush(stdout);
   return kIOReturnSuccess;
 }
 
+/* IOPSNotificationCreateRunLoopSource: record the callback for
+ * CFRunLoopRun. */
 CFRunLoopSourceRef IOPSNotificationCreateRunLoopSource(
     IOPowerSourceCallbackType callback, void *context) {
   power_callback = callback;
