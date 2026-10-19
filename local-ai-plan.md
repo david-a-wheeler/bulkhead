@@ -6,6 +6,35 @@ already implemented, what we've measured, and the work that remains. See
 `architecture.md` for the overall bulkhead design this builds on; once
 this is built, the lasting parts belong there.
 
+## Current state (2026-10-19)
+
+A working trial, for **non-sensitive use only**: no sleep watcher yet
+(run `sh trial.sh stop` on the Mac before closing the lid), and no secure
+VM yet (mytux is a normal VM with full network access).
+
+* On the Mac, `/Users/Shared/trial.sh start` runs llama-swap v265 (which
+  starts llama.cpp b11721's llama-server on demand) as the
+  `local.infer-trial` launchd daemon, as `_infer`, under the sandbox
+  profile in "Host sandbox". It writes nothing to disk. Models are in
+  `/Users/Shared/models`. Files under `/Users/Shared/infer-test`:
+  llama.cpp, llama-swap, `llama-swap.yaml` (the config, with the API
+  key), and `infer-trial.sb` (the profile). The API key is in
+  `~/.config/bulkhead/infer-api-key` on the Mac and on mytux.
+* The tunnel is started by hand on the Mac:
+  `ssh -N -R 8089:127.0.0.1:8089 mytux`.
+* On mytux, `pi-local` runs pi 1.3.0 under nono against
+  `qwen3.8-27b` (Q8_0, 262,144-token context) through the tunnel.
+* The scripts are in `,infer-test/` in this repo (not committed): on the
+  Mac, `trial.sh` (with `start`, `status`, `stop`, and
+  `remove-ramdisk`); on mytux, `vm-pi-trial.sh` (installs pi,
+  `pi-local`, and the `infer-logs` log collector). `phase-*.sh`,
+  `setup-models.sh`, `delete-infer.sh`, `check-groups.sh`,
+  `infer-ramdisk`, and `infer-start` are earlier experiments, kept for
+  reference; their results are in "Test results".
+* Next: rerun `vm-pi-trial.sh` on mytux to install the `infer-logs`
+  collector (written but not yet installed), then step 1 of "Remaining
+  work".
+
 ## Background and goals
 
 I normally use Claude, but sometimes I work on sensitive information
@@ -95,7 +124,8 @@ be malicious and try to send my sensitive data out. So:
     retains earlier prompts, which is one reason a mode switch restarts
     the engine;
   * no features that persist state to disk (e.g., `--slot-save-path`),
-    and logging at the default level, to the RAM disk;
+    and logging at the default level, kept in llama-swap's memory and
+    collected in the VM (see "Keeping data off the SSD");
   * never `--tools` or `--mcp-servers-*`: llama-server's built-in agent
     tools can read and write files and run shell commands, and its docs
     say "do not enable in untrusted environments" (both are off by
@@ -213,13 +243,20 @@ be malicious and try to send my sensitive data out. So:
 * llama-swap (and the `llama-server` it starts) runs as a launchd
   daemon (`/Library/LaunchDaemons`, `UserName=_infer`) under the host
   sandbox below.
-* No control program of our own; existing tools cover each job:
+* No code of ours runs as root (decided 2026-10-19; I don't want a lot
+  of root-privileged code). launchd, which is Apple's, starts the daemon
+  as `_infer` from a root-owned plist; installation needs `sudo` once.
+  Existing tools cover each job:
   * switching models: request a model by name (llama-swap);
-  * restarting, for `infer-access`: `launchctl kickstart -k
+  * unloading a model (freeing it, its KV cache, and its prompt cache by
+    stopping llama-server): llama-swap's `POST /api/models/unload`, with
+    the API key, no root needed;
+  * restarting llama-swap, for `infer-access`: `launchctl kickstart -k
     system/<label>`, allowed without a password by one sudoers rule for
-    exactly that command. When launchd stops the job, it also stops the
-    job's other processes, i.e., the backend `llama-server`;
-  * stopping, for sleep: the root sleep watcher runs `launchctl bootout`;
+    exactly that command (one fixed Apple command, not code of ours).
+    When launchd stops the job, it also stops the job's other processes,
+    i.e., the backend `llama-server`. A restart also clears llama-swap's
+    in-memory log; unloading doesn't;
   * status: `curl` to `/health` and llama-swap's `/running`, no root
     needed.
 
@@ -244,7 +281,8 @@ reach it, and a tunnel's port binds only to its VM's own loopback.
 
 * Each mode change closes every tunnel, resets the engine
   (`launchctl kickstart -k`, discarding the KV cache, prompt cache,
-  slots, and in-flight requests), opens tunnels for the new mode, and records
+  slots, in-flight requests, and llama-swap's in-memory log, which
+  holds metadata such as which model ran, when, and token counts), opens tunnels for the new mode, and records
   the mode in a state file so `status`, reboots, and wake agree. The
   reset always happens, between closing and opening, so nothing from
   the secure VM is left in the engine when other VMs gain access.
@@ -311,12 +349,12 @@ The strict profile, if built:
   allowing only:
   * reading the model directory, the llama.cpp and llama-swap
     directories, and the system libraries and frameworks they need;
-  * writing to the RAM disk, `_infer`'s own Metal shader cache
+  * writing only to `_infer`'s own Metal shader cache
     (`.../C/com.apple.metal` under its `/var/folders` directory:
     compiled GPU code, not prompt data; denying it costs about 3 s per
     model start), and `/dev/dtracehelper` (the dynamic linker
     registering DTrace probes; harmless, and denying it fills the
-    denial log with noise);
+    denial log with noise), plus `/dev/null`;
   * listening on 127.0.0.1 on the two ports (llama-swap's and the
     backend's);
   * outbound only to 127.0.0.1 on the backend's port, for llama-swap.
@@ -338,8 +376,10 @@ The strict profile, if built:
   allowing all would let the engine reach every localhost service (e.g.,
   CUPS on 631, maybe the secrets server). That's why the backend uses
   one fixed port.
-* launchd plist keys: `UserName`/`GroupName`; `EnvironmentVariables`
-  with `HOME` and `TMPDIR` on the RAM disk; `Umask` 077; and
+* launchd plist keys: `UserName`/`GroupName`; `WorkingDirectory`,
+  `HOME`, and `TMPDIR` of `/var/empty` (not writable);
+  `StandardOutPath` and `StandardErrorPath` of `/dev/null`; `Umask` 077;
+  and
   `HardResourceLimits` with `Core` 0, so a core dump (process memory,
   including the KV cache) can never be written.
 * TCC adds a layer: a daemon with no privacy grants can't read protected
@@ -348,7 +388,7 @@ The strict profile, if built:
   macOS's pf honors `user`.
 * Fallback, if `(deny default)` turns into an endless list of Metal
   allowances: allow by default but deny outbound network, writes
-  outside the RAM disk, and reads of `/Users` and other sensitive
+  outside the allowed places, and reads of `/Users` and other sensitive
   paths. That's weaker, but still covers the goals that matter most.
 
 ### Keeping data off the SSD
@@ -364,30 +404,44 @@ The strict profile, if built:
   does, since swap is never read back after a reboot. We still avoid
   swap, to avoid SSD writes. What could be swapped: the engine's
   ordinary CPU memory (requests, tokens, output) and the VMs' RAM.
-* A small RAM disk owned by `_infer` (maybe 256 MB) holds logs, `$TMPDIR`,
-  and anything else file-backed. A root LaunchDaemon creates it at boot,
-  e.g., `diskutil erasevolume APFS INFER $(hdiutil attach -nomount
-  ram://N)`, unless `/sbin/mount_tmpfs` exists and is simpler. Traps:
-  * macOS ignores ownership on attached volumes by default, so run
-    `diskutil enableOwnership`, then `chown _infer` and `chmod 700`;
-  * Spotlight could copy log contents into its index on the SSD, so
-    mount it `nobrowse` and run `mdutil -i off`; also exclude it from
-    Time Machine;
-  * fail closed: if the RAM disk wasn't created, `/Volumes/INFER` could
-    be a plain directory on the SSD, so the engine's start script must
-    verify it's a RAM-backed mount and refuse to start otherwise.
-* Kill on sleep (lid-close sleep and hibernation): a small root daemon
-  registers with IOKit's `IORegisterForSystemPower`. On
-  `kIOMessageSystemWillSleep` it runs `launchctl bootout` on the engine,
-  waits for it to exit, then calls `IOAllowPowerChange` (macOS waits up
-  to about 30 seconds). On wake it runs `launchctl bootstrap`; with
-  on-demand loading, nothing loads until a request arrives. Use
-  `bootout`, not a plain kill, since `KeepAlive` would restart a killed
-  engine mid-sleep. AppKit's sleep notification doesn't delay sleep, so
-  it would race with the sleep image. Build it as a tiny C program with
+* The engine writes nothing to disk (decided 2026-10-19, replacing a
+  RAM disk). The tests showed it writes only the Metal shader cache and
+  `/dev/dtracehelper`, so instead of giving it a RAM disk, give it
+  nowhere to write: the sandbox denies all writes except those two and
+  `/dev/null`; `HOME` and `TMPDIR` are `/var/empty` (not writable); and
+  llama-swap's output goes to `/dev/null`, which launchd can safely open
+  directly. If a component ever needs to write a file, the sandbox
+  denies it and the denial log shows it; then reconsider.
+* **There are still logs, just in the guest, not the host.** llama-swap
+  keeps recent logs, including llama-server's output, in memory, and
+  streams them (`/logs/stream`). In the VM, the `infer-logs` systemd
+  user service reads that stream through the tunnel
+  (`curl -N .../logs/stream?no-history`, so a reconnect doesn't record
+  lines twice) and writes it to the journal, on the VM's encrypted disk
+  next to the harness's own logs; read them with
+  `journalctl --user -u infer-logs`. Lines from while it's disconnected
+  stay only in llama-swap's memory, readable with `curl .../logs` until
+  llama-swap restarts. In the secure VM, only the secure VM collects
+  them, since only it has the tunnel in secure mode.
+* The RAM disk prototype worked (see "Test results") and stays
+  documented there, in case a component needs to write files later. It
+  needed a root daemon at every boot, which the no-write design avoids.
+* Kill on sleep (lid-close sleep and hibernation), without root: a small
+  launchd agent running as me registers with IOKit's
+  `IORegisterForSystemPower` (which doesn't need root). On
+  `kIOMessageSystemWillSleep` it calls llama-swap's
+  `POST /api/models/unload` with the API key, which stops llama-server
+  (freeing the model, its KV cache, and its prompt cache), waits for
+  that to finish, then calls `IOAllowPowerChange` (macOS waits up to
+  about 30 seconds). llama-swap itself keeps running, holding no
+  conversation data, only its in-memory log (metadata). Nothing needs
+  doing on wake: the next request loads the model again. AppKit's sleep
+  notification doesn't delay sleep, so it would race with the sleep
+  image. Build it as a tiny C program with
   Apple's Command Line Tools installed only while building it (not
-  Homebrew), or use sleepwatcher's prebuilt binary if it has one and
-  runs its script before acknowledging sleep.
+  Homebrew), or use sleepwatcher's prebuilt binary (as me, running a
+  `curl` to the unload endpoint) if it has one and runs its script
+  before acknowledging sleep.
 * FileVault stays on as the backstop. Accepted, and to be documented:
   the secure VM's RAM, including its LUKS master key and decrypted data,
   ends up in the host's sleep image; FileVault is what protects that.
@@ -499,7 +553,7 @@ The strict profile, if built:
 * `vm-setup.sh` installs `check-prose-style --text` as a global
   commit-msg git hook.
 
-## Test results (2026-10-18)
+## Test results (2026-10-18 and 2026-10-19)
 
 Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
 `,infer-test/`.
@@ -602,38 +656,76 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
     nothing; the tests now use `configd`, and report the visible
     process list as a known, accepted result. With the hardening,
     llama-swap and llama-server still ran with no sandbox denials.
+  * A RAM disk prototype (later replaced by the no-write design; see
+    "Keeping data off the SSD") worked: `infer-ramdisk`, run as root at
+    boot by a `local.infer-ramdisk` launchd daemon, created a 256 MB RAM
+    disk on `/private/var/infer-ram` (`hdiutil attach -nomount
+    ram://...`, `newfs_hfs`), mounted `nodev, nosuid, noatime,
+    nobrowse`, owned by `_infer` (mode 700), with a root-owned mount
+    point underneath; `infer-ramdisk --check` (a mounted disk image
+    whose image path is `ram://...`) accepted it and rejected a plain
+    directory; and `infer-start`, run by the engine's daemon as
+    `_infer`, refused to start without it, then started llama-swap with
+    its log, `HOME`, and `TMPDIR` there, with no sandbox denials. Lessons
+    if it's ever needed again: don't use launchd's `StandardOutPath` for
+    a file on the RAM disk (launchd opens it before any check, so with
+    the RAM disk missing it lands on the SSD); keep any script root runs
+    root-owned; and check that the volume honors ownership. Spotlight hasn't indexed it:
+    `mdutil -s` says "unknown indexing state" (no index), there's no
+    `.Spotlight-V100` directory, and `mdfind -onlyin` finds nothing.
+    `mdutil -s` must run as root, since only `_infer` can enter the
+    directory.
+
+* **No-write trial** (2026-10-19, `,infer-test/trial.sh`): with the
+  profile allowing writes only to the Metal shader cache,
+  `/dev/dtracehelper`, and `/dev/null`, and `HOME`, `TMPDIR`, and the
+  working directory set to `/var/empty`, all self-tests passed (writes
+  to `/Users/Shared/infer-test` and `/private/var/tmp` denied, to
+  `/dev/null` allowed), llama-swap was ready in about 1 s, and the
+  chat ran at 297 tokens/s. Unloading through the API left no model
+  loaded and stopped llama-server; `launchctl kickstart -k` restarted
+  llama-swap and cleared the earlier session from its in-memory log.
+  The only sandbox denials were llama-swap reading
+  `/private/etc/passwd` (blocked by the hardening); I believe that's
+  Go's standard user lookup, and llama-swap worked fine without it.
+  Removing the RAM disk prototype needed `umount` before
+  `hdiutil detach` (it was mounted with `mount(8)`, not Disk
+  Arbitration, so `hdiutil detach` alone said "Resource busy"); nothing
+  had it open, and stopping the daemon had stopped llama-server too.
 
 ## Remaining work
 
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-1. **RAM disk** (sudo): the boot-time LaunchDaemon, the traps above, and
-   how it behaves under memory pressure (does it stay out of swap?).
-2. **Move the trial into the repo** (sudo): each model defined once in
+0. **Install and check the VM log collector**: rerun
+   `,infer-test/vm-pi-trial.sh` on mytux, then check
+   `journalctl --user -u infer-logs` shows the engine's log lines.
+
+1. **Move the trial into the repo** (sudo): each model defined once in
    `config.sh`; `host-setup.sh` installs llama-swap (pinned release,
-   checked SHA-256), generates its config, installs the profile, the
-   launchd plist, the fail-closed start script, and the sudoers rule
-   for `launchctl kickstart -k`, all in root-owned locations rather
-   than under `/Users/Shared/infer-test`; `vm-setup.sh` installs pi
-   (pinned) and `pi-local`, and generates pi's `models.json`.
-3. **Sleep watcher** (sudo): check whether every lid close writes RAM to
+   checked SHA-256), generates its config, and installs the profile,
+   the launchd plist, and the sudoers rule for `launchctl kickstart -k`,
+   in root-owned locations rather than under `/Users/Shared/infer-test`;
+   `vm-setup.sh` installs pi (pinned), `pi-local`, and the `infer-logs`
+   service, and generates pi's `models.json`.
+2. **Sleep watcher** (sudo): check whether every lid close writes RAM to
    `/private/var/vm/sleepimage` (`pmset -g`, the file's modification
    time). Verify the watcher can delay sleep long enough, that freed
    pages aren't in the sleep image (I believe macOS writes only in-use
    pages), and that forced sleep at critically low battery still sends
    the notification.
-4. **Tunnels and `infer-access`**, with the new `config.sh` settings.
-5. **Secure VM**: create it with LUKS, run `vm-setup.sh`, set up goose
+3. **Tunnels and `infer-access`**, with the new `config.sh` settings.
+4. **Secure VM**: create it with LUKS, run `vm-setup.sh`, set up goose
    and pi against the engine, write the nono allowlist (which hosts do
    they need?), and refuse inbound connections from other VMs.
-6. **End-to-end checks**: nothing from `_infer` reaches the SSD (e.g.,
+5. **End-to-end checks**: nothing from `_infer` reaches the SSD (e.g.,
    `fs_usage` during a session), swap stays at 0 after a heavy session,
    and usability in real use, including MTP speculative decoding.
-7. **File Sharing**: turn it off, or at least guest access (my action).
-8. **Documentation**: move the lasting parts into `architecture.md` and
+6. **File Sharing**: turn it off, or at least guest access (my action).
+7. **Documentation**: move the lasting parts into `architecture.md` and
    `README.md`.
-9.  **Maybe, later: a strict host sandbox**, most likely with nono's
+8. **Maybe, later: a strict host sandbox**, most likely with nono's
     prebuilt binary (see "Host sandbox"). Check `has tensor = true`
     under it, since llama.cpp compiles a test kernel at startup and
     silently disables the tensor API if that fails, which would cost
