@@ -27,8 +27,8 @@ VM yet (mytux is a normal VM with full network access).
 * The macOS log showed no sandbox denials for llama-swap or
   llama-server. It did show llama-swap's performance monitor running
   `ioreg` every 5 seconds, denied reading `/etc/passwd`; the config now
-  turns that monitor off (`performance: disabled: true`). Next: rerun
-  `host-setup.sh` and check that those denials stop.
+  turns that monitor off (`performance: disabled: true`). After a rerun
+  of `host-setup.sh` restarted the engine, those denials stopped.
 * Still to check from step 3: the tunnel coming back after mytux reboots
   and after the Mac sleeps. Still to do from step 1: delete
   `/Users/Shared/infer-test` and `/Users/Shared/trial.sh`.
