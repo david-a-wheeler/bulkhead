@@ -273,8 +273,28 @@ allowed directories, and reads under `/Users` except the model and
 engine directories) plus the three allowances below (the Metal shader
 cache, `/dev/dtracehelper`, and outbound to the backend port only), as
 the trial does. It covers the main goals (no outbound network, no
-reading my files, no writes outside allowed places) in about 25 lines
-I understand. A strict `(deny default)` profile, described next, is
+reading my files, no writes outside allowed places) in about 35 lines
+I understand. It also limits what a compromised engine can learn about
+other accounts and processes:
+
+* it can't read `/private/etc/passwd`, `/private/etc/group`, or the
+  login record `/private/var/run/utmpx` (what `who` reads);
+* `(deny process-info*)`, allowing only `(target self)` and
+  `(target same-sandbox)`, blocks detailed queries about other
+  processes;
+* the sandbox refuses to run setuid programs such as `/bin/ps`.
+
+Accepted leftovers: it can still list every process's name, PID, and
+owner (that comes through `sysctl`, not `process-info`; blocking
+`kern.proc` could break llama-swap's tracking of its child), and look
+up other accounts through the directory service (what `dscl` and `id`
+use, revealing e.g. my account name and full name), which I left open
+because libraries look up the current user. Neither matters much while
+the engine can't send anything out. In normal use the model can't do
+any of this anyway: it only produces text, and its tool calls are run
+by the harness in the VM; these limits are for a compromised engine
+(e.g., a crafted model file or request exploiting a parser bug, or a
+tampered binary). A strict `(deny default)` profile, described next, is
 deferred. If I want one, the leading option is nono's prebuilt macOS
 binary (`nono-v0.80.0-aarch64-apple-darwin.tar.gz`, no Homebrew
 needed) rather than hand-building one: its `(deny default)` profiles are
@@ -571,6 +591,17 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
     web page in a browser on the Mac could have queried it directly
     (now `--cors-origins http://cors.invalid`, an origin no page can
     have).
+  * The account and process hardening (see "Host sandbox") passed its
+    self-tests: inside the sandbox, `/etc/passwd`, `/etc/group`, and
+    `who` were blocked, and `/bin/ps` (setuid) wouldn't run, each
+    checked against an unsandboxed baseline. A sandboxed `pgrep` still
+    listed root processes (e.g., `logd`, `configd`), so the process
+    list stays visible, as accepted. The first version of these tests
+    was misleading: `ps` couldn't run at all, and `pgrep -x launchd`
+    finds nothing even unsandboxed, so "can't see launchd" proved
+    nothing; the tests now use `configd`, and report the visible
+    process list as a known, accepted result. With the hardening,
+    llama-swap and llama-server still ran with no sandbox denials.
 
 ## Remaining work
 
