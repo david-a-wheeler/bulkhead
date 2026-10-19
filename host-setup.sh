@@ -345,22 +345,34 @@ version_older() {
     'def v: ltrimstr("v") | split(".") | map(tonumber); ($a | v) < ($b | v)' >/dev/null
 }
 # cooled_release REPO TAG_REGEX: print the tag of the newest release
-# (not a draft or prerelease) whose tag matches TAG_REGEX and that's at
-# least INFER_COOLING_DAYS old, or nothing if there's none in the last
-# 500 releases. llama.cpp publishes a build for nearly every commit, as
-# prereleases, so its stable releases can be a few pages back.
+# (not a draft or prerelease) whose tag matches TAG_REGEX (which must
+# start with ^v) and that's at least INFER_COOLING_DAYS old, or nothing
+# if none of the 20 newest matching tags is. It lists the tags, then
+# gets their releases one at a time, newest first. Listing releases
+# instead is far slower: llama.cpp publishes a prerelease for nearly
+# every commit, so each page of 100 releases is about 8 MB and took 2
+# minutes (2026-10-19).
 cooled_release() {
-  page=1
-  while [ "$page" -le 5 ]; do
-    github_api "$1/releases?per_page=100&page=$page" > "$infer_tmp/releases.json" || return 1
-    tag="$(jq -r --arg re "$2" --arg cutoff "$cooling_cutoff" '
-      [.[] | select((.draft or .prerelease) | not) | select(.tag_name | test($re))
-        | select(.published_at <= $cutoff)][0].tag_name // empty' "$infer_tmp/releases.json")"
-    if [ -n "$tag" ]; then
+  github_api "$1/git/matching-refs/tags/v" > "$infer_tmp/tags.json" || return 1
+  tags="$(jq -r --arg re "$2" '
+    [.[].ref | ltrimstr("refs/tags/") | select(test($re))]
+    | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | reverse | .[:20][]' \
+    "$infer_tmp/tags.json")" || return 1
+  for tag in $tags; do
+    code="$(curl -sSL -o "$infer_tmp/release.json" -w '%{http_code}' \
+      -H 'Accept: application/vnd.github+json' \
+      "https://api.github.com/repos/$1/releases/tags/$tag")" || return 1
+    case "$code" in
+      200) ;;
+      404) continue ;; # A tag without a release.
+      *) return 1 ;;
+    esac
+    if jq -e --arg cutoff "$cooling_cutoff" \
+        '((.draft or .prerelease) | not) and .published_at <= $cutoff' \
+        "$infer_tmp/release.json" >/dev/null; then
       echo "$tag"
       return 0
     fi
-    page=$((page + 1))
   done
 }
 # pick_release REPO TAG_REGEX MIN PIN: print the release tag to install:
