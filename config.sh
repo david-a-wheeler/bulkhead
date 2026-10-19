@@ -62,11 +62,17 @@ qwen3-0.6b Qwen3-0.6B-Q4_0.gguf 32768 4096 Qwen3-0.6B Q4_0 (tests)"
 # like "b11721") overrides both, e.g., to hold back from a release that
 # breaks something; host-setup.sh warns while one is set, so clear it
 # when you can.
+#
+# vm-setup.sh installs pi the same way, with PI_MIN and PI_PIN (versions
+# like "1.3.0"), using npm's --before, which also limits pi's
+# dependencies to versions published by then.
 INFER_COOLING_DAYS="7"
 LLAMA_CPP_MIN="v0.7.0"
 LLAMA_CPP_PIN=""
 LLAMA_SWAP_MIN="v265"
 LLAMA_SWAP_PIN=""
+PI_MIN="1.3.0"
+PI_PIN=""
 
 # Port the local AI engine (llama-swap) listens on, on the Mac's
 # 127.0.0.1. A VM's SSH reverse tunnel forwards the same port on the VM's

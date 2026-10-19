@@ -645,11 +645,16 @@ The strict profile, if built:
     checks the sudoers rule by restarting again with `sudo -k` and
     `sudo -n`. It removes the trial's `local.infer-trial` daemon.
   * `vm-setup.sh`, on a VM with `~/.config/bulkhead/infer-api-key`,
-    installs Node.js, pi 1.3.0 (root-owned where `npm install -g`
-    would put it, `/usr/local/lib/node_modules`, linked from
-    `/usr/local/bin/pi`; npm runs as me, never as root), `pi-local` and `infer-logs` in
-    `/usr/local/bin`, `infer-logs@.service` in `/etc/systemd/user`, and
-    pi's `models.json` generated from `INFER_MODELS`, and removes the
+    installs Node.js and pi (root-owned where `npm install -g` would
+    put it, `/usr/local/lib/node_modules`, linked from
+    `/usr/local/bin/pi`; npm runs as me, never as root). pi follows the
+    same cooling rule, with `PI_MIN` (1.3.0) and `PI_PIN`, through
+    npm's `--before`, which also limits its dependencies; for a floor
+    or pin, `--before` is an hour after that release, since pi's
+    sibling packages come out moments after it. It also installs
+    `pi-local` and `infer-logs` in `/usr/local/bin`,
+    `infer-logs@.service` in `/etc/systemd/user`, and pi's
+    `models.json` generated from `INFER_MODELS`, and removes the
     trial's copies in my home directory. A VM without the key skips
     all of it.
 

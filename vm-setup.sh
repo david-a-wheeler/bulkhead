@@ -400,26 +400,51 @@ echo "== Local AI: pi, pi-local, and infer-logs (if this VM has the engine's API
 # Mac's engine, so a VM without one skips all of this. To set one up,
 # run "mkdir -p ~/.config/bulkhead" here, then on the Mac:
 #   scp ~/.config/bulkhead/infer-api-key VMNAME:.config/bulkhead/
-# and rerun this. pi is pinned; update it only deliberately. npm pins
-# only pi itself, not its dependencies.
-PI_VERSION=1.3.0
+# and rerun this.
 pi_package=@earendil-works/pi-coding-agent
 infer_key_file="$HOME/.config/bulkhead/infer-api-key"
 if [ -s "$infer_key_file" ]; then
   chmod 600 "$infer_key_file"
   # pi needs Node.js (Claude Code, above, doesn't).
   sudo apt-get install -y nodejs npm
-  # Where "npm install -g" would put it: /usr/local/lib/node_modules,
-  # linked from /usr/local/bin/pi.
+  npm_cache="$TMPDIR/npm-cache"
+
+  # Which pi (see config.sh): the newest release that's at least
+  # INFER_COOLING_DAYS old, but not older than PI_MIN; or PI_PIN. npm's
+  # --before limits pi and its dependencies to versions published by
+  # then. For the floor or a pin, that's an hour after it was published,
+  # since pi's sibling packages (e.g., pi-tui) come out moments after it.
+  pi_before="$(date -u -d "$INFER_COOLING_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)"
+  pi_spec="$pi_package@latest"
+  pi_floor="${PI_PIN:-$PI_MIN}"
+  if [ -n "$pi_floor" ]; then
+    pi_floor_time="$(npm view "$pi_package" time --json --cache "$npm_cache" |
+      jq -r --arg v "$pi_floor" '.[$v] // empty')"
+    if [ -z "$pi_floor_time" ]; then
+      echo "ERROR: there's no pi release $pi_floor (config.sh's PI_PIN or PI_MIN)." >&2
+      exit 1
+    fi
+    pi_floor_before="$(date -u -d "@$(($(date -u -d "$pi_floor_time" +%s) + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
+    if [ -n "$PI_PIN" ]; then
+      echo "WARNING: pi is pinned to $PI_PIN. Clear the pin in config.sh when you can." >&2
+      pi_spec="$pi_package@$PI_PIN"
+      pi_before="$pi_floor_before"
+    elif [ "$(printf '%s\n%s\n' "$pi_before" "$pi_floor_before" | sort | tail -n 1)" = "$pi_floor_before" ]; then
+      pi_before="$pi_floor_before"
+    fi
+  fi
+
+  # Installed as you into a scratch prefix, then copied root-owned where
+  # "npm install -g" would put it (/usr/local/lib/node_modules, linked
+  # from /usr/local/bin/pi), so npm never runs as root and a sandboxed
+  # agent can't change pi. It's copied only if anything differs,
+  # including its dependencies. --ignore-scripts: pi needs no install
+  # scripts, and this keeps its dependencies from running any.
   pi_dir="/usr/local/lib/node_modules/$pi_package"
-  if [ "$(jq -r .version "$pi_dir/package.json" 2>/dev/null)" != "$PI_VERSION" ]; then
-    # Installed as you into a scratch prefix, then copied root-owned, so
-    # npm never runs as root and a sandboxed agent can't change pi.
-    # --ignore-scripts: pi needs no install scripts (its CLI is one
-    # bundled file), and this keeps dependencies from running any.
-    rm -rf "${TMPDIR:?}/pi" "${TMPDIR:?}/npm-cache"
-    npm install -g --prefix "$TMPDIR/pi" --ignore-scripts --no-audit --no-fund \
-      --cache "$TMPDIR/npm-cache" "$pi_package@$PI_VERSION"
+  rm -rf "${TMPDIR:?}/pi"
+  npm install -g --prefix "$TMPDIR/pi" --ignore-scripts --no-audit --no-fund \
+    --cache "$npm_cache" --before "$pi_before" "$pi_spec"
+  if ! diff -rq --no-dereference "$TMPDIR/pi/lib/node_modules/$pi_package" "$pi_dir" >/dev/null 2>&1; then
     sudo mkdir -p "$(dirname "$pi_dir")"
     sudo rm -rf "$pi_dir"
     sudo cp -R "$TMPDIR/pi/lib/node_modules/$pi_package" "$pi_dir"
@@ -427,8 +452,9 @@ if [ -s "$infer_key_file" ]; then
     sudo chmod -R go-w "$pi_dir"
     # A relative link (../lib/node_modules/...), so it works from here too.
     sudo cp -P "$TMPDIR/pi/bin/pi" /usr/local/bin/pi
-    rm -rf "${TMPDIR:?}/pi" "${TMPDIR:?}/npm-cache"
+    echo "Installed pi $(jq -r .version "$pi_dir/package.json")."
   fi
+  rm -rf "${TMPDIR:?}/pi"
   /usr/local/bin/pi --version
 
   # pi's models, from config.sh's INFER_MODELS. Keep a hand-edited copy.
