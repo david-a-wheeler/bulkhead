@@ -70,7 +70,9 @@ done
 INFER_DEFAULT_MODEL="${INFER_MODELS%% *}"
 render_template nopi.template.sh "$tmp/nopi" INFER_DEFAULT_MODEL
 render_template infer-logs.template.sh "$tmp/infer-logs" INFER_PORT
-for f in nopi infer-logs; do
+render_template infer-watch-hook.template.sh "$tmp/infer-watch-hook" \
+  INFER_PORT INFER_KEY_FILE INFER_LABEL INFER_LOW_POWER_BELOW INFER_LOW_POWER_UNTIL
+for f in nopi infer-logs infer-watch-hook; do
   if ! dash -n "$tmp/$f" || ! shellcheck "$tmp/$f"; then
     echo "FAILED: $f" >&2
     fail=1
@@ -82,7 +84,8 @@ render_template infer.template.plist "$tmp/infer.plist" \
 INFER_TUNNEL_LABEL=test.tunnel INFER_TUNNEL_VM=testvm
 render_template infer-tunnel.template.plist "$tmp/infer-tunnel.plist" \
   INFER_TUNNEL_LABEL INFER_TUNNEL_VM INFER_PORT
-for f in infer.plist infer-tunnel.plist; do
+render_template infer-watch.template.plist "$tmp/infer-watch.plist" INFER_WATCH_LABEL HOME
+for f in infer.plist infer-tunnel.plist infer-watch.plist; do
   if ! python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' "$tmp/$f" ||
       grep -q '@@' "$tmp/$f"; then
     echo "FAILED: $f" >&2

@@ -11,7 +11,9 @@
 # The engine listens only on the Mac's 127.0.0.1; a VM reaches it only
 # through an SSH reverse tunnel this opens, each one a per-user launchd
 # agent (see infer-tunnel.template.plist). Those reconnect after a VM
-# reboot or the Mac's sleep, and come back after the Mac reboots.
+# reboot, and come back after the Mac reboots. The sleep watcher
+# (infer-watch-hook) closes them before the Mac sleeps and reopens them
+# after it wakes.
 #
 # Each mode change closes every tunnel, then resets the engine
 # (launchctl kickstart -k, which host-setup.sh's sudoers rule allows

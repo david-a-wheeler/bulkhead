@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The sleep watcher, a per-user launchd agent rendered and loaded by
+     host-setup.sh: infer-watch runs infer-watch-hook before sleep,
+     after waking, and on power changes. Its log holds only what it did
+     and when, never prompts. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>@@INFER_WATCH_LABEL@@</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>@@HOME@@/bin/infer-watch</string>
+        <string>@@HOME@@/bin/infer-watch-hook</string>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>@@HOME@@/Library/Logs/infer-watch.log</string>
+    <key>StandardErrorPath</key>
+    <string>@@HOME@@/Library/Logs/infer-watch.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>

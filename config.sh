@@ -92,6 +92,14 @@ INFER_SECURE_VM=""
 INFER_LABEL="local.infer"
 INFER_KEY_FILE="$HOME/.config/bulkhead/infer-api-key"
 
+# The sleep watcher's launchd agent (see infer-watch.c), and when it
+# switches to Low Power Mode: below INFER_LOW_POWER_BELOW percent of
+# battery, until it's back to INFER_LOW_POWER_UNTIL percent or more
+# while plugged in.
+INFER_WATCH_LABEL="local.infer-watch"
+INFER_LOW_POWER_BELOW="30"
+INFER_LOW_POWER_UNTIL="40"
+
 # Port the host secrets server (secrets-server.py) listens on, and that
 # secrets-client (and any other VM-side caller) talks to.
 SECRETS_SERVER_PORT="9876"

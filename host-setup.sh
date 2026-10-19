@@ -512,8 +512,18 @@ render_template "$SCRIPT_DIR/infer.template.sb" "$infer_tmp/infer.sb" \
 render_template "$SCRIPT_DIR/infer.template.plist" "$infer_tmp/infer.plist" \
   INFER_LABEL MACOS_INFER_USER INFER_PROFILE SWAP_BIN INFER_CONFIG INFER_PORT
 # Only you may restart the engine without a password, and only this way.
-printf '%s ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/%s\n' \
-  "$(id -un)" "$INFER_LABEL" > "$infer_tmp/sudoers"
+# The sleep watcher may also switch both power sources to Low Power Mode,
+# and set each source's mode back (see infer-watch-hook.template.sh).
+me="$(id -un)"
+{
+  printf '%s ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/%s\n' "$me" "$INFER_LABEL"
+  printf '%s ALL=(root) NOPASSWD: /usr/bin/pmset -a powermode 1\n' "$me"
+  for source in b c; do
+    for mode in 0 1 2; do
+      printf '%s ALL=(root) NOPASSWD: /usr/bin/pmset -%s powermode %s\n' "$me" "$source" "$mode"
+    done
+  done
+} > "$infer_tmp/sudoers"
 
 # Each file's check, run on every run, so a change elsewhere (e.g., a
 # macOS update that loosens the sandbox) is caught too.
@@ -688,11 +698,58 @@ if [ "$infer_restarted" = true ] || [ "$infer_sudoers_changed" = true ]; then
   # command, keeping it for a rerun.
   sudo -n -k /bin/launchctl kickstart -k "system/$INFER_LABEL" ||
     die "the sudoers rule in $INFER_SUDOERS doesn't allow restarting the engine."
+  # -l only checks that the rule allows it, without running it.
+  sudo -n -k -l /usr/bin/pmset -a powermode 1 >/dev/null ||
+    die "the sudoers rules in $INFER_SUDOERS don't allow switching to Low Power Mode."
   wait_for_engine
   echo "Started $INFER_LABEL; the sudoers rule works."
   echo "To let VMs use it: ./infer-access.sh shared (see ./infer-access.sh status)"
 else
   echo "$INFER_LABEL is running and up to date."
+fi
+
+echo "== Installing the sleep watcher (infer-watch) =="
+# Before the Mac sleeps, it unloads the model, so the model's memory
+# never goes into the sleep image; it also switches to Low Power Mode
+# while the battery is low. See local-ai-plan.md, "Kill on sleep". It
+# runs as you, as a launchd agent. I don't know of a trusted prebuilt
+# tool that does this, so it's a small C program built here with Apple's
+# Command Line Tools, which you can remove again afterward. It's rebuilt
+# only when its source changes.
+WATCH_BIN="$HOME/bin/infer-watch"
+mkdir -p "$HOME/bin" "$HOME/Library/Logs"
+if [ -x "$WATCH_BIN" ] && cmp -s "$SCRIPT_DIR/infer-watch.c" "$WATCH_BIN.c"; then
+  :
+elif xcode-select -p >/dev/null 2>&1; then
+  cc -O2 -Wall -Wextra -Werror -framework IOKit -framework CoreFoundation \
+    -o "$WATCH_BIN.new" "$SCRIPT_DIR/infer-watch.c"
+  mv "$WATCH_BIN.new" "$WATCH_BIN"
+  cp "$SCRIPT_DIR/infer-watch.c" "$WATCH_BIN.c"
+  echo "Built $WATCH_BIN. If you don't need the Command Line Tools otherwise, remove them:"
+  echo "  sudo rm -rf /Library/Developer/CommandLineTools"
+elif [ -x "$WATCH_BIN" ]; then
+  echo "WARNING: infer-watch.c changed, but there's no compiler to rebuild it; keeping the old build." >&2
+  echo "  To rebuild it, run xcode-select --install, then rerun this." >&2
+else
+  echo "WARNING: there's no sleep watcher, since building it needs Apple's Command Line Tools." >&2
+  echo "  Run xcode-select --install, then rerun this. Until then, run ./infer-access.sh off before the Mac sleeps." >&2
+fi
+if [ -x "$WATCH_BIN" ]; then
+  render_template "$SCRIPT_DIR/infer-watch-hook.template.sh" "$HOME/bin/infer-watch-hook" \
+    INFER_PORT INFER_KEY_FILE INFER_LABEL INFER_LOW_POWER_BELOW INFER_LOW_POWER_UNTIL
+  chmod 755 "$HOME/bin/infer-watch-hook"
+  watch_plist="$HOME/Library/LaunchAgents/$INFER_WATCH_LABEL.plist"
+  render_template "$SCRIPT_DIR/infer-watch.template.plist" "$watch_plist" \
+    INFER_WATCH_LABEL HOME
+  plutil -lint -s "$watch_plist"
+  my_uid="$(id -u)"
+  watch_unloaded() {
+    ! launchctl print "gui/$my_uid/$INFER_WATCH_LABEL" >/dev/null 2>&1
+  }
+  launchctl bootout "gui/$my_uid/$INFER_WATCH_LABEL" 2>/dev/null || true
+  retry 10 watch_unloaded || die "$INFER_WATCH_LABEL is still loaded after 10 seconds."
+  launchctl bootstrap "gui/$my_uid" "$watch_plist"
+  echo "Started $INFER_WATCH_LABEL; its log is ~/Library/Logs/infer-watch.log."
 fi
 
 echo "== host-setup.sh done =="

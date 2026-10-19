@@ -8,9 +8,10 @@ this is built, the lasting parts belong there.
 
 ## Current state (2026-10-19)
 
-Working, for **non-sensitive use only**: no sleep watcher yet (run
-`./infer-access.sh off` on the Mac before closing the lid), and no secure
-VM yet (mytux is a normal VM with full network access).
+Working, for **non-sensitive use only**: the sleep watcher is written
+(branch `sleep-watcher`) but not yet run, so run `./infer-access.sh off`
+on the Mac before closing the lid; and there's no secure VM yet (mytux
+is a normal VM with full network access).
 
 * On the Mac, `host-setup.sh` installs llama.cpp and llama-swap under
   `/opt` and runs llama-swap as the `local.infer` launchd daemon, as
@@ -567,14 +568,27 @@ The strict profile, if built:
   (freeing the model, its KV cache, and its prompt cache), waits for
   that to finish, then calls `IOAllowPowerChange` (macOS waits up to
   about 30 seconds). llama-swap itself keeps running, holding no
-  conversation data, only its in-memory log (metadata). Nothing needs
-  doing on wake: the next request loads the model again. AppKit's sleep
+  conversation data, only its in-memory log (metadata). AppKit's sleep
   notification doesn't delay sleep, so it would race with the sleep
-  image. Build it as a tiny C program with
-  Apple's Command Line Tools installed only while building it (not
-  Homebrew), or use sleepwatcher's prebuilt binary (as me, running a
-  `curl` to the unload endpoint) if it has one and runs its script
-  before acknowledging sleep.
+  image. Built (2026-10-19) as `infer-watch.c`, a C program of about
+  100 lines that only runs a shell hook (`infer-watch-hook`) and waits
+  for it; the decisions are all in the hook. `host-setup.sh` builds it
+  with Apple's Command Line Tools, which can be removed afterward (not
+  Homebrew), since I don't know of a trusted, maintained prebuilt tool
+  for Apple Silicon that waits for its script before acknowledging
+  sleep. Before sleep, the hook:
+  * first closes the tunnels (`launchctl bootout`, keeping
+    `infer-access.sh`'s plists), so no VM can load the model again
+    between the unload and the sleep;
+  * unloads the model and waits until no `llama-server` runs;
+  * if it's still running after 8 seconds, restarts the engine with the
+    existing `kickstart` sudoers rule.
+
+  After waking, it reopens the tunnels whose plists are there, so the
+  mode stays what `infer-access.sh` last set; the next request loads
+  the model again. infer-watch gives the sleep hook 25 seconds and
+  every other hook 10, since hooks run one at a time and a slow one
+  could delay the sleep hook.
 * FileVault stays on as the backstop. Accepted, and to be documented:
   the secure VM's RAM, including its LUKS master key and decrypted data,
   ends up in the host's sleep image; FileVault is what protects that.
@@ -685,6 +699,21 @@ The strict profile, if built:
   entries.
 * `vm-setup.sh` installs `check-prose-style --text` as a global
   commit-msg git hook.
+* Written 2026-10-19 (branch `sleep-watcher`), not yet run: the sleep
+  watcher (see "Kill on sleep" and "Power and cooling").
+  `host-setup.sh` builds `infer-watch.c` into `~/bin/infer-watch` if
+  there's a compiler (`xcode-select -p`), rebuilding only when the
+  source differs from the copy it keeps as `~/bin/infer-watch.c`, and
+  otherwise warns. It renders `infer-watch-hook.template.sh` into
+  `~/bin/infer-watch-hook` and loads the `local.infer-watch` agent,
+  which logs to `~/Library/Logs/infer-watch.log`. The sudoers file
+  adds the seven `pmset` rules, checked with `sudo -n -k -l`.
+  `config.sh` has `INFER_LOW_POWER_BELOW` (30) and
+  `INFER_LOW_POWER_UNTIL` (40). If I change a mode by hand while it's
+  Low, the hook leaves the modes alone until the battery is back to 40%,
+  so it doesn't immediately undo my choice. Tested on mytux with fake
+  `pmset`, `sudo`, `launchctl`, `pgrep`, and `curl`; the C hasn't been
+  compiled yet.
 * Written 2026-10-19, not yet run: the trial, moved into the repo.
   * `host-setup.sh` installs llama.cpp and llama-swap (see "Releases"
     and "Locations" under "Inference engine"); generates the API key
@@ -873,8 +902,12 @@ here.
    pages aren't in the sleep image (I believe macOS writes only in-use
    pages), and that forced sleep at critically low battery still sends
    the notification. Include the low-battery power modes (see "Power
-   and cooling"); test them by lowering the thresholds temporarily
-   rather than draining the battery.
+   and cooling"); test them by changing the thresholds temporarily in
+   `config.local.sh` rather than draining the battery: with both at 101,
+   rerunning `host-setup.sh` should switch to Low, and then with
+   `INFER_LOW_POWER_UNTIL=0` (plugged in) it should restore the modes.
+   Also check that 1 really is Low (`pmset -g custom`, and System
+   Settings > Battery > Energy Mode). `,sleep-test.sh` checks a lid close.
 3. **Tunnels and `infer-access`**: written 2026-10-19; `shared` works.
    After step 1, stop the hand-started tunnel, run
    `./infer-access.sh shared`, and check `./infer-access.sh status`,
