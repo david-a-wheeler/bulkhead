@@ -30,8 +30,10 @@ VM yet (mytux is a normal VM with full network access).
   turns that monitor off (`performance: disabled: true`). After a rerun
   of `host-setup.sh` restarted the engine, those denials stopped.
 * Still to check from step 3: the tunnel coming back after mytux reboots
-  and after the Mac sleeps. Still to do from step 1: delete
-  `/Users/Shared/infer-test` and `/Users/Shared/trial.sh`.
+  and after the Mac sleeps.
+* I deleted the trial's files from `/Users/Shared` (including the RAM
+  disk prototype's scripts; its daemon was already gone). Only `models`
+  and macOS's own items remain there.
 * The trial's scripts are in `,infer-test/` in this repo (not
   committed), kept for reference; their results are in "Test results".
 
@@ -830,7 +832,7 @@ In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
-   2026-10-19 except as noted in "Current state"): on the
+   2026-10-19): on the
    Mac, `./host-setup.sh` (then delete `/Users/Shared/infer-test` and
    `/Users/Shared/trial.sh`); on mytux, `./vm-setup.sh`, then
    `nopi --print 'Say hello in five words.'` through the tunnel,
