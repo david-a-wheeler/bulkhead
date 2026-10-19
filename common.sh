@@ -202,10 +202,12 @@ ask_once() {
 # ordinary, swappable memory. With one agent it barely helps, since the
 # slot's own KV cache is reused as each turn extends the last. We may
 # raise it later (or use more slots) to speed up several agents taking
-# turns, since each switch otherwise reprocesses the whole context. See
-# local-ai-plan.md for the other flags.
+# turns, since each switch otherwise reprocesses the whole context.
+# performance is disabled because otherwise llama-swap runs ioreg every
+# 5 seconds for GPU statistics we don't use, and the sandbox denies each
+# run's read of /etc/passwd. See local-ai-plan.md for the other flags.
 infer_llama_swap_yaml() {
-  printf 'healthCheckTimeout: 500\nlogLevel: info\napiKeys:\n  - "%s"\nmodels:\n' "$1"
+  printf 'healthCheckTimeout: 500\nlogLevel: info\nperformance:\n  disabled: true\napiKeys:\n  - "%s"\nmodels:\n' "$1"
   while read -r name file ctx max desc; do
     [ -n "$name" ] || continue
     case "$name" in *[!A-Za-z0-9._-]*) return 1 ;; esac
