@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- One VM's SSH reverse tunnel to the local AI engine, a per-user
+     launchd agent rendered and loaded by infer-access.sh. The VM's
+     127.0.0.1:PORT reaches the Mac's 127.0.0.1:PORT, and nothing else
+     can. KeepAlive restarts ssh whenever it exits, e.g., after the VM
+     reboots or the Mac sleeps; ServerAlive* makes a dead connection
+     exit within about 45 seconds, and ExitOnForwardFailure makes ssh
+     exit (and retry) if it can't set up the forward. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>@@INFER_TUNNEL_LABEL@@</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/ssh</string>
+        <string>-N</string>
+        <string>-o</string>
+        <string>BatchMode=yes</string>
+        <string>-o</string>
+        <string>ExitOnForwardFailure=yes</string>
+        <string>-o</string>
+        <string>ServerAliveInterval=15</string>
+        <string>-o</string>
+        <string>ServerAliveCountMax=3</string>
+        <string>-R</string>
+        <string>127.0.0.1:@@INFER_PORT@@:127.0.0.1:@@INFER_PORT@@</string>
+        <string>@@INFER_TUNNEL_VM@@</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

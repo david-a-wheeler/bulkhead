@@ -80,6 +80,18 @@ PI_PIN=""
 # own 127.0.0.1 to it.
 INFER_PORT="8089"
 
+# The VM that holds sensitive data (its UTM name, as in ~/.ssh/config):
+# infer-access.sh's "secure" mode gives only it access to the local AI
+# engine, and "shared" mode gives every other running VM access, but
+# never it. Empty until the secure VM exists; "secure" refuses to run
+# until it's set.
+INFER_SECURE_VM=""
+
+# The local AI engine's launchd daemon, and the file holding its API key
+# (on the Mac, and on each VM that may use it).
+INFER_LABEL="local.infer"
+INFER_KEY_FILE="$HOME/.config/bulkhead/infer-api-key"
+
 # Port the host secrets server (secrets-server.py) listens on, and that
 # secrets-client (and any other VM-side caller) talks to.
 SECRETS_SERVER_PORT="9876"
@@ -157,11 +169,6 @@ NFTABLES_ALLOWED_TCP_PORTS="22 80 443"
 # nono's "default" profile, which is what that file becomes on install.
 NONO_AGENT_PROFILES="nolabs-ai/claude nolabs-ai/goose nolabs-ai/pi"
 
-# Set to "true" to also set up the SSH reverse tunnel (RemoteForward) for
-# reaching a host-side local inference engine (e.g. Ollama) from the VM.
-# Off by default: architecture.md marked this speculative, and it's unrelated
-# to git auth.
-ENABLE_INFERENCE_SSH_TUNNEL="false"
 
 # Local, uncommitted overrides: anything set here wins, since this loads
 # last. $SCRIPT_DIR is already set by whichever script sourced this one

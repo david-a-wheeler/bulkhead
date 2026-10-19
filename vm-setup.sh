@@ -400,9 +400,8 @@ echo "== Local AI: pi, pi-local, and infer-logs (if this VM has the engine's API
 #   scp ~/.config/bulkhead/infer-api-key VMNAME:.config/bulkhead/
 # and rerun this.
 pi_package=@earendil-works/pi-coding-agent
-infer_key_file="$HOME/.config/bulkhead/infer-api-key"
-if [ -s "$infer_key_file" ]; then
-  chmod 600 "$infer_key_file"
+if [ -s "$INFER_KEY_FILE" ]; then
+  chmod 600 "$INFER_KEY_FILE"
   # pi needs Node.js (Claude Code, above, doesn't).
   sudo apt-get install -y nodejs npm
   npm_cache="$TMPDIR/npm-cache"
@@ -484,19 +483,10 @@ if [ -s "$infer_key_file" ]; then
   systemctl --user enable infer-logs@proxy.service infer-logs@upstream.service
   # Restart, not just start, to pick up a new infer-logs.
   systemctl --user restart infer-logs@proxy.service infer-logs@upstream.service
-  echo "With the tunnel running, try: pi-local --print 'Say hello in five words.'"
+  echo "Once the Mac gives this VM access (./infer-access.sh shared), try: pi-local --print 'Say hello in five words.'"
   echo "Engine logs: journalctl --user -u 'infer-logs@*'"
 else
-  echo "Skipping: no $infer_key_file (see the comment in vm-setup.sh to add one)."
-fi
-
-if [ "$ENABLE_INFERENCE_SSH_TUNNEL" = "true" ]; then
-  # Reserved for the "MAYBE" host-inference-engine SSH reverse tunnel from
-  # architecture.md. The VM side needs nothing beyond sshd (already enabled
-  # above); the host-side keygen/RemoteForward setup lives in host-setup.sh.
-  # Not otherwise implemented yet; architecture.md itself marked it
-  # speculative, and it's unrelated to git auth.
-  :
+  echo "Skipping: no $INFER_KEY_FILE (see the comment in vm-setup.sh to add one)."
 fi
 
 echo "== vm-setup.sh done =="

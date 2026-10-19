@@ -37,8 +37,9 @@ VM yet (mytux is a normal VM with full network access).
 * Step 1 of "Remaining work" (moving the trial into the repo) is
   written but not yet run: on the Mac, `host-setup.sh` now installs the
   engine and replaces the trial daemon; on mytux, `vm-setup.sh` replaces
-  the trial's copies of pi, `pi-local`, and `infer-logs`. Next: run both
-  and check them (see step 1).
+  the trial's copies of pi, `pi-local`, and `infer-logs`. Step 3
+  (`infer-access.sh`, replacing the hand-started tunnel) is written too.
+  Next: run them and check them (see steps 1 and 3).
 
 ## Background and goals
 
@@ -317,13 +318,14 @@ just "which VMs have a tunnel"; switching never changes the engine's
 listen address or a firewall rule. Machines outside the Mac can never
 reach it, and a tunnel's port binds only to its VM's own loopback.
 
-* One host command, run as me:
+* One host command, `infer-access.sh` in this repo (like
+  `host-secrets.sh`), run as me:
 
   ```
-  infer-access secure    # only the secure VM
-  infer-access shared    # every other local VM, but NOT the secure VM
-  infer-access off       # no VM
-  infer-access status    # current mode and live tunnels
+  ./infer-access.sh secure    # only the secure VM
+  ./infer-access.sh shared    # every other running VM, but NOT the secure VM
+  ./infer-access.sh off       # no VM
+  ./infer-access.sh status    # recorded mode and tunnels
   ```
 
 * Each mode change closes every tunnel, resets the engine
@@ -339,10 +341,20 @@ reach it, and a tunnel's port binds only to its VM's own loopback.
   mode including both would be a deliberate fourth mode, added only if
   needed.
 * "shared" gets its VM list from `host-backend.sh`'s `enumerate_guests()`,
-  minus the secure VM. Each tunnel is a per-user launchd agent with
-  `KeepAlive`, so it reconnects after a VM reboot or the Mac's sleep.
-* New `config.sh` settings: `INFER_SECURE_VM` and `INFER_PORT`, replacing
-  the `ENABLE_INFERENCE_SSH_TUNNEL` placeholder.
+  minus the secure VM, when it runs: a VM started later gets no tunnel
+  until I rerun `infer-access.sh shared` (decided 2026-10-19, rather
+  than a watcher running all the time). Each tunnel is a per-user
+  launchd agent (`local.infer-tunnel.VM`) running `ssh -N -R`, with
+  `KeepAlive`, `ExitOnForwardFailure`, and `ServerAlive*`, so it
+  reconnects after a VM reboot or the Mac's sleep, and comes back after
+  the Mac reboots.
+* Before resetting the engine, it waits until no ssh forwards the
+  engine's port, including one started by hand, and refuses to go on if
+  one does; if the reset fails while the engine is running, it opens no
+  tunnels.
+* `config.sh` settings: `INFER_SECURE_VM` (empty until the secure VM
+  exists; "secure" refuses to run until it's set) and `INFER_PORT`,
+  replacing the `ENABLE_INFERENCE_SSH_TUNNEL` placeholder.
 * In a VM with a tunnel, any process that can reach that loopback port
   can use the model, including a sandboxed agent if its nono policy
   allows that port.
@@ -823,7 +835,11 @@ here.
    pages aren't in the sleep image (I believe macOS writes only in-use
    pages), and that forced sleep at critically low battery still sends
    the notification.
-3. **Tunnels and `infer-access`**, with the new `config.sh` settings.
+3. **Tunnels and `infer-access`**: written 2026-10-19, not yet run.
+   After step 1, stop the hand-started tunnel, run
+   `./infer-access.sh shared`, and check `./infer-access.sh status`,
+   `pi-local` on mytux, and that a tunnel comes back after mytux
+   reboots and after the Mac sleeps.
 4. **Secure VM**: create it with LUKS, run `vm-setup.sh`, set up goose
    and pi against the engine, write the nono allowlist (which hosts do
    they need?), and refuse inbound connections from other VMs.

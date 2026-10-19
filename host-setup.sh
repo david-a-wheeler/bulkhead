@@ -302,12 +302,10 @@ echo "== Installing the local AI engine (llama.cpp and llama-swap) =="
 INFER_ETC=/usr/local/etc/infer
 INFER_PROFILE="$INFER_ETC/infer.sb"
 INFER_CONFIG="$INFER_ETC/llama-swap.yaml"
-INFER_LABEL=local.infer
 INFER_PLIST="/Library/LaunchDaemons/$INFER_LABEL.plist"
 INFER_SUDOERS=/etc/sudoers.d/infer
 # Each backend llama-server listens here, one at a time.
 INFER_BACKEND_PORT=8999
-INFER_KEY_FILE="$HOME/.config/bulkhead/infer-api-key"
 LLAMA_OPT=/opt/llama.cpp
 SWAP_OPT=/opt/llama-swap
 infer_tmp="$SCRIPT_DIR/.tmp/infer"
@@ -634,17 +632,6 @@ for link in /usr/local/bin/*; do
   fi
 done
 
-# retry SECONDS COMMAND...: run COMMAND once a second until it
-# succeeds, failing after SECONDS more tries.
-retry() {
-  n="$1"
-  shift
-  until "$@"; do
-    [ "$n" -gt 0 ] || return 1
-    sleep 1
-    n=$((n - 1))
-  done
-}
 daemon_loaded() {
   sudo launchctl print "system/$1" >/dev/null 2>&1
 }
@@ -658,12 +645,8 @@ stop_daemon() {
   sudo launchctl bootout "system/$1" 2>/dev/null || true
   retry 30 daemon_unloaded "$1" || die "$1 is still loaded after 30 seconds."
 }
-engine_answers() {
-  /usr/bin/curl -sf -m 2 -H "Authorization: Bearer $infer_key" \
-    "http://127.0.0.1:$INFER_PORT/v1/models" >/dev/null
-}
 wait_for_engine() {
-  if ! retry 30 engine_answers; then
+  if ! retry 30 infer_engine_answers "$infer_key"; then
     echo "To see why, run it by hand: sudo -u $MACOS_INFER_USER /usr/bin/sandbox-exec -f $INFER_PROFILE $SWAP_BIN -config $INFER_CONFIG -listen 127.0.0.1:$INFER_PORT" >&2
     die "llama-swap didn't start (its output goes to /dev/null)."
   fi
@@ -708,6 +691,7 @@ if [ "$infer_restarted" = true ] || [ "$infer_sudoers_changed" = true ]; then
     die "the sudoers rule in $INFER_SUDOERS doesn't allow restarting the engine."
   wait_for_engine
   echo "Started $INFER_LABEL; the sudoers rule works."
+  echo "To let VMs use it: ./infer-access.sh shared (see ./infer-access.sh status)"
 else
   echo "$INFER_LABEL is running and up to date."
 fi

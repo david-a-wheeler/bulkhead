@@ -33,6 +33,19 @@ die() {
   exit 1
 }
 
+# Usage: retry <seconds> <command...>
+# Runs <command> once a second until it succeeds, failing after
+# <seconds> more tries.
+retry() {
+  n="$1"
+  shift
+  until "$@"; do
+    [ "$n" -gt 0 ] || return 1
+    sleep 1
+    n=$((n - 1))
+  done
+}
+
 # Usage: render_template <template-file> <dest-file> <VAR1> [<VAR2> ...]
 # Substitutes every "@@VAR@@" in <template-file> with the current value of
 # shell variable VAR (one already set, typically by config.sh), for each VAR
@@ -215,6 +228,14 @@ EOF
   done <<EOF
 $INFER_MODELS
 EOF
+}
+
+# Usage: infer_engine_answers <api-key>
+# True if the local AI engine (llama-swap) answers on INFER_PORT with
+# <api-key>. On a VM, that's through its tunnel.
+infer_engine_answers() {
+  curl -sf -m 2 -H "Authorization: Bearer $1" \
+    "http://127.0.0.1:$INFER_PORT/v1/models" >/dev/null
 }
 
 # Usage: infer_pi_models_json

@@ -20,7 +20,7 @@ step() {
 }
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-setup.sh vm-setup.sh host-secrets.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-setup.sh vm-setup.sh host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -79,11 +79,16 @@ done
 INFER_LABEL=test.label MACOS_INFER_USER=_infer INFER_PROFILE=/p SWAP_BIN=/b INFER_CONFIG=/c
 render_template infer.template.plist "$tmp/infer.plist" \
   INFER_LABEL MACOS_INFER_USER INFER_PROFILE SWAP_BIN INFER_CONFIG INFER_PORT
-if ! python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' "$tmp/infer.plist" ||
-    grep -q '@@' "$tmp/infer.plist"; then
-  echo "FAILED: infer.template.plist" >&2
-  fail=1
-fi
+INFER_TUNNEL_LABEL=test.tunnel INFER_TUNNEL_VM=testvm
+render_template infer-tunnel.template.plist "$tmp/infer-tunnel.plist" \
+  INFER_TUNNEL_LABEL INFER_TUNNEL_VM INFER_PORT
+for f in infer.plist infer-tunnel.plist; do
+  if ! python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' "$tmp/$f" ||
+      grep -q '@@' "$tmp/$f"; then
+    echo "FAILED: $f" >&2
+    fail=1
+  fi
+done
 
 step "local AI model lists (INFER_MODELS)"
 # llama-swap's config and pi's models.json must list the same models.
