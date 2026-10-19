@@ -31,9 +31,8 @@ VM yet (mytux is a normal VM with full network access).
   `setup-models.sh`, `delete-infer.sh`, `check-groups.sh`,
   `infer-ramdisk`, and `infer-start` are earlier experiments, kept for
   reference; their results are in "Test results".
-* Next: rerun `vm-pi-trial.sh` on mytux to install the `infer-logs`
-  collector (written but not yet installed), then step 1 of "Remaining
-  work".
+* Next: rerun `vm-pi-trial.sh` on mytux to install the two-stream
+  `infer-logs@` collector, then step 1 of "Remaining work".
 
 ## Background and goals
 
@@ -119,10 +118,18 @@ be malicious and try to send my sensitive data out. So:
     the replies, since the browser itself is local;
   * `--parallel 1`, instead of the default 4 slots sharing one KV cache;
   * `/slots` turned off (check the exact flag);
-  * the prompt cache (`--cache-ram`, in RAM, 8192 MiB by default) stays
-    on, since agent harnesses re-send mostly the same context; it
-    retains earlier prompts, which is one reason a mode switch restarts
-    the engine;
+  * the prompt cache off for now (`--cache-ram 0`; the default is 8192
+    MiB). It keeps copies of earlier prompts' KV state in ordinary,
+    swappable memory (see "Keeping data off the SSD"). With one agent
+    it barely helps: the slot's own KV cache already gets reused when
+    each turn extends the previous one. It helps a lot with several
+    agents taking turns on fewer slots, since each switch otherwise
+    reprocesses the whole context. If we run several agents at once,
+    turn it on, or use more slots (`--parallel N --kv-unified`, so they
+    share one context pool; without `--kv-unified` each slot gets only
+    `--ctx-size`/N). Choose `--parallel`, `--kv-unified`, and
+    `--cache-ram` together, as one per-model setting in `config.sh`.
+    Either way, a mode switch restarts the engine to discard all of it;
   * no features that persist state to disk (e.g., `--slot-save-path`),
     and logging at the default level, kept in llama-swap's memory and
     collected in the VM (see "Keeping data off the SSD");
@@ -395,6 +402,36 @@ The strict profile, if built:
 
 * The model weights and KV cache are in wired memory, which can't be
   swapped (see "Test results"). Size things so macOS never needs swap.
+* **Where conversation data can end up**, mainly the KV cache (which
+  holds a processed form of everything in the context):
+  * While the engine runs, only root and the engine can read it. A
+    malicious root on the Mac is out of scope: we've lost anyway. GPU
+    isolation bugs are possible (LeftoverLocals, CVE-2023-4969, leaked
+    GPU local memory between processes on Apple GPUs; patched). No API
+    endpoint dumps the cache (`/slots` is off, no `--slot-save-path`),
+    but with a prompt cache or several slots, a client with the API key
+    could tell by timing whether someone recently sent a given prefix;
+    in secure mode only the secure VM can reach the engine.
+  * After it stops, the kernel zero-fills the freed pages before giving
+    them to any other process.
+  * The prompt cache (off for now) is ordinary memory, so it can go to
+    swap, which is encrypted and deleted at boot. That would be an
+    acceptable risk if we turn it on for several agents.
+  * Wired memory still goes into the sleep image, which is why we
+    unload the model before sleep. If some leaks in anyway (e.g., the
+    watcher fails), overwriting won't reliably remove it, since an SSD
+    writes new versions to fresh blocks and erases old ones whenever it
+    gets around to it. What protects it is encryption: on Apple Silicon
+    the storage controller encrypts everything on the internal SSD with
+    keys the Secure Enclave protects, and FileVault ties them to my
+    password, so stale blocks are ciphertext to anyone without the
+    password. The remaining risk is someone with the Mac *and* my
+    password reading free space as root before it's TRIMmed or reused,
+    which is close to the out-of-scope malicious root. Crypto-erase
+    ("Erase All Content and Settings") removes it for certain. Open
+    question: does macOS on Apple Silicon also encrypt the hibernation
+    image with its own discarded key, as Intel Macs did? Check Apple's
+    Platform Security guide.
 * Swap is acceptable for confidentiality if it's encrypted and a reboot
   makes it unreadable. Apple's Platform Security guide (August 2026,
   "Role of Apple File System") says the VM volume "is unencrypted and is
@@ -413,14 +450,21 @@ The strict profile, if built:
   directly. If a component ever needs to write a file, the sandbox
   denies it and the denial log shows it; then reconsider.
 * **There are still logs, just in the guest, not the host.** llama-swap
-  keeps recent logs, including llama-server's output, in memory, and
-  streams them (`/logs/stream`). In the VM, the `infer-logs` systemd
-  user service reads that stream through the tunnel
-  (`curl -N .../logs/stream?no-history`, so a reconnect doesn't record
-  lines twice) and writes it to the journal, on the VM's encrypted disk
-  next to the harness's own logs; read them with
-  `journalctl --user -u infer-logs`. Lines from while it's disconnected
-  stay only in llama-swap's memory, readable with `curl .../logs` until
+  keeps recent logs in memory and streams them as two streams:
+  `/logs/stream/proxy` (its own lines, e.g., model loads and unloads;
+  in v265 plain `/logs/stream` is only this one) and
+  `/logs/stream/upstream` (llama-server's output, e.g., load details
+  and each request's token counts and timing, with no prompt text). In
+  the VM, the `infer-logs@proxy` and `infer-logs@upstream` systemd user
+  services read them through the tunnel
+  (`curl -N .../logs/stream/STREAM?no-history`, so a reconnect doesn't
+  record lines twice), drop slot bookkeeping and unused-tensor warnings
+  (keeping three timing lines per request: prefill, generation, and
+  total), and write the rest to the journal, on the VM's
+  encrypted disk next to the harness's own logs; read them with
+  `journalctl --user -u 'infer-logs@*'`. Lines from while they're
+  disconnected stay only in llama-swap's memory, readable with
+  `curl .../logs` (proxy only) or `.../logs/stream/upstream` until
   llama-swap restarts. In the secure VM, only the secure VM collects
   them, since only it has the tunnel in secure mode.
 * The RAM disk prototype worked (see "Test results") and stays
@@ -700,7 +744,10 @@ here.
 
 0. **Install and check the VM log collector**: rerun
    `,infer-test/vm-pi-trial.sh` on mytux, then check
-   `journalctl --user -u infer-logs` shows the engine's log lines.
+   `journalctl --user -u 'infer-logs@*'` shows both llama-swap's and
+   llama-server's lines. (The first try, on 2026-10-19, collected only
+   llama-swap's lines, since plain `/logs/stream` omits llama-server's
+   output; it now collects both streams.)
 
 1. **Move the trial into the repo** (sudo): each model defined once in
    `config.sh`; `host-setup.sh` installs llama-swap (pinned release,
@@ -722,6 +769,9 @@ here.
 5. **End-to-end checks**: nothing from `_infer` reaches the SSD (e.g.,
    `fs_usage` during a session), swap stays at 0 after a heavy session,
    and usability in real use, including MTP speculative decoding.
+   Check that agent turns stay about as fast with `--cache-ram 0`
+   (the earlier 4-5 s for a 2k-token turn was measured with the
+   prompt cache on), using the timing lines in the VM's journal.
 6. **File Sharing**: turn it off, or at least guest access (my action).
 7. **Documentation**: move the lasting parts into `architecture.md` and
    `README.md`.
