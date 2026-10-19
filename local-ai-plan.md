@@ -911,7 +911,7 @@ here.
    rerunning `host-setup.sh` should switch to Low, and then with
    `INFER_LOW_POWER_UNTIL=0` (plugged in) it should restore the modes.
    Also check that 1 really is Low (`pmset -g custom`, and System
-   Settings > Battery > Energy Mode). `,sleep-test.sh` checks a lid close.
+   Settings > Battery > Energy Mode). `tests/sleep-test.sh` checks a lid close.
 3. **Tunnels and `infer-access`**: written 2026-10-19; `shared` works.
    After step 1, stop the hand-started tunnel, run
    `./infer-access.sh shared`, and check `./infer-access.sh status`,
