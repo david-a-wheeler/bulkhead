@@ -207,6 +207,19 @@ be malicious and try to send my sensitive data out. So:
   config forwards to OpenRouter and a Tailscale address), and one such
   line would send prompts out. The sandbox's outbound block is a second
   layer, not the plan.
+* Power and cooling: for sustained use, charge the Mac over MagSafe
+  with its own adapter, not from the monitor's USB-C. The monitor gave
+  65 W, and under a long load the battery drained even while plugged
+  in. The 14-inch M5 Max's 96 W adapter gives 94 W, and Apple doesn't
+  say the 14-inch draws more, so a bigger adapter wouldn't help. Plug
+  in MagSafe alongside the monitor; the Mac takes the stronger source.
+  (`system_profiler SPPowerDataType` shows the negotiated wattage.)
+  Keep the Mac on a stand, not a soft surface, so air reaches its
+  underside: the 14-inch case's cooling limits sustained speed too.
+  Low Power Mode is the fallback if it still drains. I expect it to
+  cost prefill more than generation, since generation is mostly
+  limited by memory bandwidth; measure it with llama-server's
+  tokens/s after a long run.
 
 ### Image generation
 
