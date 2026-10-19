@@ -683,11 +683,10 @@ prune_releases "$LLAMA_OPT" "$llama_build"
 prune_releases "$SWAP_OPT" "$swap_version"
 rm -rf "${infer_tmp:?}"
 if [ "$infer_restarted" = true ] || [ "$infer_sudoers_changed" = true ]; then
-  # Check the sudoers rule: forget sudo's cached password, then restart
-  # the engine without one, as infer-access will. Nothing after this
-  # needs sudo.
-  sudo -k
-  sudo -n /bin/launchctl kickstart -k "system/$INFER_LABEL" ||
+  # Check the sudoers rule: restart the engine without a password, as
+  # infer-access will. -k ignores sudo's cached password for just this
+  # command, keeping it for a rerun.
+  sudo -n -k /bin/launchctl kickstart -k "system/$INFER_LABEL" ||
     die "the sudoers rule in $INFER_SUDOERS doesn't allow restarting the engine."
   wait_for_engine
   echo "Started $INFER_LABEL; the sudoers rule works."
