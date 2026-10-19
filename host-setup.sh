@@ -714,8 +714,7 @@ echo "== Installing the sleep watcher (infer-watch) =="
 # while the battery is low. See local-ai-plan.md, "Kill on sleep". It
 # runs as you, as a launchd agent. I don't know of a trusted prebuilt
 # tool that does this, so it's a small C program built here with Apple's
-# Command Line Tools, which you can remove again afterward. It's rebuilt
-# only when its source changes.
+# Command Line Tools. It's rebuilt only when its source changes.
 WATCH_BIN="$HOME/bin/infer-watch"
 mkdir -p "$HOME/bin" "$HOME/Library/Logs"
 if [ -x "$WATCH_BIN" ] && cmp -s "$SCRIPT_DIR/infer-watch.c" "$WATCH_BIN.c"; then
@@ -725,8 +724,7 @@ elif xcode-select -p >/dev/null 2>&1; then
     -o "$WATCH_BIN.new" "$SCRIPT_DIR/infer-watch.c"
   mv "$WATCH_BIN.new" "$WATCH_BIN"
   cp "$SCRIPT_DIR/infer-watch.c" "$WATCH_BIN.c"
-  echo "Built $WATCH_BIN. If you don't need the Command Line Tools otherwise, remove them:"
-  echo "  sudo rm -rf /Library/Developer/CommandLineTools"
+  echo "Built $WATCH_BIN."
 elif [ -x "$WATCH_BIN" ]; then
   echo "WARNING: infer-watch.c changed, but there's no compiler to rebuild it; keeping the old build." >&2
   echo "  To rebuild it, run xcode-select --install, then rerun this." >&2

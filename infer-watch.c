@@ -15,7 +15,12 @@
  * in), "HOOK power". It also runs "HOOK power" once at startup.
  *
  * Hooks run one at a time, so each other kind gets only OTHER_SECONDS,
- * to keep it from delaying the sleep hook.
+ * to keep it from delaying the sleep hook. A hook that runs too long
+ * is killed, along with everything it started.
+ *
+ * tests/test_infer_watch.sh compiles this on Linux against stand-ins
+ * for Apple's headers, to check it with gcc's warnings and analyzer and
+ * run it under sanitizers.
  */
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOMessage.h>
@@ -24,87 +29,172 @@
 #include <errno.h>
 #include <signal.h>
 #include <spawn.h>
+#include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/wait.h>
-#include <unistd.h>
+#include <time.h>
 
+/* The tests set shorter ones. */
+#ifndef SLEEP_SECONDS
 #define SLEEP_SECONDS 25
+#endif
+#ifndef OTHER_SECONDS
 #define OTHER_SECONDS 10
+#endif
 
 extern char **environ;
+
+/* Writable, since posix_spawn's argv isn't const. */
+static char sleep_event[] = "sleep";
+static char wake_event[] = "wake";
+static char power_event[] = "power";
+
 static char *hook;
-static io_connect_t root_port;
+static io_connect_t root_port = MACH_PORT_NULL;
 
-/* run_hook: run "HOOK EVENT", waiting at most SECONDS; then kill it
- * and everything it started. */
-static void run_hook(const char *event, int seconds) {
-  char *argv[] = {hook, (char *)event, NULL};
+/* say: log a timestamped line, like the hook's own. */
+static void say(const char *format, ...)
+    __attribute__((format(printf, 1, 2)));
+static void say(const char *format, ...) {
+  char stamp[32] = "";
+  time_t now = time(NULL);
+  struct tm local;
+  va_list args;
+
+  if (localtime_r(&now, &local) != NULL)
+    (void)strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S", &local);
+  (void)fprintf(stderr, "%s infer-watch: ", stamp);
+  va_start(args, format);
+  (void)vfprintf(stderr, format, args);
+  va_end(args);
+  (void)fputc('\n', stderr);
+}
+
+/* seconds_since: seconds elapsed since START, on the monotonic clock. */
+static double seconds_since(const struct timespec *start) {
+  struct timespec now;
+
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+    return 0;
+  return (double)(now.tv_sec - start->tv_sec) +
+         (double)(now.tv_nsec - start->tv_nsec) / 1e9;
+}
+
+/* reap: wait for PID to exit, retrying if a signal interrupts. Returns
+ * waitpid's result. */
+static pid_t reap(pid_t pid, int *status, int options) {
+  pid_t result;
+
+  do {
+    result = waitpid(pid, status, options);
+  } while (result < 0 && errno == EINTR);
+  return result;
+}
+
+/* run_hook: run "HOOK EVENT" in its own process group, waiting at most
+ * SECONDS; then kill the group. */
+static void run_hook(char *event, int seconds) {
+  char *argv[] = {hook, event, NULL};
+  const struct timespec tenth = {0, 100000000L};
+  struct timespec start;
   posix_spawnattr_t attr;
-  pid_t pid;
-  int status, err, tenths;
+  pid_t pid, result;
+  int status = 0, err;
 
-  posix_spawnattr_init(&attr);
-  posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP);
-  posix_spawnattr_setpgroup(&attr, 0);
-  err = posix_spawn(&pid, hook, NULL, &attr, argv, environ);
-  posix_spawnattr_destroy(&attr);
+  err = posix_spawnattr_init(&attr);
   if (err != 0) {
-    fprintf(stderr, "infer-watch: can't run %s: %s\n", hook, strerror(err));
+    say("posix_spawnattr_init failed: %s", strerror(err));
     return;
   }
-  for (tenths = 0; tenths < seconds * 10; tenths++) {
-    if (waitpid(pid, &status, WNOHANG) == pid) {
+  err = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP);
+  if (err == 0)
+    err = posix_spawnattr_setpgroup(&attr, 0);
+  if (err == 0)
+    err = posix_spawn(&pid, hook, NULL, &attr, argv, environ);
+  (void)posix_spawnattr_destroy(&attr);
+  if (err != 0) {
+    say("can't run %s %s: %s", hook, event, strerror(err));
+    return;
+  }
+  if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) {
+    say("clock_gettime failed: %s", strerror(errno));
+    start.tv_sec = 0;
+    start.tv_nsec = 0;
+  }
+  for (;;) {
+    result = reap(pid, &status, WNOHANG);
+    if (result == pid) {
       if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
-        fprintf(stderr, "infer-watch: \"%s %s\" failed\n", hook, event);
+        say("%s %s failed", hook, event);
       return;
     }
-    usleep(100000);
+    if (result < 0) {
+      say("waitpid failed: %s", strerror(errno));
+      return;
+    }
+    if (seconds_since(&start) >= seconds)
+      break;
+    (void)nanosleep(&tenth, NULL);
   }
-  fprintf(stderr, "infer-watch: \"%s %s\" took over %d seconds; stopped it\n",
-          hook, event, seconds);
-  kill(-pid, SIGKILL);
-  while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
-    ;
+  say("%s %s took over %d seconds; stopped it", hook, event, seconds);
+  /* PID hasn't been reaped, so its process group still exists. */
+  if (kill(-pid, SIGKILL) != 0)
+    say("kill failed: %s", strerror(errno));
+  if (reap(pid, &status, 0) < 0)
+    say("waitpid failed: %s", strerror(errno));
+}
+
+/* allow_power_change: tell macOS it may go ahead with ARGUMENT's
+ * sleep. */
+static void allow_power_change(void *argument) {
+  IOReturn result = IOAllowPowerChange(root_port, (intptr_t)argument);
+
+  if (result != kIOReturnSuccess)
+    say("IOAllowPowerChange failed: 0x%x", (unsigned)result);
 }
 
 static void system_power(void *refcon, io_service_t service,
-                         natural_t message, void *argument) {
+                         uint32_t message, void *argument) {
   (void)refcon;
   (void)service;
   switch (message) {
   case kIOMessageCanSystemSleep:
     /* Idle sleep: allow it. kIOMessageSystemWillSleep follows. */
-    IOAllowPowerChange(root_port, (long)argument);
+    allow_power_change(argument);
     break;
   case kIOMessageSystemWillSleep:
-    run_hook("sleep", SLEEP_SECONDS);
-    IOAllowPowerChange(root_port, (long)argument);
+    run_hook(sleep_event, SLEEP_SECONDS);
+    allow_power_change(argument);
     break;
   case kIOMessageSystemHasPoweredOn:
-    run_hook("wake", OTHER_SECONDS);
+    run_hook(wake_event, OTHER_SECONDS);
+    break;
+  default:
     break;
   }
 }
 
 static void power_source(void *context) {
   (void)context;
-  run_hook("power", OTHER_SECONDS);
+  run_hook(power_event, OTHER_SECONDS);
 }
 
 int main(int argc, char **argv) {
-  IONotificationPortRef port;
-  io_object_t notifier;
+  IONotificationPortRef port = NULL;
+  io_object_t notifier = MACH_PORT_NULL;
   CFRunLoopSourceRef sources;
 
-  if (argc != 2) {
-    fprintf(stderr, "Usage: infer-watch HOOK\n");
+  if (argc != 2 || argv[1][0] != '/') {
+    (void)fprintf(stderr, "Usage: infer-watch /ABSOLUTE/PATH/TO/HOOK\n");
     return 2;
   }
   hook = argv[1];
   root_port = IORegisterForSystemPower(NULL, &port, system_power, &notifier);
-  if (root_port == MACH_PORT_NULL) {
-    fprintf(stderr, "infer-watch: IORegisterForSystemPower failed\n");
+  if (root_port == MACH_PORT_NULL || port == NULL) {
+    say("IORegisterForSystemPower failed");
     return 1;
   }
   CFRunLoopAddSource(CFRunLoopGetCurrent(),
@@ -112,11 +202,12 @@ int main(int argc, char **argv) {
                      kCFRunLoopDefaultMode);
   sources = IOPSNotificationCreateRunLoopSource(power_source, NULL);
   if (sources == NULL) {
-    fprintf(stderr, "infer-watch: IOPSNotificationCreateRunLoopSource failed\n");
+    say("IOPSNotificationCreateRunLoopSource failed");
     return 1;
   }
   CFRunLoopAddSource(CFRunLoopGetCurrent(), sources, kCFRunLoopDefaultMode);
-  run_hook("power", OTHER_SECONDS);
+  run_hook(power_event, OTHER_SECONDS);
   CFRunLoopRun();
+  say("the run loop stopped");
   return 1;
 }

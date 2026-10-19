@@ -571,10 +571,10 @@ The strict profile, if built:
   conversation data, only its in-memory log (metadata). AppKit's sleep
   notification doesn't delay sleep, so it would race with the sleep
   image. Built (2026-10-19) as `infer-watch.c`, a C program of about
-  100 lines that only runs a shell hook (`infer-watch-hook`) and waits
+  200 lines that only runs a shell hook (`infer-watch-hook`) and waits
   for it; the decisions are all in the hook. `host-setup.sh` builds it
-  with Apple's Command Line Tools, which can be removed afterward (not
-  Homebrew), since I don't know of a trusted, maintained prebuilt tool
+  with Apple's Command Line Tools, since I don't know of a trusted,
+  maintained prebuilt tool
   for Apple Silicon that waits for its script before acknowledging
   sleep. Before sleep, the hook:
   * first closes the tunnels (`launchctl bootout`, keeping
@@ -712,8 +712,12 @@ The strict profile, if built:
   `INFER_LOW_POWER_UNTIL` (40). If I change a mode by hand while it's
   Low, the hook leaves the modes alone until the battery is back to 40%,
   so it doesn't immediately undo my choice. Tested on mytux with fake
-  `pmset`, `sudo`, `launchctl`, `pgrep`, and `curl`; the C hasn't been
-  compiled yet.
+  `pmset`, `sudo`, `launchctl`, `pgrep`, and `curl`. On mytux,
+  `tests/test_infer_watch.sh` (run by `ci.sh`) compiles the C against
+  stand-ins for Apple's headers with strict gcc warnings and
+  `-fanalyzer`, then runs it under ASan and UBSan with fake power
+  events and working, failing, hanging, and missing hooks; it passes.
+  It hasn't been compiled on the Mac yet.
 * Written 2026-10-19, not yet run: the trial, moved into the repo.
   * `host-setup.sh` installs llama.cpp and llama-swap (see "Releases"
     and "Locations" under "Inference engine"); generates the API key

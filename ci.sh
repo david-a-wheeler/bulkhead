@@ -121,6 +121,13 @@ if ! python3 -m unittest discover -s "$SCRIPT_DIR/tests" -v; then
   fail=1
 fi
 
+step "infer-watch.c (tests/test_infer_watch.sh)"
+# Builds the sleep watcher against stand-ins for Apple's headers, with
+# strict gcc warnings and -fanalyzer, then runs it under the sanitizers.
+if ! shellcheck -x tests/test_infer_watch.sh || ! tests/test_infer_watch.sh; then
+  fail=1
+fi
+
 step "jq revoke-filter logic (rotate-heroku-key.sh's auto-revoke query)"
 # This is the trickiest logic in the repo, and it had a real bug once
 # (matching by description instead of created_at silently revoked
