@@ -8,8 +8,8 @@ this is built, the lasting parts belong there.
 
 ## Current state (2026-10-19)
 
-Working, for **non-sensitive use only**: the sleep watcher is written
-(branch `sleep-watcher`) but not yet run, so run `./infer-access.sh off`
+Working, for **non-sensitive use only**: the sleep watcher is written but
+not yet run, so run `./infer-access.sh off`
 on the Mac before closing the lid; and there's no secure VM yet (mytux
 is a normal VM with full network access).
 
@@ -699,7 +699,7 @@ The strict profile, if built:
   entries.
 * `vm-setup.sh` installs `check-prose-style --text` as a global
   commit-msg git hook.
-* Written 2026-10-19 (branch `sleep-watcher`), not yet run: the sleep
+* Written 2026-10-19, not yet run: the sleep
   watcher (see "Kill on sleep" and "Power and cooling").
   `host-setup.sh` builds `infer-watch.c` into `~/bin/infer-watch` if
   there's a compiler (`xcode-select -p`), rebuilding only when the
