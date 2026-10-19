@@ -750,6 +750,8 @@ if [ -x "$WATCH_BIN" ]; then
   retry 10 watch_unloaded || die "$INFER_WATCH_LABEL is still loaded after 10 seconds."
   launchctl bootstrap "gui/$my_uid" "$watch_plist"
   echo "Started $INFER_WATCH_LABEL; its log is ~/Library/Logs/infer-watch.log."
+  echo "It waits 2 minutes before it does anything. To stop it, run:"
+  echo "  launchctl bootout gui/$my_uid/$INFER_WATCH_LABEL"
 fi
 
 echo "== host-setup.sh done =="

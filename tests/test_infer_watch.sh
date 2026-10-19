@@ -34,7 +34,7 @@ failed() {
 gcc $FLAGS -fanalyzer -c "$SOURCE" -o "$tmp/analyzed.o" ||
   failed "gcc -fanalyzer found problems in infer-watch.c"
 # shellcheck disable=SC2086
-gcc $FLAGS -DSLEEP_SECONDS=1 -DOTHER_SECONDS=1 -g \
+gcc $FLAGS -DSLEEP_SECONDS=1 -DOTHER_SECONDS=1 -DSTARTUP_SECONDS=2 -g \
   -fsanitize=address,undefined -fno-sanitize-recover=all \
   "$SOURCE" "$STUBS/stubs.c" -o "$tmp/infer-watch" ||
   { echo "FAILED: couldn't build infer-watch.c with the stand-ins" >&2; exit 1; }
@@ -57,8 +57,10 @@ run() {
   echo "$1" > "$tmp/mode"
   : > "$tmp/events"
   status=0
+  start=$(date +%s)
   "$tmp/infer-watch" "$tmp/hook" > "$tmp/out" 2> "$tmp/err" || status=$?
   echo "$status" > "$tmp/status"
+  echo $(($(date +%s) - start)) > "$tmp/elapsed"
 }
 events() {
   tr '\n' ' ' < "$tmp/events"
@@ -81,10 +83,13 @@ allowed 5 12" ]; then
 
 run ok
 expect_success "a working hook"
-if [ "$(wc -l < "$tmp/err")" -ne 1 ] ||
-    ! grep -qx '[0-9-]* [0-9:]* infer-watch: the run loop stopped' "$tmp/err"; then
+if [ "$(sed 's/^[0-9-]* [0-9:]* //' "$tmp/err")" != "infer-watch: waiting 2 seconds before starting
+infer-watch: watching for sleep, wake, and power changes
+infer-watch: the run loop stopped" ]; then
   failed "a working hook: unexpected messages: $(cat "$tmp/err")"
 fi
+[ "$(cat "$tmp/elapsed")" -ge 2 ] ||
+  failed "a working hook: didn't wait 2 seconds before starting"
 
 run fail
 expect_success "a failing hook"

@@ -18,6 +18,10 @@
  * to keep it from delaying the sleep hook. A hook that runs too long
  * is killed, along with everything it started.
  *
+ * It waits STARTUP_SECONDS before doing anything, so if it misbehaves
+ * you have time to stop it (with launchctl bootout, since launchd
+ * restarts it if it's only killed). Each restart waits again.
+ *
  * tests/test_infer_watch.sh compiles this on Linux against stand-ins
  * for Apple's headers, to check it with gcc's warnings and analyzer and
  * run it under sanitizers.
@@ -43,6 +47,9 @@
 #endif
 #ifndef OTHER_SECONDS
 #define OTHER_SECONDS 10
+#endif
+#ifndef STARTUP_SECONDS
+#define STARTUP_SECONDS 120
 #endif
 
 extern char **environ;
@@ -183,8 +190,16 @@ static void on_power_source_change(void *context) {
   run_hook(power_event, OTHER_SECONDS);
 }
 
-/* main: register for power events, then handle them until the run loop
- * stops (it shouldn't). */
+/* pause_for: wait SECONDS, even if signals interrupt. */
+static void pause_for(int seconds) {
+  struct timespec left = {seconds, 0};
+
+  while (nanosleep(&left, &left) != 0 && errno == EINTR)
+    continue;
+}
+
+/* main: wait STARTUP_SECONDS, register for power events, then handle
+ * them until the run loop stops (it shouldn't). */
 int main(int argc, char **argv) {
   IONotificationPortRef sleep_wake_port = NULL;
   io_object_t notifier = MACH_PORT_NULL;
@@ -195,6 +210,8 @@ int main(int argc, char **argv) {
     return 2;
   }
   hook = argv[1];
+  log_line("waiting %d seconds before starting", STARTUP_SECONDS);
+  pause_for(STARTUP_SECONDS);
   root_port = IORegisterForSystemPower(NULL, &sleep_wake_port,
                                        on_sleep_or_wake, &notifier);
   if (root_port == MACH_PORT_NULL || sleep_wake_port == NULL) {
@@ -212,6 +229,7 @@ int main(int argc, char **argv) {
   }
   CFRunLoopAddSource(CFRunLoopGetCurrent(), power_source_changes,
                      kCFRunLoopDefaultMode);
+  log_line("watching for sleep, wake, and power changes");
   run_hook(power_event, OTHER_SECONDS);
   CFRunLoopRun();
   log_line("the run loop stopped");

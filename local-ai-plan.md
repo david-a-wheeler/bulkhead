@@ -588,7 +588,11 @@ The strict profile, if built:
   mode stays what `infer-access.sh` last set; the next request loads
   the model again. infer-watch gives the sleep hook 25 seconds and
   every other hook 10, since hooks run one at a time and a slow one
-  could delay the sleep hook.
+  could delay the sleep hook. It waits 2 minutes after it starts
+  before doing anything, so if it misbehaves I have time to stop it
+  (`launchctl bootout gui/$(id -u)/local.infer-watch`; killing it isn't
+  enough, since launchd restarts it). Each restart waits again, which
+  also slows any crash loop. A sleep during that wait gets no hook.
 * FileVault stays on as the backstop. Accepted, and to be documented:
   the secure VM's RAM, including its LUKS master key and decrypted data,
   ends up in the host's sleep image; FileVault is what protects that.

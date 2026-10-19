@@ -1,6 +1,9 @@
 #!/bin/sh
 # sleep-test.sh: check the sleep watcher across a lid close, on the Mac.
 #
+# infer-watch waits 2 minutes after it starts before it does anything,
+# so run "before" only once its log says it's watching.
+#
 #   tests/sleep-test.sh before   # load the model, then close the lid
 #   (close the lid for at least a minute, then open it and log in)
 #   tests/sleep-test.sh after    # see what happened
@@ -30,6 +33,11 @@ show() {
   echo "===== $1: $(date '+%Y-%m-%d %H:%M:%S')"
   if [ "$1" = before ]; then
     show launchctl print "gui/$(id -u)/$INFER_WATCH_LABEL"
+    show tail -n 5 "$HOME/Library/Logs/infer-watch.log"
+    if ! grep 'infer-watch: \(waiting\|watching\) ' \
+        "$HOME/Library/Logs/infer-watch.log" | tail -n 1 | grep -q watching; then
+      echo "WARNING: infer-watch isn't watching yet; wait and rerun this."
+    fi
     echo "Loading $model (this can take a minute)"
     curl -sS -m 300 -o /dev/null -w 'HTTP %{http_code}\n' \
       -H "Authorization: Bearer $key" -H 'Content-Type: application/json' \
