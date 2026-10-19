@@ -247,9 +247,14 @@ chmod 755 "$MODELS_DIR"
 tmutil addexclusion "$MODELS_DIR"
 [ -f "$MODELS_DIR/SOURCES.tsv" ] ||
   printf 'file\tsource_url\tlicense\tadded\n' > "$MODELS_DIR/SOURCES.tsv"
-while read -r url sha256 license; do
-  file="$(basename "$url")"
+while read -r url sha256 license subdir; do
+  # A multi-file model (e.g., an image model) names a subdirectory.
+  file="${subdir:+$subdir/}$(basename "$url")"
   [ -f "$MODELS_DIR/$file" ] && continue
+  if [ -n "$subdir" ]; then
+    mkdir -p "$MODELS_DIR/$subdir"
+    chmod 755 "$MODELS_DIR/$subdir"
+  fi
   echo "Downloading $file"
   curl -fL -C - -o "$MODELS_DIR/$file.partial" "$url"
   if [ "$(shasum -a 256 "$MODELS_DIR/$file.partial" | cut -d ' ' -f 1)" != "$sha256" ]; then

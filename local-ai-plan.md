@@ -122,6 +122,33 @@ be malicious and try to send my sensitive data out. So:
   way as text.
 * I can keep many image models and switch among them, one loaded at a
   time, just as with LLMs.
+* First image model: FLUX.2-klein 4B, for personal, non-commercial
+  play (I'd use LF's Gemini license for LF work). It's the only
+  candidate with an open source license (Apache-2.0), about 9 GB at
+  Q8_0, fast (designed for 4 steps), and well known (out since January
+  2026). Its files, in the `flux2-klein-4b` subdirectory: the image
+  model (`flux-2-klein-4b-Q8_0.gguf`, leejet), the Qwen3-4B text encoder
+  (`Qwen3-4B-Q8_0.gguf`, unsloth), and the VAE from its own repository
+  (`vae/diffusion_pytorch_model.safetensors`, Black Forest Labs, in the
+  diffusers layout). stable-diffusion.cpp's docs point to FLUX.2-dev's
+  `ae.safetensors` instead, which needs a Hugging Face login and is
+  under FLUX.2-dev's non-commercial license. I believe
+  stable-diffusion.cpp's diffusers VAE converter
+  (`convert_diffusers_vae_to_original_sd1`) handles klein's file, but
+  that's less certain than it looks: klein's `vae/config.json` says
+  `AutoencoderKLFlux2`, a FLUX.2-specific variant of the diffusers VAE,
+  while that converter is the generic Stable Diffusion one, so it may
+  not map FLUX.2-specific parts. If it doesn't load, fall back to
+  `ae.safetensors`.
+* Other candidates, checked 2026-10-18 (all open-weight; sizes at
+  Q8_0 including the text encoder and VAE): FLUX.3 Image Klein (about
+  11 GB; FLUX Kommunity license; vendor claims lead open-weight models,
+  but early reception is mostly skeptical, e.g., anatomy problems),
+  Qwen-Image 2.1 (about 18 GB; Qwen research license; 20th on Artificial
+  Analysis's text-to-image leaderboard), and FLUX.2-dev (about 60 GB, or
+  35 GB at 4-bit; non-commercial; the strongest earlier, but large and
+  slow). No source compared them all; revisit FLUX.3 Image Klein once
+  independent reviews arrive.
 * Turning typed text into an image needs only the image model: it has
   its own text encoder, which stable-diffusion.cpp loads as part of it.
   (FLUX.2-dev's encoder is large; I believe it's a roughly
@@ -317,11 +344,11 @@ provides, so the host gets no extra software:
   (multi-shard, or with an `mmproj` file) in its own subdirectory, the
   convention llama-server's `--models-dir` uses. An image model is
   usually several files (image model, text encoder, VAE), so each gets
-  its own subdirectory. `host-setup.sh`'s `MODEL_DOWNLOADS` handles only
-  files directly in `MODELS_DIR` for now.
+  its own subdirectory, named by an optional fourth field in each
+  `MODEL_DOWNLOADS` line.
 * Current models: Qwen3.8-27B as Q8_0 (default) and UD-Q4_K_M, from
-  unsloth, and Qwen3-0.6B Q4_0 from ggml-org for quick tests; all
-  Apache-2.0.
+  unsloth, Qwen3-0.6B Q4_0 from ggml-org for quick tests, and
+  FLUX.2-klein 4B for images; all Apache-2.0.
 * Safety against malicious models:
   * GGUF or safetensors only, never pickle formats (`.bin`, `.pt`,
     `.ckpt`), which run code on load;
