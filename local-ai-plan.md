@@ -95,7 +95,31 @@ be malicious and try to send my sensitive data out. So:
     retains earlier prompts, which is one reason a mode switch restarts
     the engine;
   * no features that persist state to disk (e.g., `--slot-save-path`),
-    and logging at the default level, to the RAM disk.
+    and logging at the default level, to the RAM disk;
+  * never `--tools` or `--mcp-servers-*`: llama-server's built-in agent
+    tools can read and write files and run shell commands, and its docs
+    say "do not enable in untrusted environments" (both are off by
+    default);
+  * an explicit `--ctx-size` (the context window), chosen per model:
+    being able to process a lot of data when needed matters more than
+    speed, since compaction degrades results. For Qwen3.8-27B, use its
+    native maximum, 262,144 tokens. It's a hybrid model: only 16 of its
+    64 layers are full attention (the other 48 use linear attention,
+    with a small fixed-size state), so its KV cache is 64 KiB per token
+    at f16 (2 x 16 layers x 4 KV heads x 256 x 2 bytes), i.e., 16 GiB
+    at 262,144 tokens, about 43 GB with the weights. llama-server
+    reserves the whole KV cache when it loads the model, whether or not
+    it's used. Speed only drops when a conversation actually gets long
+    (in Phase C, generation went from 18.4 tokens/s at an empty context
+    to 13.5 at 32k). Set it explicitly anyway: this build otherwise
+    sizes itself to nearly all memory Metal can use, which squeezes the
+    VMs and macOS toward swap;
+  * define each model once, in `config.sh` (which the Mac and the VMs
+    both read): its name, file, context window, and maximum reply
+    length. `host-setup.sh` generates llama-swap's config from that
+    (`--ctx-size`), and `vm-setup.sh` generates pi's `models.json`
+    (`contextWindow`, `maxTokens`), so they can't disagree. (The
+    `,infer-test` trial scripts still set these separately.)
 * To try in real use: speculative decoding with Qwen3.8-27B's MTP heads
   (`--spec-type draft-mtp`; Unsloth publishes them as
   `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, 1.4 GB), and the n-gram methods,
