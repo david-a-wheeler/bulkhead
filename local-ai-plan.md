@@ -265,7 +265,26 @@ reach it, and a tunnel's port binds only to its VM's own loopback.
 ### Host sandbox (built-in macOS only)
 
 The engine should have almost no permissions, using only what macOS
-provides, so the host gets no extra software:
+provides, so the host gets no extra software.
+
+**Current decision (2026-10-18): stop at Phase B1 for now.** Use the B1
+profile (allow by default; deny outbound IP network, writes outside
+allowed directories, and reads under `/Users` except the model and
+engine directories) plus the three allowances below (the Metal shader
+cache, `/dev/dtracehelper`, and outbound to the backend port only), as
+the trial does. It covers the main goals (no outbound network, no
+reading my files, no writes outside allowed places) in about 25 lines
+I understand. A strict `(deny default)` profile, described next, is
+deferred. If I want one, the leading option is nono's prebuilt macOS
+binary (`nono-v0.80.0-aarch64-apple-darwin.tar.gz`, no Homebrew
+needed) rather than hand-building one: its `(deny default)` profiles are
+maintained against macOS changes, and its `--allow-gpu` grants Metal
+through `(allow iokit-open (iokit-user-client-class
+"AGXDeviceUserClient"))` plus `(allow iokit-get-properties)`. A web
+search (2026-10-18) found no published, tested `(deny default)`
+profile for llama.cpp or other Metal inference servers.
+
+The strict profile, if built:
 
 * Seatbelt via `/usr/bin/sandbox-exec -f infer.sb ...` around llama-swap,
   with a root-owned SBPL profile starting from `(deny default)` and
@@ -428,8 +447,9 @@ provides, so the host gets no extra software:
   Draw Things (an app), and ComfyUI (PyTorch, the heaviest).
 * No Internet for the secure VM (rejected: it needs Internet; nono's
   allowlist limits it instead).
-* nono on the host (rejected: it needs Homebrew, and built-in Seatbelt
-  is the same mechanism).
+* nono on the host: first rejected because its recommended installation
+  uses Homebrew, but it publishes a prebuilt macOS binary, so it's the
+  leading option for a strict profile later (see "Host sandbox").
 * Logging in to `_infer` via fast user switching, SSH to
   `_infer@localhost` with a forced command (turns on Remote Login, new
   LAN attack surface), and a launchd agent (needs a login session).
@@ -510,45 +530,71 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
   Metal shader cache (Metal kept working without it, but startup took
   about 4 s instead of 1) and to `/dev/dtracehelper`; both are now
   allowed in the design.
+* **First trial** (`,infer-test/trial.sh` on the Mac,
+  `,infer-test/vm-pi-trial.sh` and `pi-local` on mytux), for
+  non-sensitive use only, worked end to end:
+  * llama-swap v265 ran as an `_infer` launchd daemon under the B1
+    profile plus the three allowances, with `Core` 0 and `Umask` 077.
+    All six self-tests passed, including outbound to the backend port
+    allowed and to the port next to it denied. A request without the
+    API key got HTTP 401. The macOS log showed no sandbox denials for
+    llama-swap or llama-server.
+  * Through the SSH tunnel from mytux, Qwen3-0.6B ran at 289-411
+    tokens/s, and Qwen3.8-27B (Q8_0) answered correctly at 18.5
+    tokens/s, 11 s including loading.
+  * pi 1.3.0 (installed with `npm --ignore-scripts`, pinned) worked
+    against llama-swap through `~/.pi/agent/models.json` as an
+    `openai-completions` provider. pi's own llama.cpp provider expects
+    llama-server's router mode, not llama-swap. `pi-local` runs it
+    under nono's `nolabs-ai/pi` profile through `anon-access`, with
+    `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1`, and `PI_TELEMETRY=0`. It
+    then works with the full 262,144-token context.
+  * pi warns that `fd` and `ripgrep` are missing (offline mode stops it
+    downloading them). `vm-setup.sh` now installs `ripgrep`. `fd` is
+    skipped for now, since Ubuntu installs it as `fdfind` (another
+    package uses the name `fd`) and pi runs without it.
+  * Problems found and fixed in the trial script: the self-test's
+    listener left the backend port briefly in TIME_WAIT, so llama-server
+    couldn't bind it (now it waits); `launchctl bootstrap` right after
+    `bootout` failed with "Bootstrap failed: 5: Input/output error"
+    (now it waits until the label is unloaded); and the backend
+    llama-server had no API key and allowed all CORS origins, so any
+    web page in a browser on the Mac could have queried it directly
+    (now `--cors-origins http://cors.invalid`, an origin no page can
+    have).
 
 ## Remaining work
 
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-1. **Host sandbox, Phase B2** (Phase B1 is done; see "Test results"):
-   `(deny default)`, built up from the denials in
-   `log show --predicate 'sender == "Sandbox"'`, starting from nono's
-   `--allow-gpu` rules and Chromium's GPU-process profile, with
-   llama-swap in front and the allowances above. Also check:
-   * `has tensor = true` under the strict profile, since llama.cpp
-     compiles a test kernel at startup and silently disables the tensor
-     API if that fails, which would cost 2.6x on prefill;
-   * llama-swap with a fixed backend port, and the sandbox allowing
-     outbound only to that port;
-   * whether pf honors `user` rules.
-
-   If `(deny default)` turns into an endless list of Metal allowances,
-   use the B1 profile plus the allowances above (see "Host sandbox").
-2. **RAM disk** (sudo): the boot-time LaunchDaemon, the traps above, and
+1. **RAM disk** (sudo): the boot-time LaunchDaemon, the traps above, and
    how it behaves under memory pressure (does it stay out of swap?).
-3. **Engine daemon** (sudo): install llama-swap (pinned release, checked
-   SHA-256), its config file with each model's command line and the
-   settings above, the launchd plist, the fail-closed start script, and
-   the sudoers rule for `launchctl kickstart -k`.
-4. **Sleep watcher** (sudo): check whether every lid close writes RAM to
+2. **Move the trial into the repo** (sudo): each model defined once in
+   `config.sh`; `host-setup.sh` installs llama-swap (pinned release,
+   checked SHA-256), generates its config, installs the profile, the
+   launchd plist, the fail-closed start script, and the sudoers rule
+   for `launchctl kickstart -k`, all in root-owned locations rather
+   than under `/Users/Shared/infer-test`; `vm-setup.sh` installs pi
+   (pinned) and `pi-local`, and generates pi's `models.json`.
+3. **Sleep watcher** (sudo): check whether every lid close writes RAM to
    `/private/var/vm/sleepimage` (`pmset -g`, the file's modification
    time). Verify the watcher can delay sleep long enough, that freed
    pages aren't in the sleep image (I believe macOS writes only in-use
    pages), and that forced sleep at critically low battery still sends
    the notification.
-5. **Tunnels and `infer-access`**, with the new `config.sh` settings.
-6. **Secure VM**: create it with LUKS, run `vm-setup.sh`, set up goose
+4. **Tunnels and `infer-access`**, with the new `config.sh` settings.
+5. **Secure VM**: create it with LUKS, run `vm-setup.sh`, set up goose
    and pi against the engine, write the nono allowlist (which hosts do
    they need?), and refuse inbound connections from other VMs.
-7. **End-to-end checks**: nothing from `_infer` reaches the SSD (e.g.,
+6. **End-to-end checks**: nothing from `_infer` reaches the SSD (e.g.,
    `fs_usage` during a session), swap stays at 0 after a heavy session,
    and usability in real use, including MTP speculative decoding.
-8. **File Sharing**: turn it off, or at least guest access (my action).
-9. **Documentation**: move the lasting parts into `architecture.md` and
+7. **File Sharing**: turn it off, or at least guest access (my action).
+8. **Documentation**: move the lasting parts into `architecture.md` and
    `README.md`.
+9.  **Maybe, later: a strict host sandbox**, most likely with nono's
+    prebuilt binary (see "Host sandbox"). Check `has tensor = true`
+    under it, since llama.cpp compiles a test kernel at startup and
+    silently disables the tensor API if that fails, which would cost
+    2.6x on prefill; also check whether pf honors `user` rules.
