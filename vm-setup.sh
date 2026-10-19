@@ -452,10 +452,9 @@ if [ -s "$infer_key_file" ]; then
     sudo chmod -R go-w "$pi_dir"
     # A relative link (../lib/node_modules/...), so it works from here too.
     sudo cp -P "$TMPDIR/pi/bin/pi" /usr/local/bin/pi
-    echo "Installed pi $(jq -r .version "$pi_dir/package.json")."
   fi
   rm -rf "${TMPDIR:?}/pi"
-  /usr/local/bin/pi --version
+  echo "pi $(jq -r .version "$pi_dir/package.json")"
 
   # pi's models, from config.sh's INFER_MODELS. Keep a hand-edited copy.
   mkdir -p "$HOME/.pi/agent"
@@ -476,9 +475,14 @@ if [ -s "$infer_key_file" ]; then
   sudo mkdir -p /etc/systemd/user
   sudo install -m 644 "$SCRIPT_DIR/infer-logs@.service" /etc/systemd/user/
   # Cleanup from the trial (,infer-test/vm-pi-trial.sh), whose copies in
-  # your home directory would override these.
-  rm -f "$HOME/.local/bin/pi-local" "$HOME/.local/bin/infer-logs" \
-    "$HOME/.config/systemd/user/infer-logs@.service"
+  # your home directory would override these. Disable its services
+  # first: their enable links point at its unit file, and would block
+  # enabling this one.
+  if [ -f "$HOME/.config/systemd/user/infer-logs@.service" ]; then
+    systemctl --user disable infer-logs@proxy.service infer-logs@upstream.service || true
+    rm -f "$HOME/.config/systemd/user/infer-logs@.service"
+  fi
+  rm -f "$HOME/.local/bin/pi-local" "$HOME/.local/bin/infer-logs"
   rm -rf "$HOME/.local/lib/pi"
   systemctl --user daemon-reload
   for stream in proxy upstream; do

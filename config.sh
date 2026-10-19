@@ -56,7 +56,8 @@ qwen3-0.6b Qwen3-0.6B-Q4_0.gguf 32768 4096 Qwen3-0.6B Q4_0 (tests)"
 # and of llama-swap that's at least INFER_COOLING_DAYS old, so we get
 # improvements and security fixes, but others have had time to notice a
 # bad or malicious release first. It never picks one older than the
-# floor (*_MIN), e.g., the release we last tested; once a newer release
+# floor (*_MIN), e.g., the release we last tested (for llama.cpp, a
+# stable release like "v0.7.0", not a build); once a newer release
 # is old enough, the floor stops mattering, so there's no need to update
 # it. A pin (*_PIN; for llama.cpp, a release like "v0.7.0" or a build
 # like "b11721") overrides both, e.g., to hold back from a release that

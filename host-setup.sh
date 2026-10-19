@@ -476,7 +476,12 @@ install_release ggml-org/llama.cpp "$llama_build" "llama-$llama_build-bin-macos-
   "$LLAMA_OPT/$llama_build" "llama-$llama_build"
 install_release mostlygeek/llama-swap "v$swap_version" "llama-swap_${swap_version}_darwin_arm64.tar.gz" \
   "$SWAP_OPT/$swap_version"
-"$SWAP_OPT/$swap_version/llama-swap" -version
+# Every run of the engine's programs is as _infer, never as you or
+# root, from a directory it can enter.
+as_infer() {
+  (cd /var/empty && sudo -u "$MACOS_INFER_USER" "$@")
+}
+as_infer "$SWAP_OPT/$swap_version/llama-swap" -version
 
 # The API key: clients send it as "Authorization: Bearer KEY". Copy it
 # to each VM that should use the engine (see vm-setup.sh).
@@ -543,6 +548,35 @@ if [ "$infer_check_failed" = true ]; then
   exit 1
 fi
 
+# Check the new llama-swap and its config before changing anything the
+# running engine uses, so a failure here leaves the engine as it was,
+# and the next run tries again. The copy checked names the new build's
+# directory, not "current", which may not point there yet (or exist).
+# _infer must be able to read it.
+infer_llama_swap_yaml "$infer_key" "$LLAMA_OPT/$llama_build/llama-server" "$INFER_BACKEND_PORT" \
+  > "$infer_tmp/llama-swap-check.yaml"
+sudo install -o root -g "$MACOS_INFER_USER" -m 640 "$infer_tmp/llama-swap-check.yaml" "$INFER_CONFIG.new"
+if ! as_infer "$SWAP_OPT/$swap_version/llama-swap" -config "$INFER_CONFIG.new" -validate; then
+  sudo rm -f "$INFER_CONFIG.new"
+  echo "ERROR: llama-swap $swap_version rejected its new config." >&2
+  exit 1
+fi
+sudo rm -f "$INFER_CONFIG.new"
+# sudo ignores sudoers.d files whose names contain a dot, so check the
+# new rule there before moving it into place: a broken sudoers file can
+# lock you out of sudo.
+infer_sudoers_changed=false
+if ! sudo cmp -s "$infer_tmp/sudoers" "$INFER_SUDOERS"; then
+  sudo install -o root -g wheel -m 440 "$infer_tmp/sudoers" "$INFER_SUDOERS.new"
+  if ! sudo /usr/sbin/visudo -cf "$INFER_SUDOERS.new"; then
+    sudo rm -f "$INFER_SUDOERS.new"
+    echo "ERROR: visudo rejected the sudoers rule." >&2
+    exit 1
+  fi
+  sudo mv "$INFER_SUDOERS.new" "$INFER_SUDOERS"
+  infer_sudoers_changed=true
+fi
+
 # Install only what changed, so rerunning this doesn't restart the engine
 # (and unload its model) for nothing.
 infer_changed=false
@@ -567,22 +601,6 @@ install_root() {
 install_root "$infer_tmp/llama-swap.yaml" "$INFER_CONFIG" "$MACOS_INFER_USER" 640
 install_root "$infer_tmp/infer.sb" "$INFER_PROFILE" wheel 644
 install_root "$infer_tmp/infer.plist" "$INFER_PLIST" wheel 644
-# As _infer (which can read the config), never as root.
-sudo -u "$MACOS_INFER_USER" "$SWAP_BIN" -config "$INFER_CONFIG" -validate
-# sudo ignores sudoers.d files whose names contain a dot, so check the
-# new rule there before moving it into place: a broken sudoers file can
-# lock you out of sudo.
-infer_sudoers_changed=false
-if ! sudo cmp -s "$infer_tmp/sudoers" "$INFER_SUDOERS"; then
-  sudo install -o root -g wheel -m 440 "$infer_tmp/sudoers" "$INFER_SUDOERS.new"
-  if ! sudo /usr/sbin/visudo -cf "$INFER_SUDOERS.new"; then
-    sudo rm -f "$INFER_SUDOERS.new"
-    echo "ERROR: visudo rejected the sudoers rule." >&2
-    exit 1
-  fi
-  sudo mv "$INFER_SUDOERS.new" "$INFER_SUDOERS"
-  infer_sudoers_changed=true
-fi
 
 # Your own commands: each llama.cpp program and llama-swap, linked into
 # /usr/local/bin, without replacing anything else there. Links to
