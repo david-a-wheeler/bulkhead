@@ -6,6 +6,7 @@
     "read": [
       "$HOME/.rbenv",
       "$HOME/.gitconfig",
+      "/usr/local/libexec/bulkhead/git-hooks",
       "/etc/fstab",
       "/etc/mime.types",
       "/etc/gnutls/config",

@@ -196,8 +196,8 @@ echo "== Installing nono's default profile (nono-default-profile.json) =="
 # every other pack pulled below) declares "extends": "default" in its own
 # profile.json, and a user profile of that name takes precedence over
 # nono's built-in one. So this is the one place to grant filesystem access
-# every harness needs (currently just $HOME/.rbenv and $HOME/.gitconfig),
-# instead of a per-harness flag noclaude alone would have to carry.
+# every harness needs (e.g., $HOME/.gitconfig and the global git hooks it
+# names), instead of a per-harness flag noclaude alone would have to carry.
 # install_unless_locally_newer, not a plain cp: same reasoning as
 # claude-CLAUDE.md below, an edit made directly to the installed copy
 # (e.g. via nono's own profile tooling) shouldn't be silently clobbered.
