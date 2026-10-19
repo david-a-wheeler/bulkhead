@@ -7,7 +7,7 @@
 
 typedef unsigned int natural_t;
 typedef natural_t mach_port_t;
-#define MACH_PORT_NULL ((mach_port_t)0)
+#define MACH_PORT_NULL ((mach_port_t) 0)
 typedef int kern_return_t;
 typedef kern_return_t IOReturn;
 #define kIOReturnSuccess 0

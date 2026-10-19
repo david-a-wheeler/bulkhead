@@ -65,12 +65,12 @@ static void say(const char *format, ...) {
   va_list args;
 
   if (localtime_r(&now, &local) != NULL)
-    (void)strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S", &local);
-  (void)fprintf(stderr, "%s infer-watch: ", stamp);
+    (void) strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S", &local);
+  (void) fprintf(stderr, "%s infer-watch: ", stamp);
   va_start(args, format);
-  (void)vfprintf(stderr, format, args);
+  (void) vfprintf(stderr, format, args);
   va_end(args);
-  (void)fputc('\n', stderr);
+  (void) fputc('\n', stderr);
 }
 
 /* seconds_since: seconds elapsed since START, on the monotonic clock. */
@@ -79,8 +79,8 @@ static double seconds_since(const struct timespec *start) {
 
   if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
     return 0;
-  return (double)(now.tv_sec - start->tv_sec) +
-         (double)(now.tv_nsec - start->tv_nsec) / 1e9;
+  return (double) (now.tv_sec - start->tv_sec) +
+         (double) (now.tv_nsec - start->tv_nsec) / 1e9;
 }
 
 /* reap: wait for PID to exit, retrying if a signal interrupts. Returns
@@ -114,7 +114,7 @@ static void run_hook(char *event, int seconds) {
     err = posix_spawnattr_setpgroup(&attr, 0);
   if (err == 0)
     err = posix_spawn(&pid, hook, NULL, &attr, argv, environ);
-  (void)posix_spawnattr_destroy(&attr);
+  (void) posix_spawnattr_destroy(&attr);
   if (err != 0) {
     say("can't run %s %s: %s", hook, event, strerror(err));
     return;
@@ -137,7 +137,7 @@ static void run_hook(char *event, int seconds) {
     }
     if (seconds_since(&start) >= seconds)
       break;
-    (void)nanosleep(&tenth, NULL);
+    (void) nanosleep(&tenth, NULL);
   }
   say("%s %s took over %d seconds; stopped it", hook, event, seconds);
   /* PID hasn't been reaped, so its process group still exists. */
@@ -150,16 +150,16 @@ static void run_hook(char *event, int seconds) {
 /* allow_power_change: tell macOS it may go ahead with ARGUMENT's
  * sleep. */
 static void allow_power_change(void *argument) {
-  IOReturn result = IOAllowPowerChange(root_port, (intptr_t)argument);
+  IOReturn result = IOAllowPowerChange(root_port, (intptr_t) argument);
 
   if (result != kIOReturnSuccess)
-    say("IOAllowPowerChange failed: 0x%x", (unsigned)result);
+    say("IOAllowPowerChange failed: 0x%x", (unsigned) result);
 }
 
 static void system_power(void *refcon, io_service_t service,
                          uint32_t message, void *argument) {
-  (void)refcon;
-  (void)service;
+  (void) refcon;
+  (void) service;
   switch (message) {
   case kIOMessageCanSystemSleep:
     /* Idle sleep: allow it. kIOMessageSystemWillSleep follows. */
@@ -178,7 +178,7 @@ static void system_power(void *refcon, io_service_t service,
 }
 
 static void power_source(void *context) {
-  (void)context;
+  (void) context;
   run_hook(power_event, OTHER_SECONDS);
 }
 
@@ -188,7 +188,7 @@ int main(int argc, char **argv) {
   CFRunLoopSourceRef sources;
 
   if (argc != 2 || argv[1][0] != '/') {
-    (void)fprintf(stderr, "Usage: infer-watch /ABSOLUTE/PATH/TO/HOOK\n");
+    (void) fprintf(stderr, "Usage: infer-watch /ABSOLUTE/PATH/TO/HOOK\n");
     return 2;
   }
   hook = argv[1];

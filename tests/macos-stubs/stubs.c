@@ -41,7 +41,7 @@ void CFRunLoopAddSource(CFRunLoopRef rl, CFRunLoopSourceRef source,
                         CFRunLoopMode mode) {
   if (rl != &loop || mode != kCFRunLoopDefaultMode ||
       (source != &port_source && source != &power_source)) {
-    (void)fprintf(stderr, "stubs: bad CFRunLoopAddSource\n");
+    (void) fprintf(stderr, "stubs: bad CFRunLoopAddSource\n");
     exit(3);
   }
   sources_added++;
@@ -49,14 +49,14 @@ void CFRunLoopAddSource(CFRunLoopRef rl, CFRunLoopSourceRef source,
 
 void CFRunLoopRun(void) {
   if (sources_added != 2 || system_callback == NULL || power_callback == NULL) {
-    (void)fprintf(stderr, "stubs: CFRunLoopRun before setup\n");
+    (void) fprintf(stderr, "stubs: CFRunLoopRun before setup\n");
     exit(3);
   }
   power_callback(power_context);
-  system_callback(system_refcon, 1, kIOMessageCanSystemSleep, (void *)11);
-  system_callback(system_refcon, 1, kIOMessageSystemWillSleep, (void *)12);
+  system_callback(system_refcon, 1, kIOMessageCanSystemSleep, (void *) 11);
+  system_callback(system_refcon, 1, kIOMessageSystemWillSleep, (void *) 12);
   system_callback(system_refcon, 1, kIOMessageSystemHasPoweredOn, NULL);
-  (void)fflush(stdout);
+  (void) fflush(stdout);
 }
 
 CFRunLoopSourceRef IONotificationPortGetRunLoopSource(IONotificationPortRef notify) {
@@ -75,8 +75,8 @@ io_connect_t IORegisterForSystemPower(void *refcon,
 }
 
 IOReturn IOAllowPowerChange(io_connect_t kernelPort, intptr_t notificationID) {
-  printf("allowed %u %ld\n", kernelPort, (long)notificationID);
-  (void)fflush(stdout);
+  printf("allowed %u %ld\n", kernelPort, (long) notificationID);
+  (void) fflush(stdout);
   return kIOReturnSuccess;
 }
 
