@@ -138,8 +138,10 @@ be malicious and try to send my sensitive data out. So:
 * Locations (decided 2026-10-19), conventional rather than under a
   "bulkhead" name, since others might use these tools too: each
   release in its own root-owned directory, `/opt/llama.cpp/BUILD` and
-  `/opt/llama-swap/VERSION`, with a `current` symlink that the daemon's
-  files name; the commands linked into `/usr/local/bin`; the service's
+  `/opt/llama-swap/VERSION`, which the daemon's files name (so a new
+  release changes them and restarts the engine), with a `current`
+  symlink recording what's installed; the commands linked through it
+  into `/usr/local/bin`; the service's
   own config in `/usr/local/etc/infer` (`llama-swap.yaml`, `infer.sb`);
   the daemon `local.infer`; and the sudoers rule
   `/etc/sudoers.d/infer`. `host-setup.sh` refuses to install unless
@@ -642,10 +644,11 @@ The strict profile, if built:
     root-owned, as `/usr/local/etc/infer/llama-swap.yaml` (readable
     only by `_infer`), `/usr/local/etc/infer/infer.sb`, and
     `/Library/LaunchDaemons/local.infer.plist`, plus the sudoers rule
-    `/etc/sudoers.d/infer`. It first checks the
-    rendered profile (blocks outbound HTTPS, reading my home directory,
-    and writes), and it restarts the daemon only when something
-    changed. After a restart it checks for HTTP 401 without the key, and
+    `/etc/sudoers.d/infer`. It stages each file as `FILE.new` and
+    checks it on every run (llama-swap's `-validate`; the profile blocks
+    outbound HTTPS, reading my home directory, and writes; `plutil
+    -lint`; `visudo -c`), puts them in place only if all pass, and
+    restarts the daemon only when one of its files changed. After a restart it checks for HTTP 401 without the key, and
     checks the sudoers rule by restarting again with `sudo -k` and
     `sudo -n`. It removes the trial's `local.infer-trial` daemon.
   * `vm-setup.sh`, on a VM with `~/.config/bulkhead/infer-api-key`,

@@ -30,6 +30,13 @@ linux_only() {
   fi
 }
 
+# Usage: die <message>
+# Prints "ERROR: <message>" to stderr and exits.
+die() {
+  echo "ERROR: $1" >&2
+  exit 1
+}
+
 # Usage: render_template <template-file> <dest-file> <VAR1> [<VAR2> ...]
 # Substitutes every "@@VAR@@" in <template-file> with the current value of
 # shell variable VAR (one already set, typically by config.sh), for each VAR

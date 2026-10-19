@@ -420,17 +420,15 @@ if [ -s "$infer_key_file" ]; then
   if [ -n "$pi_floor" ]; then
     pi_floor_time="$(npm view "$pi_package" time --json --cache "$npm_cache" |
       jq -r --arg v "$pi_floor" '.[$v] // empty')"
-    if [ -z "$pi_floor_time" ]; then
-      echo "ERROR: there's no pi release $pi_floor (config.sh's PI_PIN or PI_MIN)." >&2
-      exit 1
-    fi
+    [ -n "$pi_floor_time" ] || die "there's no pi release $pi_floor (config.sh's PI_PIN or PI_MIN)."
     pi_floor_before="$(date -u -d "@$(($(date -u -d "$pi_floor_time" +%s) + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
     if [ -n "$PI_PIN" ]; then
       echo "WARNING: pi is pinned to $PI_PIN. Clear the pin in config.sh when you can." >&2
       pi_spec="$pi_package@$PI_PIN"
       pi_before="$pi_floor_before"
-    elif [ "$(printf '%s\n%s\n' "$pi_before" "$pi_floor_before" | sort | tail -n 1)" = "$pi_floor_before" ]; then
-      pi_before="$pi_floor_before"
+    else
+      # The later of the two (same format, so they sort as text).
+      pi_before="$(printf '%s\n' "$pi_before" "$pi_floor_before" | sort | tail -n 1)"
     fi
   fi
 
@@ -485,11 +483,9 @@ if [ -s "$infer_key_file" ]; then
   rm -f "$HOME/.local/bin/pi-local" "$HOME/.local/bin/infer-logs"
   rm -rf "$HOME/.local/lib/pi"
   systemctl --user daemon-reload
-  for stream in proxy upstream; do
-    systemctl --user enable "infer-logs@$stream.service"
-    # Restart, not just start, to pick up a new infer-logs.
-    systemctl --user restart "infer-logs@$stream.service"
-  done
+  systemctl --user enable infer-logs@proxy.service infer-logs@upstream.service
+  # Restart, not just start, to pick up a new infer-logs.
+  systemctl --user restart infer-logs@proxy.service infer-logs@upstream.service
   echo "With the tunnel running, try: pi-local --print 'Say hello in five words.'"
   echo "Engine logs: journalctl --user -u 'infer-logs@*'"
 else
