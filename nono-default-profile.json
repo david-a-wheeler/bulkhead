@@ -25,7 +25,9 @@
       "$HOME/.local/share/doc",
       "/var/cache/man",
       "/snap",
-      "/etc/fonts"
+      "/etc/fonts",
+      "/usr/include",
+      "/usr/libexec"
     ]
   }
 }
