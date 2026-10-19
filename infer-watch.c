@@ -158,10 +158,8 @@ static void allow_power_change(void *argument) {
 /* on_sleep_or_wake: handle macOS's sleep and wake notifications. */
 static void on_sleep_or_wake(void *refcon, io_service_t service,
                              uint32_t message, void *argument) {
-  /* Apple's callback type needs these parameters, but we don't use them;
-   * this keeps -Wunused-parameter quiet. */
-  (void) refcon;
-  (void) service;
+  (void) refcon; /* Unused */
+  (void) service; /* Unused */
   switch (message) {
   case kIOMessageCanSystemSleep:
     /* Idle sleep: allow it. kIOMessageSystemWillSleep follows. */
@@ -181,7 +179,7 @@ static void on_sleep_or_wake(void *refcon, io_service_t service,
 
 /* on_power_source_change: handle a power source change. */
 static void on_power_source_change(void *context) {
-  (void) context; /* Unused, as in on_sleep_or_wake. */
+  (void) context; /* Unused */
   run_hook(power_event, OTHER_SECONDS);
 }
 
