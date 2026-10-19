@@ -134,10 +134,8 @@ echo "== Rendering and applying nftables egress ruleset =="
 nft_ports="$(printf '%s' "$NFTABLES_ALLOWED_TCP_PORTS" | sed 's/^ *//; s/ *$//; s/ /, /g')"
 NFTABLES_ALLOWED_TCP_PORTS_NFT="$nft_ports"
 HOST_GATEWAY_IP="$(ip route | awk '/^default/ { print $3; exit }')"
-if [ -z "$HOST_GATEWAY_IP" ]; then
-  echo "ERROR: couldn't determine the default gateway; can't scope the secrets-server firewall rule safely." >&2
-  exit 1
-fi
+[ -n "$HOST_GATEWAY_IP" ] ||
+  die "couldn't determine the default gateway; can't scope the secrets-server firewall rule safely."
 render_template "$SCRIPT_DIR/nftables.template.conf" "$TMPDIR/nftables.conf.rendered" \
   NFTABLES_ALLOWED_TCP_PORTS_NFT HOST_GATEWAY_IP SECRETS_SERVER_PORT
 sudo cp "$TMPDIR/nftables.conf.rendered" /etc/nftables.conf

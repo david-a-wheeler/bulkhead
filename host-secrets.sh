@@ -115,7 +115,7 @@ cmd_set() {
       echo "Leaving $name unchanged."
       return 0
     fi
-    [ "${#token}" -ge "$min_length" ] || { echo "Secret too short (${#token} chars)." >&2; exit 1; }
+    [ "${#token}" -ge "$min_length" ] || die "secret too short (${#token} chars)."
   fi
   # store_secret updates an existing item in place instead of erroring on
   # a duplicate; no separate delete step needed.

@@ -81,10 +81,7 @@ free_id() {
 }
 if ! dscl . -read "/Groups/$MACOS_INFER_USER" >/dev/null 2>&1; then
   gid="$(free_id Users Groups)"
-  if [ -z "$gid" ]; then
-    echo "ERROR: no unused ID from 400 to 499 for the $MACOS_INFER_USER group." >&2
-    exit 1
-  fi
+  [ -n "$gid" ] || die "no unused ID from 400 to 499 for the $MACOS_INFER_USER group."
   sudo dscl . -create "/Groups/$MACOS_INFER_USER"
   sudo dscl . -create "/Groups/$MACOS_INFER_USER" PrimaryGroupID "$gid"
   sudo dscl . -create "/Groups/$MACOS_INFER_USER" RealName "Local AI inference"
@@ -99,10 +96,7 @@ if ! id "$MACOS_INFER_USER" >/dev/null 2>&1; then
   else
     uid="$gid"
   fi
-  if [ -z "$uid" ]; then
-    echo "ERROR: no unused user ID from 400 to 499 for $MACOS_INFER_USER." >&2
-    exit 1
-  fi
+  [ -n "$uid" ] || die "no unused user ID from 400 to 499 for $MACOS_INFER_USER."
   sudo dscl . -create "/Users/$MACOS_INFER_USER"
   sudo dscl . -create "/Users/$MACOS_INFER_USER" UniqueID "$uid"
   sudo dscl . -create "/Users/$MACOS_INFER_USER" PrimaryGroupID "$gid"
@@ -261,8 +255,7 @@ while read -r url sha256 license subdir; do
   [ -f "$MODELS_DIR/$file" ] && continue
   case "$file" in
     *.bin | *.pt | *.pth | *.ckpt | *.pkl | *.pickle)
-      echo "ERROR: $file is a pickle-based format, which can run code when loaded; refusing to download it." >&2
-      exit 1
+      die "$file is a pickle-based format, which can run code when loaded; refusing to download it."
       ;;
   esac
   if [ -n "$subdir" ]; then
@@ -273,8 +266,7 @@ while read -r url sha256 license subdir; do
   curl -fL -C - -o "$MODELS_DIR/$file.partial" "$url"
   if [ "$(shasum -a 256 "$MODELS_DIR/$file.partial" | cut -d ' ' -f 1)" != "$sha256" ]; then
     rm -f "$MODELS_DIR/$file.partial"
-    echo "ERROR: $file doesn't match its SHA-256; deleted it." >&2
-    exit 1
+    die "$file doesn't match its SHA-256; deleted it."
   fi
   # The first 9 bytes as hex: 18 digits.
   case "$(head -c 9 "$MODELS_DIR/$file.partial" | od -An -tx1 | tr -d ' \n')" in
@@ -282,8 +274,7 @@ while read -r url sha256 license subdir; do
     ????????????????7b) ;; # safetensors
     *)
       rm -f "$MODELS_DIR/$file.partial"
-      echo "ERROR: $file is neither GGUF nor safetensors; deleted it." >&2
-      exit 1
+      die "$file is neither GGUF nor safetensors; deleted it."
       ;;
   esac
   mv "$MODELS_DIR/$file.partial" "$MODELS_DIR/$file"
