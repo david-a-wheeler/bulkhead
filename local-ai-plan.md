@@ -8,38 +8,32 @@ this is built, the lasting parts belong there.
 
 ## Current state (2026-10-19)
 
-A working trial, for **non-sensitive use only**: no sleep watcher yet
-(run `sh trial.sh stop` on the Mac before closing the lid), and no secure
+Working, for **non-sensitive use only**: no sleep watcher yet (run
+`./infer-access.sh off` on the Mac before closing the lid), and no secure
 VM yet (mytux is a normal VM with full network access).
 
-* On the Mac, `/Users/Shared/trial.sh start` runs llama-swap v265 (which
-  starts llama.cpp b11721's llama-server on demand) as the
-  `local.infer-trial` launchd daemon, as `_infer`, under the sandbox
-  profile in "Host sandbox". It writes nothing to disk. Models are in
-  `/Users/Shared/models`. Files under `/Users/Shared/infer-test`:
-  llama.cpp, llama-swap, `llama-swap.yaml` (the config, with the API
-  key), and `infer-trial.sb` (the profile). The API key is in
-  `~/.config/bulkhead/infer-api-key` on the Mac and on mytux.
-* The tunnel is started by hand on the Mac:
-  `ssh -N -R 8089:127.0.0.1:8089 mytux`.
-* On mytux, `pi-local` runs pi 1.3.0 under nono against
-  `qwen3.8-27b` (Q8_0, 262,144-token context) through the tunnel.
-* The scripts are in `,infer-test/` in this repo (not committed): on the
-  Mac, `trial.sh` (with `start`, `status`, `stop`, and
-  `remove-ramdisk`); on mytux, `vm-pi-trial.sh` (installs pi,
-  `pi-local`, and the `infer-logs` log collector). `phase-*.sh`,
-  `setup-models.sh`, `delete-infer.sh`, `check-groups.sh`,
-  `infer-ramdisk`, and `infer-start` are earlier experiments, kept for
-  reference; their results are in "Test results".
-* On mytux, the `infer-logs@proxy` and `infer-logs@upstream` user
-  services copy llama-swap's and llama-server's logs into the journal
-  (checked 2026-10-19).
-* Step 1 of "Remaining work" (moving the trial into the repo) is
-  written but not yet run: on the Mac, `host-setup.sh` now installs the
-  engine and replaces the trial daemon; on mytux, `vm-setup.sh` replaces
-  the trial's copies of pi, `pi-local`, and `infer-logs`. Step 3
-  (`infer-access.sh`, replacing the hand-started tunnel) is written too.
-  Next: run them and check them (see steps 1 and 3).
+* On the Mac, `host-setup.sh` installs llama.cpp and llama-swap under
+  `/opt` and runs llama-swap as the `local.infer` launchd daemon, as
+  `_infer`, under the sandbox profile in "Host sandbox". Models are in
+  `/Users/Shared/models`. The API key is in
+  `~/.config/bulkhead/infer-api-key` on the Mac and on mytux. A second
+  run said the engine was up to date.
+* `./infer-access.sh shared` opened the tunnel from mytux (a launchd
+  agent), replacing the hand-started one.
+* On mytux, `vm-setup.sh` installed pi, `nopi`, and the `infer-logs`
+  user services. `nopi --print 'Say hello in five words.'` answered
+  through the tunnel, using `qwen3.8-27b`, and llama-swap's and
+  llama-server's logs reached the journal.
+* The macOS log showed no sandbox denials for llama-swap or
+  llama-server. It did show llama-swap's performance monitor running
+  `ioreg` every 5 seconds, denied reading `/etc/passwd`; the config now
+  turns that monitor off (`performance: disabled: true`). Next: rerun
+  `host-setup.sh` and check that those denials stop.
+* Still to check from step 3: the tunnel coming back after mytux reboots
+  and after the Mac sleeps. Still to do from step 1: delete
+  `/Users/Shared/infer-test` and `/Users/Shared/trial.sh`.
+* The trial's scripts are in `,infer-test/` in this repo (not
+  committed), kept for reference; their results are in "Test results".
 
 ## Background and goals
 
@@ -674,8 +668,8 @@ The strict profile, if built:
     outbound HTTPS, reading my home directory, and writes; `plutil
     -lint`; `visudo -c`), puts them in place only if all pass, and
     restarts the daemon only when one of its files changed. After a restart it checks for HTTP 401 without the key, and
-    checks the sudoers rule by restarting again with `sudo -k` and
-    `sudo -n`. It removes the trial's `local.infer-trial` daemon.
+    checks the sudoers rule by restarting again with `sudo -n -k`
+    (which ignores, but keeps, sudo's cached password). It removes the trial's `local.infer-trial` daemon.
   * `vm-setup.sh`, on a VM with `~/.config/bulkhead/infer-api-key`,
     installs Node.js and pi (root-owned where `npm install -g` would
     put it, `/usr/local/lib/node_modules`, linked from
@@ -684,7 +678,7 @@ The strict profile, if built:
     npm's `--before`, which also limits its dependencies; for a floor
     or pin, `--before` is an hour after that release, since pi's
     sibling packages come out moments after it. It also installs
-    `pi-local` and `infer-logs` in `/usr/local/bin`,
+    `nopi` and `infer-logs` in `/usr/local/bin`,
     `infer-logs@.service` in `/etc/systemd/user`, and pi's
     `models.json` generated from `INFER_MODELS`, and removes the
     trial's copies in my home directory. A VM without the key skips
@@ -835,10 +829,11 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-1. **Run and check the moved trial** (sudo; see "Implemented"): on the
+1. **Run and check the moved trial** (sudo; see "Implemented"; done
+   2026-10-19 except as noted in "Current state"): on the
    Mac, `./host-setup.sh` (then delete `/Users/Shared/infer-test` and
    `/Users/Shared/trial.sh`); on mytux, `./vm-setup.sh`, then
-   `pi-local --print 'Say hello in five words.'` through the tunnel,
+   `nopi --print 'Say hello in five words.'` through the tunnel,
    `journalctl --user -u 'infer-logs@*'`, and the macOS log for sandbox
    denials (`log show --last 10m --predicate 'sender == "Sandbox"'`).
    A second `./host-setup.sh` should say the engine is up to date.
@@ -848,10 +843,10 @@ here.
    pages aren't in the sleep image (I believe macOS writes only in-use
    pages), and that forced sleep at critically low battery still sends
    the notification.
-3. **Tunnels and `infer-access`**: written 2026-10-19, not yet run.
+3. **Tunnels and `infer-access`**: written 2026-10-19; `shared` works.
    After step 1, stop the hand-started tunnel, run
    `./infer-access.sh shared`, and check `./infer-access.sh status`,
-   `pi-local` on mytux, and that a tunnel comes back after mytux
+   `nopi` on mytux, and that a tunnel comes back after mytux
    reboots and after the Mac sleeps.
 4. **Secure VM**: create it with LUKS, run `vm-setup.sh`, set up goose
    and pi against the engine, write the nono allowlist (which hosts do
