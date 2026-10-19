@@ -128,6 +128,38 @@ if ! shellcheck -x tests/test_infer_watch.sh || ! tests/test_infer_watch.sh; the
   fail=1
 fi
 
+step "tests/sleep-test.sh runs"
+# It only runs on the Mac, so run both phases here with stand-ins for
+# the Mac's commands. This catches mistakes that static checks can't
+# see, such as a variable config.sh needs that's never set.
+# (The shell ignores set -e in a subshell followed by ||, so each step
+# here checks for failure itself.)
+(
+  mkdir -p "$tmp/sleep/bin" "$tmp/sleep/home/.config/bulkhead" \
+    "$tmp/sleep/home/Library/Logs" || exit 1
+  for cmd in launchctl pmset curl; do
+    printf '#!/bin/sh\necho "fake %s $*"\n' "$cmd" > "$tmp/sleep/bin/$cmd" &&
+      chmod +x "$tmp/sleep/bin/$cmd" || exit 1
+  done
+  echo sk-test > "$tmp/sleep/home/.config/bulkhead/infer-api-key" || exit 1
+  echo "x infer-watch: watching for sleep, wake, and power changes" \
+    > "$tmp/sleep/home/Library/Logs/infer-watch.log" || exit 1
+  for phase in before after; do
+    if ! HOME="$tmp/sleep/home" PATH="$tmp/sleep/bin:$PATH" \
+        SLEEP_TEST_OUT="$tmp/sleep/out" tests/sleep-test.sh "$phase" \
+        > "$tmp/sleep/stdout" 2>&1; then
+      cat "$tmp/sleep/stdout" >&2
+      echo "FAILED: tests/sleep-test.sh $phase" >&2
+      exit 1
+    fi
+  done
+  if grep -E 'unbound variable|parameter not set|not found|WARNING' "$tmp/sleep/out" >&2 ||
+      [ "$(grep -c '^===== ' "$tmp/sleep/out")" != 2 ]; then
+    echo "FAILED: tests/sleep-test.sh's output (above, if any)" >&2
+    exit 1
+  fi
+) || fail=1
+
 step "jq revoke-filter logic (rotate-heroku-key.sh's auto-revoke query)"
 # This is the trickiest logic in the repo, and it had a real bug once
 # (matching by description instead of created_at silently revoked

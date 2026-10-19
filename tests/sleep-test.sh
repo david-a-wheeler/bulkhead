@@ -8,8 +8,8 @@
 #   (close the lid for at least a minute, then open it and log in)
 #   tests/sleep-test.sh after    # see what happened
 #
-# Each phase appends to ,sleep-test.out in the repo's top directory;
-# send me that file.
+# Each phase appends to ,sleep-test.out in the repo's top directory
+# (or to $SLEEP_TEST_OUT, which ci.sh sets); send me that file.
 set -u
 case "${1-}" in
   before | after) ;;
@@ -18,9 +18,10 @@ case "${1-}" in
     exit 2
     ;;
 esac
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
-. "$REPO/config.sh"
-OUT="$REPO/,sleep-test.out"
+# The repo's top directory; config.sh needs it as SCRIPT_DIR.
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$SCRIPT_DIR/config.sh"
+OUT="${SLEEP_TEST_OUT:-$SCRIPT_DIR/,sleep-test.out}"
 model="${INFER_MODELS%% *}"
 key="$(cat "$INFER_KEY_FILE")"
 
@@ -47,7 +48,7 @@ show() {
   else
     show tail -n 20 "$HOME/Library/Logs/infer-watch.log"
     show pgrep -lx llama-server
-    show "$REPO/infer-access.sh" status
+    show "$SCRIPT_DIR/infer-access.sh" status
     echo "\$ pmset -g log | grep -E ' (Sleep|Wake|DarkWake) ' | tail -n 6"
     pmset -g log | grep -E ' (Sleep|Wake|DarkWake) ' | tail -n 6
     echo
