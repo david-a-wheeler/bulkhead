@@ -69,10 +69,18 @@ be malicious and try to send my sensitive data out. So:
   makes prompt processing 2.6x faster here; LM Studio's bundled
   llama.cpp reportedly doesn't enable it
   (https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/2040).
-* Router mode (`--models-dir`, on-demand loading by name,
-  `--models-max 1`), with per-model settings in a preset INI file
-  (`--models-preset`), so harnesses see a stable list of model names on
-  one port.
+* llama-swap (https://github.com/mostlygeek/llama-swap) in front of a
+  single llama-server. Its config file maps each model name to that
+  model's `llama-server` command line (with per-model settings), so
+  harnesses see a stable list of model names on one port. It loads
+  the requested model on demand, one at a time, and can unload it after
+  a timeout. llama-swap listens on 127.0.0.1 on the tunneled port; each
+  backend `llama-server` listens on one fixed localhost port (hard-coded
+  in each model's command and its `proxy` URL, instead of llama-swap's
+  default dynamic `${PORT}`; verify this works). Turn on its API key,
+  pin a specific release, check its SHA-256 like a model, and update it
+  only deliberately. See "Alternatives considered" for why not
+  llama-server's own router mode.
 * Settings:
   * Q8_0 models by default (nearly lossless; see "Test results");
   * `-fa on` and the default physical batch size (`-ub` 512);
@@ -92,6 +100,47 @@ be malicious and try to send my sensitive data out. So:
   (`--spec-type draft-mtp`; Unsloth publishes them as
   `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, 1.4 GB), and the n-gram methods,
   which help when output repeats existing text (e.g., code edits).
+* Never configure a llama-swap model whose `proxy` points off the Mac.
+  llama-swap can forward requests to remote services (its example
+  config forwards to OpenRouter and a Tailscale address), and one such
+  line would send prompts out. The sandbox's outbound block is a second
+  layer, not the plan.
+
+### Image generation
+
+* Image models run under stable-diffusion.cpp's server, as llama-swap
+  entries like any other model (e.g., `flux2-dev`, `flux2-klein`, each
+  with its own command line). stable-diffusion.cpp is MIT-licensed C++
+  from the same ggml family as llama.cpp, publishes a prebuilt macOS
+  arm64 build (36 MB), and supports FLUX.2-dev and FLUX.2-klein, so it
+  needs no Python and runs as `_infer` under the same sandbox. (I
+  haven't confirmed the macOS build includes its server; llama-swap's
+  support for its API suggests it does.)
+* llama-swap routes the OpenAI-style image endpoints
+  (`/v1/images/generations`, `/v1/images/edits`) and stable-diffusion.cpp's
+  own (`/sdapi/v1/txt2img`, `/sdapi/v1/img2img`) by model name, the same
+  way as text.
+* I can keep many image models and switch among them, one loaded at a
+  time, just as with LLMs.
+* Turning typed text into an image needs only the image model: it has
+  its own text encoder, which stable-diffusion.cpp loads as part of it.
+  (FLUX.2-dev's encoder is large; I believe it's a roughly
+  24B-parameter language model, so the whole model needs more than the
+  19-27 GB of its quantized image part, but still fits on its own.)
+* By default llama-swap swaps: requesting an image model unloads the
+  LLM, and the next text request reloads it, losing its cache, so a long
+  conversation is processed again (a minute or more). That's fine for
+  typing a description and getting an image. If an LLM starts driving
+  image generation (writing prompts, or making images mid-conversation),
+  use llama-swap's `matrix` to keep both loaded; memory allows it (Q8_0
+  at 27 GB plus an image model, within the roughly 107 GB Metal can use),
+  but each concurrent backend needs its own port and sandbox allowance.
+* Every backend, text or image, uses the same fixed localhost port,
+  since only one runs at a time, so the sandbox needs only one outbound
+  allowance.
+* Image clients: goose and pi are text agents, so call the image
+  endpoint through the tunnel with a client in the secure VM, from
+  `curl` up to a web UI.
 
 ### The `_infer` account
 
@@ -110,13 +159,18 @@ be malicious and try to send my sensitive data out. So:
 
 ### Engine control
 
-* The engine runs as a launchd daemon (`/Library/LaunchDaemons`,
-  `UserName=_infer`) under the host sandbox below.
-* I control it from my own account with one small command, e.g.,
-  `infer-ctl use <model> | stop | restart | status | list`, allowed by a
-  sudoers rule that permits exactly that command as `_infer`. With
-  on-demand loading, harnesses just request a model by name and
-  `infer-ctl` is rarely needed.
+* llama-swap (and the `llama-server` it starts) runs as a launchd
+  daemon (`/Library/LaunchDaemons`, `UserName=_infer`) under the host
+  sandbox below.
+* No control program of our own; existing tools cover each job:
+  * switching models: request a model by name (llama-swap);
+  * restarting, for `infer-access`: `launchctl kickstart -k
+    system/<label>`, allowed without a password by one sudoers rule for
+    exactly that command. When launchd stops the job, it also stops the
+    job's other processes, i.e., the backend `llama-server`;
+  * stopping, for sleep: the root sleep watcher runs `launchctl bootout`;
+  * status: `curl` to `/health` and llama-swap's `/running`, no root
+    needed.
 
 ### Reaching the engine and switching access
 
@@ -138,8 +192,8 @@ reach it, and a tunnel's port binds only to its VM's own loopback.
   ```
 
 * Each mode change closes every tunnel, resets the engine
-  (`infer-ctl restart`, discarding the KV cache, prompt cache, slots,
-  and in-flight requests), opens tunnels for the new mode, and records
+  (`launchctl kickstart -k`, discarding the KV cache, prompt cache,
+  slots, and in-flight requests), opens tunnels for the new mode, and records
   the mode in a state file so `status`, reboots, and wake agree. The
   reset always happens, between closing and opening, so nothing from
   the secure VM is left in the engine when other VMs gain access.
@@ -162,12 +216,25 @@ reach it, and a tunnel's port binds only to its VM's own loopback.
 The engine should have almost no permissions, using only what macOS
 provides, so the host gets no extra software:
 
-* Seatbelt via `/usr/bin/sandbox-exec -f infer.sb ...`, with a
-  root-owned SBPL profile starting from `(deny default)` and allowing
-  only: reading the model directory, the llama.cpp directory, and the
-  system libraries and frameworks it needs; writing to the RAM disk;
-  listening on 127.0.0.1 on specific ports; and no outbound network.
-  Child processes inherit it. `sandbox-exec` is deprecated and SBPL is
+* Seatbelt via `/usr/bin/sandbox-exec -f infer.sb ...` around llama-swap,
+  with a root-owned SBPL profile starting from `(deny default)` and
+  allowing only:
+  * reading the model directory, the llama.cpp and llama-swap
+    directories, and the system libraries and frameworks they need;
+  * writing to the RAM disk, `_infer`'s own Metal shader cache
+    (`.../C/com.apple.metal` under its `/var/folders` directory:
+    compiled GPU code, not prompt data; denying it costs about 3 s per
+    model start), and `/dev/dtracehelper` (the dynamic linker
+    registering DTrace probes; harmless, and denying it fills the
+    denial log with noise);
+  * listening on 127.0.0.1 on the two ports (llama-swap's and the
+    backend's);
+  * outbound only to 127.0.0.1 on the backend's port, for llama-swap.
+
+  Child processes (the backend `llama-server`) inherit it, so the
+  backend could also connect to that one port, i.e., itself, but
+  nothing else. Rules later in a profile override earlier ones
+  (confirmed in Phase B1). `sandbox-exec` is deprecated and SBPL is
   undocumented, but it still works and is widely used (Chrome, Bazel,
   several AI coding tools); nono's macOS backend uses the same kernel
   mechanism.
@@ -179,9 +246,8 @@ provides, so the host gets no extra software:
   doesn't use it).
 * SBPL can allow localhost to one port or to all ports, not a range, and
   allowing all would let the engine reach every localhost service (e.g.,
-  CUPS on 631, maybe the secrets server). So list ports explicitly; if
-  router mode's child processes can't use fixed ports, run one
-  `llama-server` at a time on one port, switched by `infer-ctl`.
+  CUPS on 631, maybe the secrets server). That's why the backend uses
+  one fixed port.
 * launchd plist keys: `UserName`/`GroupName`; `EnvironmentVariables`
   with `HOME` and `TMPDIR` on the RAM disk; `Umask` 077; and
   `HardResourceLimits` with `Core` 0, so a core dump (process memory,
@@ -247,9 +313,12 @@ provides, so the host gets no extra software:
   `SHA256SUMS` (check with `shasum -a 256 -c SHA256SUMS`) and
   `SOURCES.tsv` (source URL, license, date added) record each file, and
   `README.txt` describes the conventions.
-* Layout follows `--models-dir`: single-file models directly in it, each
-  multi-file model (multi-shard, or with an `mmproj` file) in its own
-  subdirectory.
+* Layout: single-file models directly in it, each multi-file model
+  (multi-shard, or with an `mmproj` file) in its own subdirectory, the
+  convention llama-server's `--models-dir` uses. An image model is
+  usually several files (image model, text encoder, VAE), so each gets
+  its own subdirectory. `host-setup.sh`'s `MODEL_DOWNLOADS` handles only
+  files directly in `MODELS_DIR` for now.
 * Current models: Qwen3.8-27B as Q8_0 (default) and UD-Q4_K_M, from
   unsloth, and Qwen3-0.6B Q4_0 from ggml-org for quick tests; all
   Apache-2.0.
@@ -276,12 +345,36 @@ provides, so the host gets no extra software:
 * Engines: MLX (faster on small and mixture-of-experts models, but a
   Python stack), Ollama (now bundles MLX; more code to trust, its own
   model registry, cloud features), and LM Studio (closed source, hard to
-  confine). Revisit MLX if I move to a mixture-of-experts model. If I
-  ever need more than one engine (e.g., for images), put `llama-swap` on
-  the tunneled port to map model names to backends.
-* Image models (e.g., FLUX.2 dev, 19-27 GB quantized) need a separate
-  engine: stable-diffusion.cpp (C++, GGUF, Metal) fits a small host best;
-  mflux (MLX, Python) is the other option.
+  confine). Revisit MLX if I move to a mixture-of-experts model.
+  llama-swap can also front other backends (e.g., an image engine).
+* Model switching, besides llama-swap:
+  * llama-server's own router mode: built in, so no extra software, but
+    it starts each model's child server on a port the OS picks
+    (`common_http_get_free_port()` in `tools/server/server-models.cpp`)
+    and forwards requests to `127.0.0.1:<that port>`. So the sandbox
+    would have to let the engine (a large C++ program parsing untrusted
+    model files and requests) connect to any localhost port, letting a
+    compromised engine reach every localhost service.
+  * A single llama-server with no switcher: the tightest (no outbound
+    network at all, no extra software), but switching models means
+    editing the daemon's arguments and restarting it, i.e., writing and
+    maintaining our own control script (the `infer-ctl` an earlier
+    draft had), and harnesses can't switch by name.
+* About llama-swap (checked 2026-10-18): MIT-licensed Go, written almost
+  entirely by Benson Wong (GitHub `mostlygeek`, account since 2009,
+  works at Tailscale); about 6,000 stars, about 80 contributors, very
+  active (v265 on 2026-10-14), prebuilt macOS arm64 binary (22 MB).
+  Reassuring: no published advisories or CVEs found; releases built by
+  GoReleaser in GitHub Actions with actions pinned to commit hashes,
+  plus a checksums file; memory-safe language. Concerns: one maintainer;
+  no `SECURITY.md` and no OpenSSF Scorecard results; no signing or build
+  attestations; about 158 Go modules (including Kubernetes client
+  libraries, SQLite, and a pre-release Tailscale library); AI-assisted
+  development. Acceptable because it runs inside the same sandbox as
+  the engine: a compromised llama-swap could see prompts, as the engine
+  can, but couldn't send them anywhere.
+* Image engines besides stable-diffusion.cpp: mflux (MLX, so Python),
+  Draw Things (an app), and ComfyUI (PyTorch, the heaviest).
 * No Internet for the secure VM (rejected: it needs Internet; nono's
   allowlist limits it instead).
 * nono on the host (rejected: it needs Homebrew, and built-in Seatbelt
@@ -351,29 +444,47 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
   engine) could connect as a guest; the sandbox blocks outbound network,
   but I should turn File Sharing off if I don't use it, or at least turn
   off guest access.
+* **Sandbox, Phase B1** (`,infer-test/phase-b1.sh`): a permissive
+  profile (allow by default; deny outbound IP network, writes outside
+  one directory, and reads under `/Users` except the model and test
+  directories) passed all 12 self-tests, each checked both ways against
+  an unsandboxed baseline. The macOS log confirmed the network denials
+  (`network-outbound remote:*:443`, and `*:9` over IPv4 and IPv6); curl
+  itself only says "Couldn't connect to server" either way. Under the
+  sandbox, Metal and the tensor API worked at full speed
+  (`has tensor = true`; Qwen3-0.6B prefill 26,254 versus 26,227
+  tokens/s unsandboxed, generation 479 versus 481), and the `_infer`
+  server daemon served a request at 448 tokens/s with no errors. The
+  only denials that matter for the engine were writes to `_infer`'s
+  Metal shader cache (Metal kept working without it, but startup took
+  about 4 s instead of 1) and to `/dev/dtracehelper`; both are now
+  allowed in the design.
 
 ## Remaining work
 
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-1. **Host sandbox** (the one remaining question that could change the
-   design). Phase B1: a permissive profile that only blocks outbound
-   network and writes outside a log directory, first checked by hand
-   (a `curl` and a write must fail), then running the `_infer` server
-   daemon. Phase B2: `(deny default)`, built up from
-   `log stream --predicate 'sender == "Sandbox"'`, starting from nono's
-   `--allow-gpu` rules and Chromium's GPU-process profile. Also check:
-   * `has tensor = true` under the sandbox, since llama.cpp compiles a
-     test kernel at startup and silently disables the tensor API if
-     that fails, which would cost 2.6x on prefill;
-   * whether router mode's child processes can use fixed ports;
+1. **Host sandbox, Phase B2** (Phase B1 is done; see "Test results"):
+   `(deny default)`, built up from the denials in
+   `log show --predicate 'sender == "Sandbox"'`, starting from nono's
+   `--allow-gpu` rules and Chromium's GPU-process profile, with
+   llama-swap in front and the allowances above. Also check:
+   * `has tensor = true` under the strict profile, since llama.cpp
+     compiles a test kernel at startup and silently disables the tensor
+     API if that fails, which would cost 2.6x on prefill;
+   * llama-swap with a fixed backend port, and the sandbox allowing
+     outbound only to that port;
    * whether pf honors `user` rules.
+
+   If `(deny default)` turns into an endless list of Metal allowances,
+   use the B1 profile plus the allowances above (see "Host sandbox").
 2. **RAM disk** (sudo): the boot-time LaunchDaemon, the traps above, and
    how it behaves under memory pressure (does it stay out of swap?).
-3. **Engine daemon** (sudo): the launchd plist, the fail-closed start
-   script, router mode with a preset file and the settings above,
-   `infer-ctl`, and its sudoers rule.
+3. **Engine daemon** (sudo): install llama-swap (pinned release, checked
+   SHA-256), its config file with each model's command line and the
+   settings above, the launchd plist, the fail-closed start script, and
+   the sudoers rule for `launchctl kickstart -k`.
 4. **Sleep watcher** (sudo): check whether every lid close writes RAM to
    `/private/var/vm/sleepimage` (`pmset -g`, the file's modification
    time). Verify the watcher can delay sleep long enough, that freed
