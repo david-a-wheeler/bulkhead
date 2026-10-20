@@ -8,10 +8,10 @@ this is built, the lasting parts belong there.
 
 ## Current state (2026-10-19)
 
-Working, for **non-sensitive use only**: the sleep watcher is written but
-not yet run, so run `./infer-access.sh off`
-on the Mac before closing the lid; and there's no secure VM yet (mytux
-is a normal VM with full network access).
+Working, for **non-sensitive use only**: there's no secure VM yet (mytux
+is a normal VM with full network access), and the sleep watcher has
+passed only one forced sleep, so keep running `./infer-access.sh off`
+on the Mac before closing the lid until step 2 is done.
 
 * On the Mac, `host-setup.sh` installs llama.cpp and llama-swap under
   `/opt` and runs llama-swap as the `local.infer` launchd daemon, as
@@ -30,8 +30,18 @@ is a normal VM with full network access).
   `ioreg` every 5 seconds, denied reading `/etc/passwd`; the config now
   turns that monitor off (`performance: disabled: true`). After a rerun
   of `host-setup.sh` restarted the engine, those denials stopped.
-* Still to check from step 3: the tunnel coming back after mytux reboots
-  and after the Mac sleeps.
+* On 2026-10-19 a forced sleep (`Software Sleep`, lid open; this setup's
+  AppleClamshellCausesSleep is No, so a lid close wouldn't sleep) ran
+  the sleep hook: infer-watch unloaded the model 4 seconds before the
+  sleep, and on wake it reopened the tunnel from mytux. A request after
+  wake got HTTP 200 and reloaded llama-server. The sleepimage's
+  modification time didn't change (still Aug 20). After a DarkWake the
+  Mac went back to sleep citing "Thermal Emergency Sleep", but
+  `pmset -g thermlog` recorded no thermal or performance warnings, and
+  the log said "Ignored DarkWake thermal emergency signal"; I believe
+  it's spurious.
+* Still to check from step 3: the tunnel coming back after mytux
+  reboots.
 * I deleted the trial's files from `/Users/Shared` (including the RAM
   disk prototype's scripts; its daemon was already gone). Only `models`
   and macOS's own items remain there.
@@ -703,7 +713,7 @@ The strict profile, if built:
   entries.
 * `vm-setup.sh` installs `check-prose-style --text` as a global
   commit-msg git hook.
-* Written 2026-10-19, not yet run: the sleep
+* Written 2026-10-19, passed one forced sleep (see "Current state"): the sleep
   watcher (see "Kill on sleep" and "Power and cooling").
   `host-setup.sh` builds `infer-watch.c` into `~/bin/infer-watch` if
   there's a compiler (`xcode-select -p`), rebuilding only when the
