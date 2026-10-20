@@ -5,6 +5,7 @@
 # so run "before" only once its log says it's watching.
 #
 #   tests/sleep-test.sh before   # load the model, then close the lid
+#                                # within 30 minutes (llama-swap's ttl)
 #   (close the lid for at least a minute, then open it and log in)
 #   tests/sleep-test.sh after    # see what happened
 #
@@ -49,10 +50,13 @@ show() {
     show tail -n 20 "$HOME/Library/Logs/infer-watch.log"
     show pgrep -lx llama-server
     show "$SCRIPT_DIR/infer-access.sh" status
-    echo "\$ pmset -g log | grep -E ' (Sleep|Wake|DarkWake) ' | tail -n 6"
-    pmset -g log | grep -E ' (Sleep|Wake|DarkWake) ' | tail -n 6
+    # pmset's log has the event type in its 4th field; other fields can
+    # contain "Wake" (e.g., Chrome's "Video Wake Lock").
+    echo "\$ pmset -g log | (Sleep, Wake, and DarkWake events) | tail -n 10"
+    pmset -g log | awk '$4 == "Sleep" || $4 == "Wake" || $4 == "DarkWake"' | tail -n 10
     echo
   fi
+  show pmset -g batt
   show ls -l /private/var/vm/sleepimage
   show pmset -g custom
 } 2>&1 | tee -a "$OUT"
