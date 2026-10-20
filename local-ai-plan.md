@@ -964,9 +964,18 @@ here.
      so check the log if it happens in normal use. Also whether freed
      pages stay out of the sleep image (I believe macOS writes only
      in-use pages).
-   * Whether UTM crashes on most sleeps (it crashed once, on
-     2026-10-19). If it does, a sleep loses the VMs anyway, so the
-     simpler answer is to avoid sleeping the Mac while VMs run.
+   * Whether UTM crashes on most sleeps. It crashed once, on
+     2026-10-19, at the wake (UTM 4.7.5, macOS 26.6.2), and took mytux
+     with it. The crash was in UTM's own process, on the main thread,
+     while Core Animation drew the VM's display: a memmove read past
+     the end of a 4 MB buffer while copying what looks like a
+     1920x1080 frame (8,294,400 bytes). I think it's a race between
+     redrawing the display and the display changing at wake, not
+     anything in the VM. If it happens on most sleeps, a sleep loses
+     the VMs anyway, so the simpler answer is to avoid sleeping the
+     Mac while VMs run. A VM without a UTM display (headless, used
+     over ssh) might avoid that code entirely; the secure VM may not
+     need a display.
    * The hook didn't run for the sleep after a DarkWake, nor for the
      DarkWake itself. I believe macOS doesn't send apps these for a
      DarkWake; that's fine, since the tunnels stay closed until a full
