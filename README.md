@@ -178,7 +178,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   harness should have beyond what its own pack grants: `~/.rbenv`,
   `~/.gitconfig`, program and header directories nono lacks (e.g.,
   `/usr/libexec` and `/usr/include`, so gcc works), the dpkg database,
-  small read-only `/etc` files that programs read at startup, and local
+  small read-only `/etc` files that programs read at startup, the
+  generated spelling dictionaries (so aspell works) and Ghostscript font
+  maps under `/var/lib`, and local
   documentation: the man-page configuration and index cache (so `man`,
   `apropos`, and `whatis` work in the sandbox) plus `/usr/local/share`
   and the man, info, and doc directories under `/usr/local`, `/opt`, and
