@@ -11,7 +11,9 @@ this is built, the lasting parts belong there.
 Working, for **non-sensitive use only**: there's no secure VM yet (mytux
 is a normal VM with full network access), and the sleep watcher has
 passed only one forced sleep, so keep running `./infer-access.sh off`
-on the Mac before closing the lid until step 2 is done.
+on the Mac before closing the lid until step 8 is done. UTM crashed
+during that sleep; if that's common, avoid sleeping the Mac while VMs
+run anyway.
 
 * On the Mac, `host-setup.sh` installs llama.cpp and llama-swap under
   `/opt` and runs llama-swap as the `local.infer` launchd daemon, as
@@ -914,23 +916,15 @@ here.
    `journalctl --user -u 'infer-logs@*'`, and the macOS log for sandbox
    denials (`log show --last 10m --predicate 'sender == "Sandbox"'`).
    A second `./host-setup.sh` should say the engine is up to date.
-2. **Sleep watcher** (sudo): check whether every lid close writes RAM to
-   `/private/var/vm/sleepimage` (`pmset -g`, the file's modification
-   time). Verify the watcher can delay sleep long enough, that freed
-   pages aren't in the sleep image (I believe macOS writes only in-use
-   pages), and that forced sleep at critically low battery still sends
-   the notification. Include the low-battery power modes (see "Power
-   and cooling"); test them by changing the thresholds temporarily in
-   `config.local.sh` rather than draining the battery: with both at 101,
-   rerunning `host-setup.sh` should switch to Low, and then with
-   `INFER_LOW_POWER_UNTIL=0` (plugged in) it should restore the modes.
-   Also check that 1 really is Low (`pmset -g custom`, and System
-   Settings > Battery > Energy Mode). `tests/sleep-test.sh` checks a lid close.
+2. **Sleep watcher** (sudo; partly done 2026-10-19): a forced sleep
+   unloaded the model, the tunnel came back on wake, and the model
+   reloaded on the next request (see "Current state"). We've put off
+   the rest to step 8, since the other steps matter more now.
 3. **Tunnels and `infer-access`**: written 2026-10-19; `shared` works.
    After step 1, stop the hand-started tunnel, run
    `./infer-access.sh shared`, and check `./infer-access.sh status`,
    `nopi` on mytux, and that a tunnel comes back after mytux
-   reboots and after the Mac sleeps.
+   reboots. It came back after the Mac slept (see "Current state").
 4. **Secure VM**: create it with LUKS, run `vm-setup.sh`, set up goose
    and pi against the engine, write the nono allowlist (which hosts do
    they need?), and refuse inbound connections from other VMs.
@@ -946,7 +940,38 @@ here.
 6. **File Sharing**: turn it off, or at least guest access (my action).
 7. **Documentation**: move the lasting parts into `architecture.md` and
    `README.md`.
-8. **Maybe, later: a strict host sandbox**, most likely with nono's
+8. **More sleep tests** (sudo), put off from step 2. I expect them to
+   pass, and FileVault encrypts the sleep image anyway, but they
+   haven't run:
+   * The low-battery power modes (see "Power and cooling"). This is our
+     own untested shell logic, so it's the likeliest to have a bug,
+     but a bug would only leave the wrong power mode, and it's cheap to
+     test: change the thresholds temporarily in `config.local.sh`
+     rather than draining the battery. With both at 101, rerunning
+     `host-setup.sh` should switch to Low; then with
+     `INFER_LOW_POWER_UNTIL=0` (plugged in) it should restore the
+     modes. Also check that 1 really is Low (`pmset -g custom`, and
+     System Settings > Battery > Energy Mode).
+   * A real lid close (on battery, or with the external display
+     unplugged, since on this setup AppleClamshellCausesSleep is No).
+     It sends the same `kIOMessageSystemWillSleep` as the forced
+     sleep, so just check `infer-watch.log` after one happens in normal
+     use. `tests/sleep-test.sh` covers it.
+   * Forced sleep at critically low battery, the case where macOS
+     hibernates and writes `/private/var/vm/sleepimage`. I believe it
+     still sends the notification, but I don't know that it waits the
+     full 25 seconds for the hook. Testing means draining the battery,
+     so check the log if it happens in normal use. Also whether freed
+     pages stay out of the sleep image (I believe macOS writes only
+     in-use pages).
+   * Whether UTM crashes on most sleeps (it crashed once, on
+     2026-10-19). If it does, a sleep loses the VMs anyway, so the
+     simpler answer is to avoid sleeping the Mac while VMs run.
+   * The hook didn't run for the sleep after a DarkWake, nor for the
+     DarkWake itself. I believe macOS doesn't send apps these for a
+     DarkWake; that's fine, since the tunnels stay closed until a full
+     wake.
+9. **Maybe, later: a strict host sandbox**, most likely with nono's
     prebuilt binary (see "Host sandbox"). Check `has tensor = true`
     under it, since llama.cpp compiles a test kernel at startup and
     silently disables the tensor API if that fails, which would cost
