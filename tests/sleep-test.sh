@@ -57,6 +57,14 @@ show() {
     echo
   fi
   show pmset -g batt
+  # Whether closing the lid sleeps the Mac (AppleClamshellCausesSleep;
+  # No in clamshell mode, with an external display), and what's
+  # preventing sleep.
+  echo "\$ ioreg -r -k AppleClamshellState -d 1 | grep AppleClamshell"
+  ioreg -r -k AppleClamshellState -d 1 | grep AppleClamshell
+  echo
+  show pmset -g
+  show pmset -g assertions
   show ls -l /private/var/vm/sleepimage
   show pmset -g custom
 } 2>&1 | tee -a "$OUT"

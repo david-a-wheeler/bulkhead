@@ -137,7 +137,7 @@ step "tests/sleep-test.sh runs"
 (
   mkdir -p "$tmp/sleep/bin" "$tmp/sleep/home/.config/bulkhead" \
     "$tmp/sleep/home/Library/Logs" || exit 1
-  for cmd in launchctl pmset curl; do
+  for cmd in launchctl pmset curl ioreg; do
     printf '#!/bin/sh\necho "fake %s $*"\n' "$cmd" > "$tmp/sleep/bin/$cmd" &&
       chmod +x "$tmp/sleep/bin/$cmd" || exit 1
   done
