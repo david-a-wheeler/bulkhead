@@ -35,15 +35,17 @@ run anyway.
 * On 2026-10-19 a forced sleep (`Software Sleep`, lid open; this setup's
   AppleClamshellCausesSleep is No, so a lid close wouldn't sleep) ran
   the sleep hook: infer-watch unloaded the model 4 seconds before the
-  sleep, and on wake it reopened the tunnel from mytux. A request after
-  wake got HTTP 200 and reloaded llama-server. The sleepimage's
+  sleep, and on wake it restarted the tunnel's agent. UTM crashed at
+  that wake and took mytux down (it booted again at 20:38:53), so that
+  ssh couldn't connect at first, but it reconnected once mytux was
+  back: from mytux, the engine answered through the tunnel (HTTP 401
+  without the key, since the AI's sandbox can't read it). A request on
+  the Mac after wake got HTTP 200 and reloaded llama-server. The sleepimage's
   modification time didn't change (still Aug 20). After a DarkWake the
   Mac went back to sleep citing "Thermal Emergency Sleep", but
   `pmset -g thermlog` recorded no thermal or performance warnings, and
   the log said "Ignored DarkWake thermal emergency signal"; I believe
   it's spurious.
-* Still to check from step 3: the tunnel coming back after mytux
-  reboots.
 * I deleted the trial's files from `/Users/Shared` (including the RAM
   disk prototype's scripts; its daemon was already gone). Only `models`
   and macOS's own items remain there.
@@ -917,14 +919,16 @@ here.
    denials (`log show --last 10m --predicate 'sender == "Sandbox"'`).
    A second `./host-setup.sh` should say the engine is up to date.
 2. **Sleep watcher** (sudo; partly done 2026-10-19): a forced sleep
-   unloaded the model, the tunnel came back on wake, and the model
+   unloaded the model, the tunnel's agent restarted on wake, and the model
    reloaded on the next request (see "Current state"). We've put off
    the rest to step 8, since the other steps matter more now.
 3. **Tunnels and `infer-access`**: written 2026-10-19; `shared` works.
    After step 1, stop the hand-started tunnel, run
    `./infer-access.sh shared`, and check `./infer-access.sh status`,
    `nopi` on mytux, and that a tunnel comes back after mytux
-   reboots. It came back after the Mac slept (see "Current state").
+   reboots. Done 2026-10-19, in effect: after UTM's crash took mytux
+   down at a wake, the tunnel reconnected once mytux was back (see
+   "Current state").
 4. **Secure VM**: create it with LUKS, run `vm-setup.sh`, set up goose
    and pi against the engine, write the nono allowlist (which hosts do
    they need?), and refuse inbound connections from other VMs.
