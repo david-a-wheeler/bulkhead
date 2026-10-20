@@ -176,11 +176,14 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   executable file, not a bash function: any shell can run it.
 - `nono-default-profile.json`: filesystem access every nono-sandboxed
   harness should have beyond what its own pack grants: `~/.rbenv`,
-  `~/.gitconfig`, a few small read-only `/etc` files, and local
+  `~/.gitconfig`, program and header directories nono lacks (e.g.,
+  `/usr/libexec` and `/usr/include`, so gcc works), the dpkg database,
+  small read-only `/etc` files that programs read at startup, and local
   documentation: the man-page configuration and index cache (so `man`,
-  `apropos`, and `whatis` work in the sandbox) plus the man, info, and doc
-  directories under `/usr/local`, `/opt`, and `~/.local/share` for software
-  installed outside the system package manager. Some entries are absent on
+  `apropos`, and `whatis` work in the sandbox) plus `/usr/local/share`
+  and the man, info, and doc directories under `/usr/local`, `/opt`, and
+  `~/.local/share` for software installed outside the system package
+  manager. Some entries are absent on
   Ubuntu (e.g. `/etc/man_db.conf`, `/usr/man`, `/opt/man`) but cover other
   distributions, because nono silently skips nonexistent paths. The catch:
   a grant applies only if the path exists when the sandbox starts, so a
