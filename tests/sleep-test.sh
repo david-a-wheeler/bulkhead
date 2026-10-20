@@ -51,9 +51,12 @@ show() {
     show pgrep -lx llama-server
     show "$SCRIPT_DIR/infer-access.sh" status
     # pmset's log has the event type in its 4th field; other fields can
-    # contain "Wake" (e.g., Chrome's "Video Wake Lock").
+    # contain "Wake" (e.g., Chrome's "Video Wake Lock"), and "Wake
+    # Requests" lines have "Wake" in that field too.
     echo "\$ pmset -g log | (Sleep, Wake, and DarkWake events) | tail -n 10"
-    pmset -g log | awk '$4 == "Sleep" || $4 == "Wake" || $4 == "DarkWake"' | tail -n 10
+    pmset -g log |
+      awk '$4 == "Sleep" || $4 == "DarkWake" || ($4 == "Wake" && $5 != "Requests")' |
+      tail -n 10
     echo
   fi
   show pmset -g batt
