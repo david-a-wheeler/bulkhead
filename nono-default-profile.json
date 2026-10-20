@@ -44,6 +44,7 @@
       "/var/lib/ghostscript",
       "/etc/xml",
       "/etc/sgml",
+      "/var/cache/fontconfig",
       "/etc/fstab",
       "/etc/mime.types",
       "/snap",
