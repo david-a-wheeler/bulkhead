@@ -40,7 +40,6 @@
       "/etc/dictionaries-common",
       "/var/lib/aspell",
       "/var/lib/ispell",
-      "/var/lib/dictionaries-common",
       "/etc/paperspecs",
       "/var/lib/ghostscript",
       "/etc/xml",
