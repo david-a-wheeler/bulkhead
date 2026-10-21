@@ -24,7 +24,7 @@
 # infer-models.yaml if needed), so once you rerun host-setup.sh (and
 # vm-setup.sh on each VM, for pi), harnesses can request NAME. --ctx (the context
 # window) defaults to the one Hugging Face reports for the repository's
-# GGUF files, --max (the most tokens one reply may use) to 16384 (or the
+# GGUF files, --max (the most tokens one reply may use) to 32768 (or the
 # context window, if smaller), and --desc to the file name.
 #
 # URLs stay on the branch you gave (normally main). The SHA-256 in
@@ -284,7 +284,7 @@ if [ -n "$serve" ]; then
     *[!0-9]*) die "--ctx must be a whole number." ;;
   esac
   if [ -z "$max" ]; then
-    max=16384
+    max=32768
     [ "$max" -le "$ctx" ] || max="$ctx"
   fi
   desc="${desc:-$(basename "$file" .gguf)}"

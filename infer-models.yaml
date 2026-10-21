@@ -42,7 +42,7 @@ models:
     capabilities:
       context: 262144
     metadata:
-      max_tokens: 16384
+      max_tokens: 32768
       default: true
     filters:
       # From the model card (unsloth/Qwen3.8-27B-GGUF). Its GGUF files
