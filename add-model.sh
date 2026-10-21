@@ -44,7 +44,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 usage() {
   sed -n '/^# Usage:/,/^#$/s/^# \{0,1\}//p' "$0" >&2
+  echo "For details, run: $0 --help" >&2
   exit 2
+}
+
+# help: prints this file's opening comment.
+help() {
+  sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"
+  exit 0
 }
 
 HF="https://huggingface.co"
@@ -65,7 +72,7 @@ hf_parse() {
   case "$hf_repo" in */*) ;; *) die "$1 isn't a link to a file in a Hugging Face model." ;; esac
   for hp_part in "$hf_repo" "$hf_rev" "$hf_path"; do
     case "$hp_part" in
-      "" | *[!A-Za-z0-9._/-]* | ../* | */../* | */..)
+      "" | *[!A-Za-z0-9._/-]* | . | .. | ./* | ../* | */./* | */../* | */. | */..)
         die "$1 has characters I don't accept in a Hugging Face link."
         ;;
     esac
@@ -75,7 +82,9 @@ hf_parse() {
 
 # hf_file_info: sets hf_sha256, hf_size, and hf_date (when the file last
 # changed, as YYYY-MM-DDTHH:MM:SS UTC) for hf_path at hf_rev in hf_repo.
-# They're empty if there's no such file.
+# They're empty if there's no such file, or Hugging Face publishes no
+# SHA-256 for it (it does for every file stored with Git LFS, which
+# model files are).
 hf_file_info() {
   hf_json="$(curl -fsS --data-urlencode "paths=$hf_path" -d expand=true \
     "$HF/api/models/$hf_repo/paths-info/$hf_rev")" ||
@@ -124,6 +133,7 @@ while [ $# -gt 0 ]; do
       ;;
     --check) mode=check && shift ;;
     --force) force=true && shift ;;
+    -h | --help) help ;;
     -*) usage ;;
     *)
       [ -z "$url" ] || usage
@@ -147,7 +157,7 @@ case "$mode" in
       fi
       hf_file_info
       if [ -z "$hf_sha256" ]; then
-        echo "$m_file: GONE; $hf_url no longer exists."
+        echo "$m_file: GONE; $hf_url no longer exists (or has no SHA-256)."
       elif [ "$hf_sha256" = "$m_sha256" ]; then
         echo "$m_file: up to date."
       elif too_new "$hf_date"; then
@@ -175,7 +185,7 @@ EOF
     hf_parse "$u_url" ||
       die "$update_file isn't from Hugging Face, so I can't update it; change its line in MODEL_DOWNLOADS by hand."
     hf_file_info
-    [ -n "$hf_sha256" ] || die "$hf_url no longer exists."
+    [ -n "$hf_sha256" ] || die "$hf_url no longer exists (or has no SHA-256)."
     if [ "$hf_sha256" = "$u_sha256" ]; then
       echo "$update_file is up to date."
       exit 0
@@ -185,16 +195,25 @@ EOF
     fi
     prepare_models_dir
     fetch_model "$u_url" "$hf_sha256" "$u_license" "$u_subdir"
-    # Change the SHA-256 wherever its line is.
+    # Change the SHA-256 wherever its line is. awk's index() matches the
+    # URL literally, whatever characters it has.
     changed=""
     for f in "$SCRIPT_DIR/config.local.sh" "$SCRIPT_DIR/config.sh"; do
       if [ ! -f "$f" ] || ! grep -qF "$u_url $u_sha256" "$f"; then continue; fi
-      sed "s|$u_url $u_sha256|$u_url $hf_sha256|" "$f" > "$f.new"
+      OLD="$u_url $u_sha256" NEW="$u_url $hf_sha256" awk '{
+        i = index($0, ENVIRON["OLD"])
+        if (i) $0 = substr($0, 1, i - 1) ENVIRON["NEW"] substr($0, i + length(ENVIRON["OLD"]))
+        print
+      }' "$f" > "$f.new"
       cat "$f.new" > "$f"
       rm -f "$f.new"
       changed="$changed $(basename "$f")"
     done
     echo "Updated $update_file to the version from $hf_date."
+    hf_repo_info
+    if [ -n "$hf_license" ] && [ "$hf_license" != "$u_license" ]; then
+      echo "WARNING: $hf_repo's license is now $hf_license, not $u_license; check it, and change its line by hand." >&2
+    fi
     [ -n "$changed" ] || echo "WARNING: didn't find its line to change its SHA-256; change it by hand." >&2
     case "$changed " in
       *" config.sh "*) echo "Changed its SHA-256 in config.sh; commit that." ;;
@@ -218,7 +237,8 @@ if hf_parse "$url"; then
   [ "$hf_gated" = false ] ||
     die "$hf_repo is gated (you must accept its terms on Hugging Face first), and this script doesn't handle Hugging Face tokens."
   hf_file_info
-  [ -n "$hf_sha256" ] || die "Hugging Face has no file $hf_path in $hf_repo at $hf_rev."
+  [ -n "$hf_sha256" ] ||
+    die "Hugging Face has no file $hf_path in $hf_repo at $hf_rev, or publishes no SHA-256 for it."
   if [ -n "$sha256" ] && [ "$sha256" != "$hf_sha256" ]; then
     die "--sha256 doesn't match the SHA-256 Hugging Face publishes ($hf_sha256)."
   fi
@@ -269,7 +289,7 @@ if [ -n "$serve" ]; then
   desc="${desc:-$(basename "$file" .gguf)}"
   case "$desc" in *'$'* | *'`'*) die "--desc can't contain \$ or \`." ;; esac
   infer_model_ok "$serve" "$file" "$ctx" "$max" "$desc" ||
-    die "--serve NAME may use only letters, digits, '.', '_', and '-'; --ctx and --max must be whole numbers; and --desc can't have quotes or backslashes."
+    die "--serve NAME may use only letters, digits, '.', '_', and '-'; --ctx and --max must be whole numbers; and --desc can't have quotes, backslashes, or control characters."
   [ "$max" -le "$ctx" ] || die "--max ($max) is more than the context window ($ctx)."
   if printf '%s\n' "$INFER_MODELS" | cut -d ' ' -f 1 | grep -qxF "$serve"; then
     die "INFER_MODELS already has a model named $serve."
@@ -293,9 +313,9 @@ local_config="$SCRIPT_DIR/config.local.sh"
 # shellcheck disable=SC2016
 {
   printf '\n# Added by add-model.sh on %s.\n' "$(date +%Y-%m-%d)"
-  printf 'MODEL_DOWNLOADS="$MODEL_DOWNLOADS\n%s %s %s%s"\n' "$url" "$sha256" "$license" "${subdir:+ $subdir}"
+  printf 'MODEL_DOWNLOADS="${MODEL_DOWNLOADS:+$MODEL_DOWNLOADS\n}%s %s %s%s"\n' "$url" "$sha256" "$license" "${subdir:+ $subdir}"
   [ -z "$serve" ] ||
-    printf 'INFER_MODELS="$INFER_MODELS\n%s %s %s %s %s"\n' "$serve" "$file" "$ctx" "$max" "$desc"
+    printf 'INFER_MODELS="${INFER_MODELS:+$INFER_MODELS\n}%s %s %s %s %s"\n' "$serve" "$file" "$ctx" "$max" "$desc"
 } >> "$local_config"
 
 echo "Added $file to MODEL_DOWNLOADS in config.local.sh."

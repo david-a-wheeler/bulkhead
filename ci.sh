@@ -130,6 +130,10 @@ m|M.gguf|4096|5x|ok
 m|M.gguf|4096|512|
 m|M.gguf|4096|512|back\slash
 EOF
+if infer_model_ok m M.gguf 4096 512 "$(printf 'two\nlines')"; then
+  echo "FAILED: infer_model_ok accepted a description with a newline" >&2
+  fail=1
+fi
 
 step "python unit tests (tests/)"
 # tests/render_helper.py renders a template in memory and imports it as a

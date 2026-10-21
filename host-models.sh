@@ -30,10 +30,11 @@ prepare_models_dir() {
 }
 
 # Usage: model_file <url> [<subdir>]
-# Prints the model's path relative to MODELS_DIR. A multi-file model
-# (e.g., an image model) names a subdirectory.
+# Prints the model's path relative to MODELS_DIR: the URL's last part,
+# without any query (e.g., "?download=true"). A multi-file model (e.g.,
+# an image model) names a subdirectory.
 model_file() {
-  printf '%s\n' "${2:+$2/}$(basename "$1")"
+  printf '%s\n' "${2:+$2/}$(basename "${1%%\?*}")"
 }
 
 # Usage: download_model <url> <sha256> <license> [<subdir>]

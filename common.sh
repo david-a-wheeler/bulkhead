@@ -191,14 +191,15 @@ ask_once() {
 # Usage: infer_model_ok <name> <file> <ctx> <max> <description>
 # True if these fields of an INFER_MODELS line are safe to put in
 # llama-swap's YAML and pi's JSON: a plain name, a relative path inside
-# MODELS_DIR, whole numbers, and a description with no quotes or
-# backslashes.
+# MODELS_DIR, whole numbers, and a description with no quotes,
+# backslashes, or control characters (e.g., a newline would start
+# another line).
 infer_model_ok() {
   case "$1" in "" | *[!A-Za-z0-9._-]*) return 1 ;; esac
   case "$2" in "" | *[!A-Za-z0-9._/-]* | /* | */../* | ../*) return 1 ;; esac
   case "$3" in "" | *[!0-9]*) return 1 ;; esac
   case "$4" in "" | *[!0-9]*) return 1 ;; esac
-  case "$5" in "" | *'"'* | *\\*) return 1 ;; esac
+  case "$5" in "" | *'"'* | *\\* | *[[:cntrl:]]*) return 1 ;; esac
 }
 
 # Usage: cooling_cutoff
