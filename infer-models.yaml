@@ -37,7 +37,11 @@
 models:
   qwen3.8-27b:
     name: "Qwen3.8-27B Q8_0"
-    cmd: ${llama-server} --model ${models-dir}/Qwen3.8-27B-Q8_0.gguf --ctx-size 262144
+    # --reasoning-budget caps thinking at 8192 tokens (pi's "medium"),
+    # then makes the model answer, unless a request sets its own budget
+    # (thinking_budget_tokens). Without it, thinking may run until
+    # max_tokens, leaving no answer at all.
+    cmd: ${llama-server} --model ${models-dir}/Qwen3.8-27B-Q8_0.gguf --ctx-size 262144 --reasoning-budget 8192
     proxy: ${proxy}
     capabilities:
       context: 262144
