@@ -50,7 +50,9 @@ echo "== Installing base packages =="
 # rotate-heroku-key.sh's revoke-the-old-authorization step filters
 # "heroku authorizations -j" through it. ripgrep (rg) because AI harnesses
 # such as pi use it for their search tools, and would otherwise download
-# their own copy. Checked against `apt-mark
+# their own copy. wl-clipboard (wl-copy, wl-paste) so command-line tools
+# can reach the Wayland desktop's clipboard; e.g., Claude Code uses it to
+# paste images. Checked against `apt-mark
 # showmanual` on lftux and deliberately left out anything project-specific
 # rather than universal: ruby, postgresql, and the heroku CLI are for one
 # project (BadgeApp) and don't belong in a generic bulkhead repo;
@@ -64,7 +66,7 @@ echo "== Installing base packages =="
 sudo apt-get update
 sudo apt-get install -y openssh-server avahi-daemon nftables curl cups \
   qemu-guest-agent git shellcheck make build-essential vim python3 jq \
-  ripgrep
+  ripgrep wl-clipboard
 
 echo "== Enabling services =="
 sudo systemctl enable --now ssh avahi-daemon nftables cups qemu-guest-agent
