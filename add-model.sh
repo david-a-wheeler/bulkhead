@@ -19,9 +19,10 @@
 # "unknown"), and you should check the license yourself.
 # --dir puts the file in a subdirectory of MODELS_DIR, for a model made
 # of several files (an image model, or a text model split into shards):
-# add each file with the same --dir. --serve NAME also appends an
-# INFER_MODELS line, so once you rerun host-setup.sh (and vm-setup.sh on
-# each VM, for pi), harnesses can request NAME. --ctx (the context
+# add each file with the same --dir. --serve NAME also appends an entry
+# for it to infer-models.local.yaml (starting that file from
+# infer-models.yaml if needed), so once you rerun host-setup.sh (and
+# vm-setup.sh on each VM, for pi), harnesses can request NAME. --ctx (the context
 # window) defaults to the one Hugging Face reports for the repository's
 # GGUF files, --max (the most tokens one reply may use) to 16384 (or the
 # context window, if smaller), and --desc to the file name.
@@ -287,13 +288,41 @@ if [ -n "$serve" ]; then
     [ "$max" -le "$ctx" ] || max="$ctx"
   fi
   desc="${desc:-$(basename "$file" .gguf)}"
-  case "$desc" in *'$'* | *'`'*) die "--desc can't contain \$ or \`." ;; esac
   infer_model_ok "$serve" "$file" "$ctx" "$max" "$desc" ||
-    die "--serve NAME may use only letters, digits, '.', '_', and '-'; --ctx and --max must be whole numbers; and --desc can't have quotes, backslashes, or control characters."
+    die "--serve NAME may use only letters, digits, '.', '_', and '-'; --ctx and --max must be whole numbers; and --desc can't have quotes, backslashes, \$, or control characters."
   [ "$max" -le "$ctx" ] || die "--max ($max) is more than the context window ($ctx)."
-  if printf '%s\n' "$INFER_MODELS" | cut -d ' ' -f 1 | grep -qxF "$serve"; then
-    die "INFER_MODELS already has a model named $serve."
+  models_file="$(infer_models_file)"
+  if awk -v n="$serve" '$0 == "  " n ":" || $0 == "  \"" n "\":" { found = 1 } END { exit !found }' "$models_file"; then
+    die "$models_file already has a model named $serve."
   fi
+  # The new list of models, checked now so a bad entry stops us before
+  # the download, and put in place only after it.
+  new_models="$SCRIPT_DIR/infer-models.local.yaml.new"
+  trap 'rm -f "$new_models"' EXIT
+  cp "$models_file" "$new_models"
+  # Make sure it ends with a newline.
+  [ -z "$(tail -c 1 "$new_models")" ] || echo >> "$new_models"
+  cat >> "$new_models" <<EOF
+  $serve:
+    name: "$desc"
+    cmd: \${llama-server} --model \${models-dir}/$file --ctx-size $ctx
+    proxy: \${proxy}
+    capabilities:
+      context: $ctx
+    metadata:
+      max_tokens: $max
+    # Sampling defaults from the model card. Without them, llama-server
+    # uses the GGUF's own recommendations, if it has any. A key ending in
+    # "?" applies only when a request doesn't set it; see
+    # infer-models.yaml.
+    # filters:
+    #   setParams:
+    #     temperature?: 0.7
+    #     top_p?: 0.8
+    #     top_k?: 20
+    #     min_p?: 0
+EOF
+  infer_models_ok "$new_models" || die "the new entry for $serve breaks infer-models.yaml's rules (a bug)."
 fi
 
 prepare_models_dir
@@ -314,8 +343,6 @@ local_config="$SCRIPT_DIR/config.local.sh"
 {
   printf '\n# Added by add-model.sh on %s.\n' "$(date +%Y-%m-%d)"
   printf 'MODEL_DOWNLOADS="${MODEL_DOWNLOADS:+$MODEL_DOWNLOADS\n}%s %s %s%s"\n' "$url" "$sha256" "$license" "${subdir:+ $subdir}"
-  [ -z "$serve" ] ||
-    printf 'INFER_MODELS="${INFER_MODELS:+$INFER_MODELS\n}%s %s %s %s %s"\n' "$serve" "$file" "$ctx" "$max" "$desc"
 } >> "$local_config"
 
 echo "Added $file to MODEL_DOWNLOADS in config.local.sh."
@@ -324,6 +351,10 @@ case "$license" in
   other) echo "Its license is \"other\"; read it on Hugging Face before you use the model." ;;
 esac
 if [ -n "$serve" ]; then
-  echo "Added $serve to INFER_MODELS. To serve it, rerun ./host-setup.sh here,"
-  echo "then ./vm-setup.sh on each VM so pi lists it."
+  [ -f "$SCRIPT_DIR/infer-models.local.yaml" ] ||
+    echo "Started infer-models.local.yaml from infer-models.yaml; host-setup.sh now uses it instead."
+  mv "$new_models" "$SCRIPT_DIR/infer-models.local.yaml"
+  echo "Added $serve to infer-models.local.yaml; you may want to add its sampling"
+  echo "defaults there. To serve it, rerun ./host-setup.sh here, then"
+  echo "./vm-setup.sh on each VM so pi lists it."
 fi

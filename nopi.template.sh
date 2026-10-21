@@ -6,7 +6,8 @@
 # catalog refresh, version check, or telemetry). The API key comes from a
 # file only you can read, and reaches pi only through its environment.
 # vm-setup.sh renders and installs this, and generates the models pi
-# knows (~/.pi/agent/models.json) from config.sh's INFER_MODELS.
+# knows (~/.pi/agent/models.json) from the engine's list of models (see
+# infer-models.yaml). The default is the one marked "default: true".
 #
 # Usage: nopi [pi arguments...], e.g., nopi --print "Say hello"
 # or nopi --model qwen3-0.6b (a later --model overrides the default).

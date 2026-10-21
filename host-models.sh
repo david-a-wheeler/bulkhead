@@ -1,12 +1,13 @@
 # shellcheck shell=sh
-# host-models.sh: downloading local AI models into MODELS_DIR. Shared by
-# host-setup.sh (every model in MODEL_DOWNLOADS) and add-model.sh (adding
-# or updating one), so the checks that keep a bad file out of MODELS_DIR
-# exist only once.
+# host-models.sh: downloading local AI models into MODELS_DIR, and the
+# list of models the engine serves (infer-models.yaml). Shared by
+# host-setup.sh and add-model.sh, so the checks that keep a bad file out
+# of MODELS_DIR, and a bad entry out of llama-swap's config, exist only
+# once.
 #
 # Nothing here is macOS-specific except keeping MODELS_DIR out of Time
 # Machine, which it skips elsewhere. Source this after
-# config.sh/common.sh:
+# config.sh/common.sh (it needs SCRIPT_DIR, the repo's top directory):
 #   . "$(dirname "$0")/host-models.sh"
 
 SOURCES_HEADER="$(printf 'file\tsource_url\tlicense\tadded\tcommit')"
@@ -100,4 +101,103 @@ fetch_model() {
   mv "$MODELS_DIR/SOURCES.tsv.new" "$MODELS_DIR/SOURCES.tsv"
   printf '%s  %s\n' "$2" "$fm_file" >> "$MODELS_DIR/SHA256SUMS"
   printf '%s\t%s\t%s\t%s\t%s\n' "$fm_file" "$1" "$3" "$(date +%Y-%m-%d)" "$fm_commit" >> "$MODELS_DIR/SOURCES.tsv"
+}
+
+# Usage: infer_models_file
+# Prints the file listing the models the engine serves: your
+# infer-models.local.yaml if it exists, otherwise the repo's
+# infer-models.yaml.
+infer_models_file() {
+  if [ -f "$SCRIPT_DIR/infer-models.local.yaml" ]; then
+    printf '%s\n' "$SCRIPT_DIR/infer-models.local.yaml"
+  else
+    printf '%s\n' "$SCRIPT_DIR/infer-models.yaml"
+  fi
+}
+
+# Usage: infer_models_ok FILE
+# Checks the rules in infer-models.yaml's opening comment that keep each
+# model behind the flags in ${llama-server}: only a "models:" section;
+# every cmd starts with ${llama-server} and doesn't change --host,
+# --port, --cors-origins, or --api-key; and every model has
+# "proxy: ${proxy}". Reports each problem and fails if there's any.
+# llama-swap checks the rest when host-setup.sh validates the config.
+infer_models_ok() {
+  awk '
+    function bad(msg) {
+      printf "%s:%d: %s\n", FILENAME, FNR, msg > "/dev/stderr"
+      failed = 1
+    }
+    /^[ \t]*(#|$)/ { next }
+    /\t/ { bad("has a tab; indent with spaces") }
+    /^[^ ]/ {
+      if ($0 != "models:") bad("only \"models:\" may start at the left margin")
+      next
+    }
+    /^ +cmd:/ {
+      cmds++
+      if ($0 !~ /^ +cmd: \$\{llama-server\} /) bad("cmd must start with ${llama-server}")
+      else if ($0 ~ /--(host|port|cors-origins|api-key)([ =]|$)/)
+        bad("cmd must not set --host, --port, --cors-origins, or --api-key")
+    }
+    /^ +proxy:/ {
+      if ($0 ~ /^ +proxy: "?\$\{proxy\}"?$/) proxies++
+      else bad("proxy must be ${proxy}")
+    }
+    END {
+      if (cmds == 0) bad("lists no models")
+      else if (cmds != proxies) bad("every model needs \"proxy: ${proxy}\"")
+      exit failed
+    }' "$1"
+}
+
+# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <backend-port> <models-file>
+# Prints llama-swap's config: our settings, then <models-file> (see
+# infer-models.yaml). The macros hold the flags every model needs. Every
+# model uses the same fixed backend port, since llama-swap runs only one
+# at a time and the sandbox allows connecting to just that port. The
+# backend has no API key of its own, so --cors-origins names an origin no
+# web page can have (.invalid is reserved): otherwise any page open in a
+# browser on the Mac could query it directly and read the replies.
+# --cache-ram 0 turns off the prompt cache (by default 8192 MiB), which
+# keeps earlier prompts' KV state in ordinary, swappable memory. With one
+# agent it barely helps, since the slot's own KV cache is reused as each
+# turn extends the last. We may raise it later (or use more slots) to
+# speed up several agents taking turns, since each switch otherwise
+# reprocesses the whole context. performance is disabled because
+# otherwise llama-swap runs ioreg every 5 seconds for GPU statistics we
+# don't use, and the sandbox denies each run's read of /etc/passwd.
+# includeAliasesInList lists each model's variants (setParamsByID), so
+# vm-setup.sh can tell pi about them. See local-ai-plan.md for the other
+# flags.
+infer_llama_swap_yaml() {
+  cat <<EOF
+healthCheckTimeout: 500
+logLevel: info
+performance:
+  disabled: true
+globalTTL: 1800
+includeAliasesInList: true
+apiKeys:
+  - "$1"
+macros:
+  llama-server: "$2 --host 127.0.0.1 --port $3 -ngl 99 -fa on --parallel 1 --no-slots --cache-ram 0 --cors-origins http://cors.invalid"
+  models-dir: "$MODELS_DIR"
+  proxy: "http://127.0.0.1:$3"
+EOF
+  cat "$4"
+}
+
+# Usage: infer_model_ok <name> <file> <ctx> <max> <description>
+# True if these fields of a new model (from add-model.sh) are safe to put
+# in infer-models.local.yaml: a plain name, a relative path inside
+# MODELS_DIR, whole numbers, and a description with no quotes,
+# backslashes, "$" (llama-swap's macros start with it), or control
+# characters (e.g., a newline would start another line).
+infer_model_ok() {
+  case "$1" in "" | *[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$2" in "" | *[!A-Za-z0-9._/-]* | /* | */../* | ../*) return 1 ;; esac
+  case "$3" in "" | *[!0-9]*) return 1 ;; esac
+  case "$4" in "" | *[!0-9]*) return 1 ;; esac
+  case "$5" in "" | *'"'* | *\\* | *'$'* | *[[:cntrl:]]*) return 1 ;; esac
 }

@@ -22,8 +22,8 @@ esac
 # The repo's top directory; config.sh needs it as SCRIPT_DIR.
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$SCRIPT_DIR/config.sh"
+. "$SCRIPT_DIR/common.sh"
 OUT="${SLEEP_TEST_OUT:-$SCRIPT_DIR/,sleep-test.out}"
-model="${INFER_MODELS%% *}"
 key="$(cat "$INFER_KEY_FILE")"
 
 show() {
@@ -40,11 +40,16 @@ show() {
         "$HOME/Library/Logs/infer-watch.log" | tail -n 1 | grep -q watching; then
       echo "WARNING: infer-watch isn't watching yet; wait and rerun this."
     fi
-    echo "Loading $model (this can take a minute)"
-    curl -sS -m 300 -o /dev/null -w 'HTTP %{http_code}\n' \
-      -H "Authorization: Bearer $key" -H 'Content-Type: application/json' \
-      -d "{\"model\": \"$model\", \"max_tokens\": 1, \"messages\": [{\"role\": \"user\", \"content\": \"Hi\"}]}" \
-      "http://127.0.0.1:$INFER_PORT/v1/chat/completions"
+    model="$(infer_engine_models "$key" | infer_default_model)"
+    if [ -z "$model" ]; then
+      echo "WARNING: the engine didn't name its default model; is it running?"
+    else
+      echo "Loading $model (this can take a minute)"
+      curl -sS -m 300 -o /dev/null -w 'HTTP %{http_code}\n' \
+        -H "Authorization: Bearer $key" -H 'Content-Type: application/json' \
+        -d "{\"model\": \"$model\", \"max_tokens\": 1, \"messages\": [{\"role\": \"user\", \"content\": \"Hi\"}]}" \
+        "http://127.0.0.1:$INFER_PORT/v1/chat/completions"
+    fi
     show pgrep -lx llama-server
   else
     show tail -n 20 "$HOME/Library/Logs/infer-watch.log"

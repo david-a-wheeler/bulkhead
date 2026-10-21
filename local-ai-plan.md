@@ -202,13 +202,32 @@ be malicious and try to send my sensitive data out. So:
     to 13.5 at 32k). Set it explicitly anyway: this build otherwise
     sizes itself to nearly all memory Metal can use, which squeezes the
     VMs and macOS toward swap;
-  * define each model once, in `config.sh` (which the Mac and the VMs
-    both read): its name, file, context window, and maximum reply
-    length. `host-setup.sh` generates llama-swap's config from that
-    (`--ctx-size`), and `vm-setup.sh` generates pi's `models.json`
-    (`contextWindow`, `maxTokens`), so they can't disagree. That's
-    `config.sh`'s `INFER_MODELS`, read by `common.sh`'s
-    `infer_llama_swap_yaml` and `infer_pi_models_json`.
+  * define each model once, in `infer-models.yaml` (or my gitignored
+    `infer-models.local.yaml`, used instead when it exists), in
+    llama-swap's own format: its name, file, context window (both
+    `--ctx-size` and `capabilities.context`), maximum reply length
+    (`metadata.max_tokens`), and sampling defaults. `host-setup.sh`
+    puts our settings in front (the API key, and macros holding the
+    flags every model needs) and checks the file's rules
+    (`infer_models_ok` in `host-models.sh`). `vm-setup.sh` builds pi's
+    `models.json` (`contextWindow`, `maxTokens`) and nopi's default
+    (`metadata.default`) from the engine's `/v1/models` through the
+    tunnel, so they can't disagree, and the VMs need no copy of my
+    local file. (Until 2026-10-20 this was `config.sh`'s
+    `INFER_MODELS`.)
+  * sampling defaults (2026-10-20): llama-server uses a GGUF's
+    `general.sampling.*` metadata as its defaults. Qwen3.8-27B's files
+    set temperature 1.0, top_p 0.95, and top_k 20 (the card's thinking
+    mode), but not min_p, so llama-server would use 0.05, not the
+    card's 0. So `infer-models.yaml` sets each model card's values
+    through llama-swap's `setParams`/`setParamsByID` with `?` keys,
+    which apply only when a request doesn't set them, so clients can
+    still choose. `qwen3.8-27b:instruct` is a variant (a llama-swap
+    alias) with the card's non-thinking settings, sharing the loaded
+    model. Tested on Linux with llama-swap v265 and a stand-in for
+    llama-server that echoes requests: defaults apply, a client's own
+    values win, and the variant gets its settings plus
+    `enable_thinking: false`.
 * To try in real use: speculative decoding with Qwen3.8-27B's MTP heads
   (`--spec-type draft-mtp`; Unsloth publishes them as
   `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, 1.4 GB), and the n-gram methods,
@@ -627,8 +646,8 @@ The strict profile, if built:
   it gets the SHA-256, license, and context length from Hugging Face's
   API (recording `NOASSERTION` when no license is published), refuses
   gated repos, downloads with the same checks, and appends
-  to `MODEL_DOWNLOADS` (and, with `--serve NAME`, `INFER_MODELS`) in
-  `config.local.sh`. URLs stay on `main`; the SHA-256 is the pin.
+  to `MODEL_DOWNLOADS` in `config.local.sh` (and, with `--serve NAME`,
+  an entry to `infer-models.local.yaml`). URLs stay on `main`; the SHA-256 is the pin.
   `--check` lists models whose files changed upstream, and
   `--update FILE` installs the new version (refusing changes newer than
   `INFER_COOLING_DAYS` without `--force`), replacing the old file only
@@ -752,7 +771,7 @@ The strict profile, if built:
 * Written 2026-10-19, not yet run: the trial, moved into the repo.
   * `host-setup.sh` installs llama.cpp and llama-swap (see "Releases"
     and "Locations" under "Inference engine"); generates the API key
-    (if missing) and llama-swap's config from `INFER_MODELS`; renders
+    (if missing) and llama-swap's config (now from `infer-models.yaml`); renders
     `infer.template.sb` and `infer.template.plist`; and installs them,
     root-owned, as `/usr/local/etc/infer/llama-swap.yaml` (readable
     only by `_infer`), `/usr/local/etc/infer/infer.sb`, and
@@ -774,7 +793,7 @@ The strict profile, if built:
     sibling packages come out moments after it. It also installs
     `nopi` and `infer-logs` in `/usr/local/bin`,
     `infer-logs@.service` in `/etc/systemd/user`, and pi's
-    `models.json` generated from `INFER_MODELS`, and removes the
+    `models.json` (now generated from the engine's list), and removes the
     trial's copies in my home directory. A VM without the key skips
     all of it.
 

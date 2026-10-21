@@ -94,6 +94,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `add-model.sh`: adds a local AI model (given its Hugging Face link)
   to `config.local.sh` and downloads it; `--check` and
   `--update` find and install publishers' updates.
+- `infer-models.yaml`: the models the local AI engine serves, with
+  their sampling defaults, in llama-swap's format. Copy it to
+  `infer-models.local.yaml` (gitignored) to change them; `host-setup.sh`
+  uses that instead.
 - `secrets-server.template.py`, `com.user.secretsserver.template.plist`:
   the host-side secrets server (see architecture.md) and its LaunchAgent.
   Serves any secret `host-secrets.sh` has stored under Keychain's

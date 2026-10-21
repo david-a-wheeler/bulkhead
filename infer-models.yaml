@@ -1,0 +1,83 @@
+# infer-models.yaml: the text models the local AI engine serves, in
+# llama-swap's own config format (its "models:" section; see
+# https://github.com/mostlygeek/llama-swap/blob/main/docs/config.example.yaml).
+# To change them, copy this file to infer-models.local.yaml (gitignored)
+# and edit that; host-setup.sh uses it instead of this file whenever it
+# exists. ./add-model.sh --serve appends to it.
+#
+# host-setup.sh puts its own settings in front of this file, including
+# the API key, so neither file ever holds a secret, and this file may
+# have only the "models:" section. Its macros, which hold the flags
+# every model needs (listening only on 127.0.0.1, on the one port the
+# sandbox allows, with no prompt cache), are:
+#   ${llama-server}  llama-server and those flags; start every cmd with it,
+#                    and don't add --host, --port, --cors-origins, or
+#                    --api-key after it
+#   ${models-dir}    MODELS_DIR
+#   ${proxy}         where llama-swap reaches llama-server; every model
+#                    needs "proxy: ${proxy}"
+# host-setup.sh checks these rules, and that llama-swap accepts the
+# result.
+#
+# Each model also needs capabilities.context (its context window, which
+# must match --ctx-size) and metadata.max_tokens (the most tokens one
+# reply may use); vm-setup.sh reads both from the engine to tell pi.
+# One model has metadata.default: true; it's nopi's default.
+#
+# Sampling: llama-server uses the sampling settings a GGUF file
+# recommends (its general.sampling.* metadata) when it has them. Our
+# defaults below come from each model card. A key ending in "?" is a
+# default: llama-swap sets it only when a request doesn't, so a client
+# can still choose its own. setParamsByID also creates a variant under
+# another name (an alias) that shares the loaded model, so switching
+# between them doesn't reload anything. llama-swap applies setParams
+# and then setParamsByID, and a "?" key is skipped once either has set
+# it, so a model with variants keeps each variant's defaults in
+# setParamsByID, not setParams.
+models:
+  qwen3.8-27b:
+    name: "Qwen3.8-27B Q8_0"
+    cmd: ${llama-server} --model ${models-dir}/Qwen3.8-27B-Q8_0.gguf --ctx-size 262144
+    proxy: ${proxy}
+    capabilities:
+      context: 262144
+    metadata:
+      max_tokens: 16384
+      default: true
+    filters:
+      # From the model card (unsloth/Qwen3.8-27B-GGUF). Its GGUF files
+      # set only temperature, top_p, and top_k, so llama-server would
+      # otherwise use its own min_p of 0.05.
+      setParamsByID:
+        "${MODEL_ID}":
+          temperature?: 1.0
+          top_p?: 0.95
+          top_k?: 20
+          min_p?: 0
+          presence_penalty?: 0
+          repeat_penalty?: 1.0
+        # Without thinking: the card's "instruct (or non-thinking) mode".
+        "${MODEL_ID}:instruct":
+          temperature?: 0.7
+          top_p?: 0.8
+          top_k?: 20
+          min_p?: 0
+          presence_penalty?: 1.5
+          repeat_penalty?: 1.0
+          chat_template_kwargs:
+            enable_thinking: false
+  qwen3-0.6b:
+    name: "Qwen3-0.6B Q4_0 (tests)"
+    cmd: ${llama-server} --model ${models-dir}/Qwen3-0.6B-Q4_0.gguf --ctx-size 32768
+    proxy: ${proxy}
+    capabilities:
+      context: 32768
+    metadata:
+      max_tokens: 4096
+    filters:
+      # From the model card (Qwen/Qwen3-0.6B), for thinking mode.
+      setParams:
+        temperature?: 0.6
+        top_p?: 0.95
+        top_k?: 20
+        min_p?: 0

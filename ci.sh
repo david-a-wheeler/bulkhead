@@ -67,7 +67,7 @@ for f in secrets-client secrets-server.py; do
   fi
 done
 
-INFER_DEFAULT_MODEL="${INFER_MODELS%% *}"
+INFER_DEFAULT_MODEL=qwen3.8-27b
 render_template nopi.template.sh "$tmp/nopi" INFER_DEFAULT_MODEL
 render_template infer-logs.template.sh "$tmp/infer-logs" INFER_PORT
 render_template infer-watch-hook.template.sh "$tmp/infer-watch-hook" \
@@ -93,28 +93,91 @@ for f in infer.plist infer-tunnel.plist infer-watch.plist; do
   fi
 done
 
-step "local AI model lists (INFER_MODELS)"
-# llama-swap's config and pi's models.json must list the same models.
-if ! infer_llama_swap_yaml sk-test /llama-server 8999 > "$tmp/llama-swap.yaml"; then
-  echo "FAILED: infer_llama_swap_yaml rejected config.sh's INFER_MODELS" >&2
+step "local AI models (infer-models.yaml)"
+. "$SCRIPT_DIR/host-models.sh"
+if ! infer_models_ok infer-models.yaml; then
+  echo "FAILED: infer-models.yaml breaks its own rules" >&2
   fail=1
 fi
-yaml_models="$(sed -n 's/^  "\([^"]*\)":$/\1/p' "$tmp/llama-swap.yaml")"
-pi_models="$(infer_pi_models_json | jq -r '.providers["mac-local"].models[].id')"
-config_models="$(printf '%s\n' "$INFER_MODELS" | cut -d ' ' -f 1)"
-if [ "$yaml_models" != "$config_models" ] || [ "$pi_models" != "$config_models" ]; then
-  echo "FAILED: model names differ: config.sh: $config_models; llama-swap: $yaml_models; pi: $pi_models" >&2
+# llama-swap isn't here to check the config, so check what pi and nopi
+# need from it: each model's context matches its --ctx-size, max_tokens
+# fits in it, and exactly one model is the default.
+infer_llama_swap_yaml sk-test /llama-server 8999 infer-models.yaml > "$tmp/llama-swap.yaml"
+if ! python3 -I - "$tmp/llama-swap.yaml" <<'EOF'
+import re, sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1]))
+assert cfg["apiKeys"] == ["sk-test"], "the API key isn't ours alone"
+defaults = []
+for name, m in cfg["models"].items():
+    ctx = (m.get("capabilities") or {}).get("context")
+    max_tokens = (m.get("metadata") or {}).get("max_tokens")
+    size = re.search(r"--ctx-size (\d+)", m["cmd"])
+    assert isinstance(ctx, int) and size and int(size.group(1)) == ctx, \
+        f"{name}: capabilities.context must match --ctx-size"
+    assert isinstance(max_tokens, int) and 0 < max_tokens <= ctx, \
+        f"{name}: metadata.max_tokens must be a number up to the context"
+    if (m.get("metadata") or {}).get("default") is True:
+        defaults.append(name)
+assert len(defaults) == 1, f"exactly one model needs metadata.default: true, not {defaults}"
+EOF
+then
+  echo "FAILED: the models in infer-models.yaml (above)" >&2
   fail=1
 fi
-if (INFER_MODELS='bad Bad.gguf 4096 512 A "quoted" name'
-    infer_llama_swap_yaml k /s 1 >/dev/null); then
-  echo "FAILED: infer_llama_swap_yaml accepted a description with quotes" >&2
+# Entries infer_models_ok must refuse, each after a good one.
+good='  m:
+    cmd: ${llama-server} --model ${models-dir}/m.gguf --ctx-size 4096
+    proxy: ${proxy}'
+for bad in 'apiKeys:
+  - "sk-x"' \
+  '  n:
+    cmd: /bin/sh -c evil
+    proxy: ${proxy}' \
+  '  n:
+    cmd: ${llama-server} --model ${models-dir}/n.gguf --host 0.0.0.0
+    proxy: ${proxy}' \
+  '  n:
+    cmd: ${llama-server} --model ${models-dir}/n.gguf' \
+  '  n:
+    cmd: ${llama-server} --model ${models-dir}/n.gguf
+    proxy: http://127.0.0.1:1234' \
+  "$(printf '  n:\n\tcmd: ${llama-server}\n    proxy: ${proxy}')"; do
+  printf 'models:\n%s\n%s\n' "$good" "$bad" > "$tmp/bad-models.yaml"
+  if infer_models_ok "$tmp/bad-models.yaml" 2>/dev/null; then
+    echo "FAILED: infer_models_ok accepted:" >&2
+    cat "$tmp/bad-models.yaml" >&2
+    fail=1
+  fi
+done
+printf 'models:\n%s\n' "$good" > "$tmp/good-models.yaml"
+infer_models_ok "$tmp/good-models.yaml" ||
+  { echo "FAILED: infer_models_ok rejected a good entry" >&2; fail=1; }
+# pi's models.json and nopi's default, from llama-swap v265's real
+# listing for infer-models.yaml (trimmed to the fields we use). A
+# variant (type "alias") repeats its model's metadata, and comes first
+# here, so picking it as the default would show.
+listing='{"data": [{"id": "qwen3.8-27b:instruct", "name": "Qwen3.8-27B Q8_0", "context_length": 262144, "meta": {"llamaswap": {"default": true, "max_tokens": 16384, "modelID": "qwen3.8-27b", "type": "alias"}, "n_ctx": 262144}}, {"id": "qwen3-0.6b", "name": "Qwen3-0.6B Q4_0 (tests)", "context_length": 32768, "meta": {"llamaswap": {"max_tokens": 4096, "type": "model"}, "n_ctx": 32768}}, {"id": "qwen3.8-27b", "name": "Qwen3.8-27B Q8_0", "context_length": 262144, "meta": {"llamaswap": {"aliases": ["qwen3.8-27b:instruct"], "default": true, "max_tokens": 16384, "type": "model"}, "n_ctx": 262144}}]}'
+got="$(printf '%s' "$listing" | infer_pi_models_json |
+  jq -c '[.providers["mac-local"].models[] | [.id, .name, .contextWindow, .maxTokens]]')"
+want='[["qwen3.8-27b:instruct","Qwen3.8-27B Q8_0 (qwen3.8-27b:instruct)",262144,16384],["qwen3-0.6b","Qwen3-0.6B Q4_0 (tests)",32768,4096],["qwen3.8-27b","Qwen3.8-27B Q8_0",262144,16384]]'
+if [ "$got" != "$want" ]; then
+  echo "FAILED: infer_pi_models_json gave $got, not $want" >&2
   fail=1
 fi
+got="$(printf '%s' "$listing" | infer_default_model)"
+[ "$got" = qwen3.8-27b ] ||
+  { echo "FAILED: infer_default_model gave '$got', not qwen3.8-27b" >&2; fail=1; }
+for bad in '{"data": [{"id": "a b", "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1}}}]}' \
+  '{"data": [{"id": "a", "context_length": 1}]}'; do
+  if printf '%s' "$bad" | infer_pi_models_json >/dev/null 2>&1; then
+    echo "FAILED: infer_pi_models_json accepted $bad" >&2
+    fail=1
+  fi
+done
 # add-model.sh relies on infer_model_ok to reject these before it
-# appends a line to config.local.sh.
+# appends an entry to infer-models.local.yaml.
 infer_model_ok m-1.5 sub/M.gguf 4096 512 "A model" ||
-  { echo "FAILED: infer_model_ok rejected a valid line" >&2; fail=1; }
+  { echo "FAILED: infer_model_ok rejected a valid entry" >&2; fail=1; }
 while IFS='|' read -r name file ctx max desc; do
   if infer_model_ok "$name" "$file" "$ctx" "$max" "$desc"; then
     echo "FAILED: infer_model_ok accepted: $name|$file|$ctx|$max|$desc" >&2
@@ -129,6 +192,8 @@ m|M.gguf||512|ok
 m|M.gguf|4096|5x|ok
 m|M.gguf|4096|512|
 m|M.gguf|4096|512|back\slash
+m|M.gguf|4096|512|A "quoted" name
+m|M.gguf|4096|512|a ${macro}
 EOF
 if infer_model_ok m M.gguf 4096 512 "$(printf 'two\nlines')"; then
   echo "FAILED: infer_model_ok accepted a description with a newline" >&2
@@ -164,6 +229,10 @@ step "tests/sleep-test.sh runs"
     printf '#!/bin/sh\necho "fake %s $*"\n' "$cmd" > "$tmp/sleep/bin/$cmd" &&
       chmod +x "$tmp/sleep/bin/$cmd" || exit 1
   done
+  # Except that the engine lists one default model.
+  printf '#!/bin/sh\ncase "$*" in\n  */v1/models) echo %s ;;\n  *) echo "fake curl $*" ;;\nesac\n' \
+    "'{\"data\": [{\"id\": \"m\", \"meta\": {\"llamaswap\": {\"default\": true}}}]}'" \
+    > "$tmp/sleep/bin/curl" || exit 1
   echo sk-test > "$tmp/sleep/home/.config/bulkhead/infer-api-key" || exit 1
   echo "x infer-watch: watching for sleep, wake, and power changes" \
     > "$tmp/sleep/home/Library/Logs/infer-watch.log" || exit 1

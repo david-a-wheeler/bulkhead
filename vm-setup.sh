@@ -452,21 +452,43 @@ if [ -s "$INFER_KEY_FILE" ]; then
   rm -rf "${TMPDIR:?}/pi"
   echo "pi $(jq -r .version "$pi_dir/package.json")"
 
-  # pi's models, from config.sh's INFER_MODELS. Keep a hand-edited copy.
+  # pi's models, and nopi's default, from what the engine serves (see
+  # infer-models.yaml on the Mac), through the tunnel. If the engine
+  # doesn't answer, keep what's installed. Anything on this VM could
+  # answer on INFER_PORT while the tunnel is down, so treat the answer as
+  # untrusted: jq writes models.json, and the default model's name must
+  # be plain before it goes into nopi. Keep a hand-edited copy.
   mkdir -p "$HOME/.pi/agent"
-  infer_pi_models_json > "$TMPDIR/models.json"
-  if [ -f "$HOME/.pi/agent/models.json" ] &&
-      ! cmp -s "$TMPDIR/models.json" "$HOME/.pi/agent/models.json"; then
-    cp "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/models.json.bak"
-    echo "Backed up the old ~/.pi/agent/models.json to models.json.bak"
+  if [ -s "$INFER_KEY_FILE" ] &&
+      infer_engine_models "$(cat "$INFER_KEY_FILE")" > "$TMPDIR/engine-models.json"; then
+    infer_pi_models_json < "$TMPDIR/engine-models.json" > "$TMPDIR/models.json" ||
+      die "couldn't make pi's models.json from the engine's list of models (above)."
+    INFER_DEFAULT_MODEL="$(infer_default_model < "$TMPDIR/engine-models.json")"
+    rm -f "$TMPDIR/engine-models.json"
+    case "$INFER_DEFAULT_MODEL" in
+      "" | *[!A-Za-z0-9._:-]*)
+        die "the engine names no usable default model (metadata.default in infer-models.yaml on the Mac)."
+        ;;
+    esac
+    if [ -f "$HOME/.pi/agent/models.json" ] &&
+        ! cmp -s "$TMPDIR/models.json" "$HOME/.pi/agent/models.json"; then
+      cp "$HOME/.pi/agent/models.json" "$HOME/.pi/agent/models.json.bak"
+      echo "Backed up the old ~/.pi/agent/models.json to models.json.bak"
+    fi
+    mv "$TMPDIR/models.json" "$HOME/.pi/agent/models.json"
+    render_template "$SCRIPT_DIR/nopi.template.sh" "$TMPDIR/nopi" INFER_DEFAULT_MODEL
+    sudo install -m 755 "$TMPDIR/nopi" /usr/local/bin/
+    rm -f "$TMPDIR/nopi"
+    echo "pi knows the engine's models; nopi's default is $INFER_DEFAULT_MODEL"
+  else
+    rm -f "$TMPDIR/engine-models.json"
+    echo "WARNING: the local AI engine didn't answer through the tunnel, so pi's" >&2
+    echo "list of models and nopi weren't updated. Once it's reachable (see" >&2
+    echo "./infer-access.sh on the Mac), rerun ./vm-setup.sh." >&2
   fi
-  mv "$TMPDIR/models.json" "$HOME/.pi/agent/models.json"
-
-  INFER_DEFAULT_MODEL="${INFER_MODELS%% *}"
-  render_template "$SCRIPT_DIR/nopi.template.sh" "$TMPDIR/nopi" INFER_DEFAULT_MODEL
   render_template "$SCRIPT_DIR/infer-logs.template.sh" "$TMPDIR/infer-logs" INFER_PORT
-  sudo install -m 755 "$TMPDIR/nopi" "$TMPDIR/infer-logs" /usr/local/bin/
-  rm -f "$TMPDIR/nopi" "$TMPDIR/infer-logs"
+  sudo install -m 755 "$TMPDIR/infer-logs" /usr/local/bin/
+  rm -f "$TMPDIR/infer-logs"
   # nopi's old name.
   sudo rm -f /usr/local/bin/pi-local
   # A systemd user unit, but root-owned in /etc/systemd/user.

@@ -188,20 +188,6 @@ ask_once() {
   esac
 }
 
-# Usage: infer_model_ok <name> <file> <ctx> <max> <description>
-# True if these fields of an INFER_MODELS line are safe to put in
-# llama-swap's YAML and pi's JSON: a plain name, a relative path inside
-# MODELS_DIR, whole numbers, and a description with no quotes,
-# backslashes, or control characters (e.g., a newline would start
-# another line).
-infer_model_ok() {
-  case "$1" in "" | *[!A-Za-z0-9._-]*) return 1 ;; esac
-  case "$2" in "" | *[!A-Za-z0-9._/-]* | /* | */../* | ../*) return 1 ;; esac
-  case "$3" in "" | *[!0-9]*) return 1 ;; esac
-  case "$4" in "" | *[!0-9]*) return 1 ;; esac
-  case "$5" in "" | *'"'* | *\\* | *[[:cntrl:]]*) return 1 ;; esac
-}
-
 # Usage: cooling_cutoff
 # Prints the time INFER_COOLING_DAYS ago (UTC) as YYYY-MM-DDTHH:MM:SSZ,
 # or fails if INFER_COOLING_DAYS isn't a number of days. Releases and
@@ -213,47 +199,6 @@ cooling_cutoff() {
     date -u -d "$INFER_COOLING_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ
 }
 
-# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <backend-port>
-# Prints llama-swap's config for config.sh's INFER_MODELS, or fails on a
-# malformed line. host-setup.sh uses it; it's here, next to
-# infer_pi_models_json, so the two read INFER_MODELS the same way and CI
-# can test both. Every model uses the same fixed backend port, since
-# llama-swap runs only one at a time and the sandbox allows connecting to
-# just that port. The backend has no API key of its own, so
-# --cors-origins names an origin no web page can have (.invalid is
-# reserved): otherwise any page open in a browser on the Mac could query
-# it directly and read the replies. --cache-ram 0 turns off the prompt
-# cache (by default 8192 MiB), which keeps earlier prompts' KV state in
-# ordinary, swappable memory. With one agent it barely helps, since the
-# slot's own KV cache is reused as each turn extends the last. We may
-# raise it later (or use more slots) to speed up several agents taking
-# turns, since each switch otherwise reprocesses the whole context.
-# performance is disabled because otherwise llama-swap runs ioreg every
-# 5 seconds for GPU statistics we don't use, and the sandbox denies each
-# run's read of /etc/passwd. See local-ai-plan.md for the other flags.
-infer_llama_swap_yaml() {
-  printf 'healthCheckTimeout: 500\nlogLevel: info\nperformance:\n  disabled: true\napiKeys:\n  - "%s"\nmodels:\n' "$1"
-  while read -r name file ctx max desc; do
-    [ -n "$name" ] || continue
-    infer_model_ok "$name" "$file" "$ctx" "$max" "$desc" || return 1
-    cat <<EOF
-  "$name":
-    name: "$desc"
-    cmd: |
-      $2
-      --model $MODELS_DIR/$file
-      --host 127.0.0.1 --port $3
-      -ngl 99 -fa on --parallel 1 --no-slots --cache-ram 0
-      --cors-origins http://cors.invalid
-      --ctx-size $ctx
-    proxy: http://127.0.0.1:$3
-    ttl: 1800
-EOF
-  done <<EOF
-$INFER_MODELS
-EOF
-}
-
 # Usage: infer_engine_answers <api-key>
 # True if the local AI engine (llama-swap) answers on INFER_PORT with
 # <api-key>. On a VM, that's through its tunnel.
@@ -262,29 +207,57 @@ infer_engine_answers() {
     "http://127.0.0.1:$INFER_PORT/v1/models" >/dev/null
 }
 
-# Usage: infer_pi_models_json
-# Prints pi's ~/.pi/agent/models.json for config.sh's INFER_MODELS: one
-# "mac-local" provider, reached through the VM's tunnel on INFER_PORT.
-# pi reads the literal ${INFER_API_KEY} from its environment (nopi
-# sets it). Every model so far is a reasoning model; add a field to
-# INFER_MODELS if that changes.
+# Usage: infer_engine_models <api-key>
+# Prints the models the local AI engine serves (llama-swap's /v1/models
+# listing, as JSON), or fails if it doesn't answer on INFER_PORT. On a
+# VM, that's through its tunnel.
+infer_engine_models() {
+  curl -sf -m 10 -H "Authorization: Bearer $1" \
+    "http://127.0.0.1:$INFER_PORT/v1/models"
+}
+
+# Usage: infer_pi_models_json < LISTING
+# Prints pi's ~/.pi/agent/models.json for LISTING (from
+# infer_engine_models): one "mac-local" provider, reached through the
+# VM's tunnel on INFER_PORT, with every model and variant the engine
+# serves (see infer-models.yaml on the Mac). pi reads the literal
+# ${INFER_API_KEY} from its environment (nopi sets it). Fails on a model
+# without capabilities.context or metadata.max_tokens, or a name with
+# characters other than letters, digits, '.', '_', ':', and '-'. jq
+# writes the JSON, so the listing can't inject anything into it.
+# Every model so far is a reasoning model.
 infer_pi_models_json() {
   # shellcheck disable=SC2016
-  printf '%s\n' "$INFER_MODELS" | jq -R -n --arg url "http://127.0.0.1:$INFER_PORT/v1" '{
+  jq --arg url "http://127.0.0.1:$INFER_PORT/v1" '{
     "$schema": "https://pi.dev/schemas/models.schema.json",
     providers: {"mac-local": {
       baseUrl: $url,
       api: "openai-completions",
       apiKey: "${INFER_API_KEY}",
-      models: [inputs | select(length > 0) | split(" ") | {
-        id: .[0],
-        name: (.[4:] | join(" ")),
-        reasoning: true,
-        contextWindow: (.[2] | tonumber),
-        maxTokens: (.[3] | tonumber)
-      }]
+      models: [.data[] |
+        if (.id | test("^[A-Za-z0-9._:-]+$") | not) then error("bad model name: \(.id)")
+        elif (.context_length | type) != "number" or (.meta.llamaswap.max_tokens | type) != "number"
+        then error("\(.id) lacks capabilities.context or metadata.max_tokens")
+        else {
+          id: .id,
+          name: ((.name // .id) +
+            (if .meta.llamaswap.type == "alias" then " (\(.id))" else "" end)),
+          reasoning: true,
+          contextWindow: .context_length,
+          maxTokens: .meta.llamaswap.max_tokens
+        } end]
     }}
   }'
+}
+
+# Usage: infer_default_model < LISTING
+# Prints the name of the model whose metadata says "default: true" in
+# LISTING (from infer_engine_models), not counting its variants (whose
+# type is "alias", and which repeat its metadata), or nothing if there's
+# none.
+infer_default_model() {
+  jq -r '[.data[] | select(.meta.llamaswap.default == true and
+    .meta.llamaswap.type != "alias")][0].id // empty'
 }
 
 # Sets the git config values that make git pleasant to use day-to-day.
