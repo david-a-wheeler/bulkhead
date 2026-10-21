@@ -49,7 +49,7 @@ download_model() {
 # Downloads one model file into MODELS_DIR, replacing any older copy only
 # once the new one passes every check. It goes to FILE.partial first
 # (rerunning resumes it), so an unfinished or wrong download never looks
-# like a model. A checksum mismatch deletes it and stops. Files are
+# like a model. A checksum mismatch removes it and stops. Files are
 # read-only; SHA256SUMS and SOURCES.tsv record each one's checksum,
 # source, and (from Hugging Face) the repository's commit when downloaded.
 #
@@ -59,7 +59,7 @@ download_model() {
 # arbitrary code when loaded, so a URL with one of those extensions is
 # refused before downloading, and every download's first bytes must show
 # GGUF (the bytes "GGUF") or safetensors (an 8-byte header length, then
-# the JSON header's "{"); anything else is deleted and stops the script.
+# the JSON header's "{"); anything else is removed and stops the script.
 fetch_model() {
   fm_file="$(model_file "$1" "${4:-}")"
   case "$fm_file" in
@@ -80,7 +80,7 @@ fetch_model() {
   rm -f "$MODELS_DIR/$fm_file.headers"
   if [ "$(shasum -a 256 "$MODELS_DIR/$fm_file.partial" | cut -d ' ' -f 1)" != "$2" ]; then
     rm -f "$MODELS_DIR/$fm_file.partial"
-    die "$fm_file doesn't match its SHA-256; deleted it."
+    die "$fm_file doesn't match its SHA-256; removed it."
   fi
   # The first 9 bytes as hex: 18 digits.
   case "$(head -c 9 "$MODELS_DIR/$fm_file.partial" | od -An -tx1 | tr -d ' \n')" in
@@ -88,72 +88,113 @@ fetch_model() {
     ????????????????7b) ;; # safetensors
     *)
       rm -f "$MODELS_DIR/$fm_file.partial"
-      die "$fm_file is neither GGUF nor safetensors; deleted it."
+      die "$fm_file is neither GGUF nor safetensors; removed it."
       ;;
   esac
   chmod 444 "$MODELS_DIR/$fm_file.partial"
   mv -f "$MODELS_DIR/$fm_file.partial" "$MODELS_DIR/$fm_file"
-  # Replace any older copy's records. File names have no spaces or tabs.
-  touch "$MODELS_DIR/SHA256SUMS"
-  awk -v f="$fm_file" '$2 != f' "$MODELS_DIR/SHA256SUMS" > "$MODELS_DIR/SHA256SUMS.new"
-  mv "$MODELS_DIR/SHA256SUMS.new" "$MODELS_DIR/SHA256SUMS"
-  awk -F '\t' -v f="$fm_file" '$1 != f' "$MODELS_DIR/SOURCES.tsv" > "$MODELS_DIR/SOURCES.tsv.new"
-  mv "$MODELS_DIR/SOURCES.tsv.new" "$MODELS_DIR/SOURCES.tsv"
+  remove_model_records "$fm_file"
   printf '%s  %s\n' "$2" "$fm_file" >> "$MODELS_DIR/SHA256SUMS"
   printf '%s\t%s\t%s\t%s\t%s\n' "$fm_file" "$1" "$3" "$(date +%Y-%m-%d)" "$fm_commit" >> "$MODELS_DIR/SOURCES.tsv"
 }
 
-# Usage: infer_models_file
-# Prints the file listing the models the engine serves: your
-# infer-models.local.yaml if it exists, otherwise the repo's
-# infer-models.yaml.
-infer_models_file() {
-  if [ -f "$SCRIPT_DIR/infer-models.local.yaml" ]; then
-    printf '%s\n' "$SCRIPT_DIR/infer-models.local.yaml"
-  else
-    printf '%s\n' "$SCRIPT_DIR/infer-models.yaml"
+# Usage: remove_model_records FILE
+# Removes the lines for FILE (relative to MODELS_DIR) from SHA256SUMS and
+# SOURCES.tsv. File names have no spaces or tabs.
+remove_model_records() {
+  touch "$MODELS_DIR/SHA256SUMS"
+  awk -v f="$1" '$2 != f' "$MODELS_DIR/SHA256SUMS" > "$MODELS_DIR/SHA256SUMS.new"
+  mv "$MODELS_DIR/SHA256SUMS.new" "$MODELS_DIR/SHA256SUMS"
+  if [ -f "$MODELS_DIR/SOURCES.tsv" ]; then
+    awk -F '\t' -v f="$1" '$1 != f' "$MODELS_DIR/SOURCES.tsv" > "$MODELS_DIR/SOURCES.tsv.new"
+    mv "$MODELS_DIR/SOURCES.tsv.new" "$MODELS_DIR/SOURCES.tsv"
   fi
 }
 
-# Usage: infer_models_ok FILE
+# Usage: with_infer_models COMMAND [ARG...]
+# Runs COMMAND ARG... followed by the files listing the models the
+# engine serves: the repo's infer-models.yaml, then your
+# infer-models.local.yaml (the models you've added) if it exists.
+with_infer_models() {
+  if [ -f "$SCRIPT_DIR/infer-models.local.yaml" ]; then
+    "$@" "$SCRIPT_DIR/infer-models.yaml" "$SCRIPT_DIR/infer-models.local.yaml"
+  else
+    "$@" "$SCRIPT_DIR/infer-models.yaml"
+  fi
+}
+
+# Usage: infer_models_ok FILE...
 # Checks the rules in infer-models.yaml's opening comment that keep each
-# model behind the flags in ${llama-server}: only a "models:" section;
-# every cmd starts with ${llama-server} and doesn't change --host,
-# --port, --cors-origins, or --api-key; and every model has
-# "proxy: ${proxy}". Reports each problem and fails if there's any.
-# llama-swap checks the rest when host-setup.sh validates the config.
+# model behind the flags in ${llama-server}: each FILE has only a
+# "models:" section; each model's name is alone on its line, indented
+# two spaces, and no other FILE uses it; and each model has exactly one
+# cmd and one proxy, indented four spaces, where the cmd starts with
+# ${llama-server} and doesn't change --host, --port, --cors-origins, or
+# --api-key, and the proxy is ${proxy}. Being this strict about layout
+# means YAML's other ways of writing a cmd (e.g., a flow mapping like
+# "{cmd: ...}") can't slip past it. Reports each problem and fails if
+# there's any. llama-swap checks the rest when host-setup.sh validates
+# the config.
 infer_models_ok() {
   awk '
     function bad(msg) {
       printf "%s:%d: %s\n", FILENAME, FNR, msg > "/dev/stderr"
       failed = 1
     }
+    # Checks the model that just ended, if any.
+    function end_model() {
+      if (model != "" && (cmds != 1 || proxies != 1)) {
+        printf "%s: %s needs exactly one cmd and one proxy, each indented four spaces\n", where, model > "/dev/stderr"
+        failed = 1
+      }
+      model = ""
+      cmds = proxies = 0
+    }
+    FNR == 1 { end_model(); started = 0 }
     /^[ \t]*(#|$)/ { next }
-    /\t/ { bad("has a tab; indent with spaces") }
+    /\t/ { bad("has a tab; indent with spaces"); next }
     /^[^ ]/ {
-      if ($0 != "models:") bad("only \"models:\" may start at the left margin")
+      if ($0 == "models:" && !started) started = 1
+      else bad("only \"models:\" may start at the left margin, once")
       next
     }
-    /^ +cmd:/ {
+    !started { bad("must come after \"models:\""); next }
+    /^  [^ ]/ {
+      end_model()
+      if ($0 !~ /^  ("[A-Za-z0-9._:-]+"|[A-Za-z0-9._-]+):$/) {
+        bad("a model name must be alone on its line and use only letters, digits, \".\", \"_\", and \"-\"")
+        next
+      }
+      model = $0
+      gsub(/^  "?|"?:$/, "", model)
+      where = FILENAME ":" FNR
+      if (model in seen) bad(model " is already defined, at " seen[model])
+      else seen[model] = where
+      models++
+      next
+    }
+    /^( |   )[^ ]/ { bad("indent by two spaces per level"); next }
+    model == "" { bad("must be inside a model"); next }
+    /^    cmd:/ {
       cmds++
-      if ($0 !~ /^ +cmd: \$\{llama-server\} /) bad("cmd must start with ${llama-server}")
+      if ($0 !~ /^    cmd: \$\{llama-server\} /) bad("cmd must start with ${llama-server}")
       else if ($0 ~ /--(host|port|cors-origins|api-key)([ =]|$)/)
         bad("cmd must not set --host, --port, --cors-origins, or --api-key")
     }
-    /^ +proxy:/ {
-      if ($0 ~ /^ +proxy: "?\$\{proxy\}"?$/) proxies++
-      else bad("proxy must be ${proxy}")
+    /^    proxy:/ {
+      proxies++
+      if ($0 !~ /^    proxy: "?\$\{proxy\}"?$/) bad("proxy must be ${proxy}")
     }
     END {
-      if (cmds == 0) bad("lists no models")
-      else if (cmds != proxies) bad("every model needs \"proxy: ${proxy}\"")
+      end_model()
+      if (models == 0) bad("lists no models")
       exit failed
-    }' "$1"
+    }' "$@"
 }
 
-# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <backend-port> <models-file>
-# Prints llama-swap's config: our settings, then <models-file> (see
-# infer-models.yaml). The macros hold the flags every model needs. Every
+# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <backend-port> <models-file>...
+# Prints llama-swap's config: our settings, then the models in each
+# <models-file> (see infer-models.yaml), as one "models:" section. The macros hold the flags every model needs. Every
 # model uses the same fixed backend port, since llama-swap runs only one
 # at a time and the sandbox allows connecting to just that port. The
 # backend has no API key of its own, so --cors-origins names an origin no
@@ -185,7 +226,12 @@ macros:
   models-dir: "$MODELS_DIR"
   proxy: "http://127.0.0.1:$3"
 EOF
-  cat "$4"
+  shift 3
+  cat "$1"
+  shift
+  for f in "$@"; do
+    sed '/^models:$/d' "$f"
+  done
 }
 
 # Usage: infer_model_ok <name> <file> <ctx> <max> <description>

@@ -202,8 +202,9 @@ be malicious and try to send my sensitive data out. So:
     to 13.5 at 32k). Set it explicitly anyway: this build otherwise
     sizes itself to nearly all memory Metal can use, which squeezes the
     VMs and macOS toward swap;
-  * define each model once, in `infer-models.yaml` (or my gitignored
-    `infer-models.local.yaml`, used instead when it exists), in
+  * define each model once, in `infer-models.yaml` (plus any I add in
+    my gitignored `infer-models.local.yaml`; until 2026-10-21 it
+    replaced `infer-models.yaml` instead), in
     llama-swap's own format: its name, file, context window (both
     `--ctx-size` and `capabilities.context`), maximum reply length
     (`metadata.max_tokens`), and sampling defaults. `host-setup.sh`
@@ -647,7 +648,7 @@ The strict profile, if built:
   API (recording `NOASSERTION` when no license is published), refuses
   gated repos, downloads with the same checks, and appends
   to `MODEL_DOWNLOADS` in `config.local.sh` (and, with `--serve NAME`,
-  an entry to `infer-models.local.yaml`). URLs stay on `main`; the SHA-256 is the pin.
+  an entry to `infer-models.local.yaml`; `--remove NAME` undoes that). URLs stay on `main`; the SHA-256 is the pin.
   `--check` lists models whose files changed upstream, and
   `--update FILE` installs the new version (refusing changes newer than
   `INFER_COOLING_DAYS` without `--force`), replacing the old file only

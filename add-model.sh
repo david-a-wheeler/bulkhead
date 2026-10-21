@@ -1,14 +1,16 @@
 #!/bin/sh
-# add-model.sh: add a local AI model to MODELS_DIR, or update the ones
-# you have when their publishers change them. Run it where the engine
-# runs (the Mac today). POSIX sh, like host-setup.sh, and nothing in it
-# is macOS-specific. It doesn't use sudo.
+# add-model.sh: add a local AI model to MODELS_DIR, update the ones
+# you have when their publishers change them, or remove one you added.
+# Run it where the engine runs (the Mac today). POSIX sh, like
+# host-setup.sh, and nothing in it is macOS-specific. It doesn't use
+# sudo.
 #
 # Usage:
 #   ./add-model.sh [--serve NAME] [--dir SUBDIR] [--ctx N] [--max N]
 #                  [--desc TEXT] [--sha256 HEX] [--license ID] URL
 #   ./add-model.sh --check
 #   ./add-model.sh --update FILE [--force]
+#   ./add-model.sh --remove NAME
 #
 # Adding downloads URL into MODELS_DIR (with host-models.sh's checks) and
 # appends it to MODEL_DOWNLOADS in config.local.sh, so host-setup.sh
@@ -20,12 +22,19 @@
 # --dir puts the file in a subdirectory of MODELS_DIR, for a model made
 # of several files (an image model, or a text model split into shards):
 # add each file with the same --dir. --serve NAME also appends an entry
-# for it to infer-models.local.yaml (starting that file from
-# infer-models.yaml if needed), so once you rerun host-setup.sh (and
-# vm-setup.sh on each VM, for pi), harnesses can request NAME. --ctx (the context
-# window) defaults to the one Hugging Face reports for the repository's
-# GGUF files, --max (the most tokens one reply may use) to 32768 (or the
-# context window, if smaller), and --desc to the file name.
+# for it to infer-models.local.yaml (the models you add to
+# infer-models.yaml's; it starts the file if needed), so once you rerun
+# host-setup.sh (and vm-setup.sh on each VM, for pi), harnesses can
+# request NAME. --ctx (the context window) defaults to the one Hugging
+# Face reports for the repository's GGUF files, --max (the most tokens
+# one reply may use) to 32768 (or the context window, if smaller), and
+# --desc to the file name.
+#
+# --remove NAME undoes --serve NAME: it removes NAME's entry from
+# infer-models.local.yaml (and the file, once it lists no models), and
+# unless another model uses NAME's file or config.sh lists it, its line
+# in config.local.sh, the file itself, and its lines in SHA256SUMS and
+# SOURCES.tsv. It won't touch a model in the repo's infer-models.yaml.
 #
 # URLs stay on the branch you gave (normally main). The SHA-256 in
 # MODEL_DOWNLOADS is what pins each file, and SOURCES.tsv records the
@@ -113,12 +122,24 @@ too_new() {
   [ "$(printf '%s' "$1" | tr -dc 0-9)" -gt "$(printf '%s' "$cutoff" | tr -dc 0-9)" ]
 }
 
+# model_lines in|out NAME FILE...: prints the lines of model NAME's
+# entry in the FILEs (in infer-models.yaml's format), or ("out") every
+# other line. An entry runs from NAME's line up to the next line
+# indented two spaces or less.
+model_lines() {
+  ml_want="$1" ml_name="$2"
+  shift 2
+  awk -v want="$ml_want" -v n="$ml_name" '
+    /^[^ ]|^ [^ ]|^  [^ ]/ { inside = ($0 == "  " n ":" || $0 == "  \"" n "\":") }
+    (want == "in") == inside' "$@"
+}
+
 mode=add
 url="" serve="" subdir="" ctx="" max="" desc="" sha256="" license=""
-update_file="" force=false
+update_file="" remove_name="" force=false
 while [ $# -gt 0 ]; do
   case "$1" in
-    --serve | --dir | --ctx | --max | --desc | --sha256 | --license | --update)
+    --serve | --dir | --ctx | --max | --desc | --sha256 | --license | --update | --remove)
       [ $# -ge 2 ] || usage
       case "$1" in
         --serve) serve="$2" ;;
@@ -129,6 +150,7 @@ while [ $# -gt 0 ]; do
         --sha256) sha256="$2" ;;
         --license) license="$2" ;;
         --update) mode=update update_file="$2" ;;
+        --remove) mode=remove remove_name="$2" ;;
       esac
       shift 2
       ;;
@@ -226,6 +248,92 @@ EOF
     fi
     exit 0
     ;;
+  remove)
+    if [ -n "$url$serve$subdir$ctx$max$desc$sha256$license" ] || $force; then usage; fi
+    local_models="$SCRIPT_DIR/infer-models.local.yaml"
+    local_config="$SCRIPT_DIR/config.local.sh"
+    if [ -n "$(model_lines in "$remove_name" "$SCRIPT_DIR/infer-models.yaml")" ]; then
+      die "$remove_name is in the repo's infer-models.yaml; I only remove models you've added."
+    fi
+    if [ ! -f "$local_models" ] || [ -z "$(model_lines in "$remove_name" "$local_models")" ]; then
+      die "infer-models.local.yaml has no model named $remove_name."
+    fi
+    # shellcheck disable=SC2016
+    r_file="$(model_lines in "$remove_name" "$local_models" |
+      sed -n 's/^    cmd: .*--model \${models-dir}\/\([^ ]*\).*/\1/p' | head -n 1)"
+    case "$r_file" in
+      "" | *[!A-Za-z0-9._/-]* | /* | ../* | */../*)
+        die "can't tell which file $remove_name serves from its cmd in infer-models.local.yaml; remove it by hand."
+        ;;
+    esac
+    # Work out every change before making any.
+    new_models="$local_models.new"
+    trap 'rm -f "$new_models" "$local_config.new"' EXIT
+    model_lines out "$remove_name" "$local_models" > "$new_models"
+    r_users="$(cat "$SCRIPT_DIR/infer-models.yaml" "$new_models" |
+      F="--model \${models-dir}/$r_file " awk '
+        /^    cmd:/ && index($0 " ", ENVIRON["F"]) { n++ }
+        END { print n + 0 }')"
+    r_url=""
+    while read -r m_url m_sha256 m_license m_subdir; do
+      [ -n "$m_url" ] || continue
+      if [ "$(model_file "$m_url" "$m_subdir")" = "$r_file" ]; then
+        r_url="$m_url" r_sha256="$m_sha256"
+      fi
+    done <<EOF
+$MODEL_DOWNLOADS
+EOF
+    keep=""
+    if [ "$r_users" -gt 0 ]; then
+      keep="another model uses it"
+    elif [ -z "$r_url" ]; then
+      keep="it isn't in MODEL_DOWNLOADS"
+    elif grep -qF "$r_url $r_sha256" "$SCRIPT_DIR/config.sh"; then
+      keep="config.sh lists it"
+    else
+      # Drop the lines add-model.sh added for r_url: its comment, the
+      # blank line before that, and its two-line MODEL_DOWNLOADS
+      # assignment.
+      # shellcheck disable=SC2016
+      A='MODEL_DOWNLOADS="${MODEL_DOWNLOADS:+$MODEL_DOWNLOADS' B="}$r_url $r_sha256 " awk '
+        {
+          line[NR] = $0
+          if (index($0, ENVIRON["B"]) == 1 && /"$/ && line[NR - 1] == ENVIRON["A"]) {
+            hit = NR
+            hits++
+          }
+        }
+        END {
+          if (hits != 1) exit 1
+          drop[hit] = drop[hit - 1] = 1
+          if (line[hit - 2] ~ /^# Added by add-model\.sh on /) {
+            drop[hit - 2] = 1
+            if (line[hit - 3] == "") drop[hit - 3] = 1
+          }
+          for (i = 1; i <= NR; i++) if (!(i in drop)) print line[i]
+        }' "$local_config" > "$local_config.new" 2>/dev/null ||
+        die "couldn't find the line add-model.sh added to config.local.sh for $r_file; remove that line by hand, then rerun."
+    fi
+
+    if grep -q '^  [^ #]' "$new_models"; then
+      mv "$new_models" "$local_models"
+      echo "Removed $remove_name from infer-models.local.yaml."
+    else
+      rm -f "$new_models" "$local_models"
+      echo "Removed $remove_name, and infer-models.local.yaml, which listed no other models."
+    fi
+    if [ -n "$keep" ]; then
+      echo "Kept $r_file, since $keep."
+    else
+      cat "$local_config.new" > "$local_config"
+      rm -f "$local_config.new" "$MODELS_DIR/$r_file"
+      remove_model_records "$r_file"
+      echo "Removed $r_file, and its line in config.local.sh."
+    fi
+    echo "To stop serving it, rerun ./host-setup.sh here, then ./vm-setup.sh on"
+    echo "each VM so pi stops listing it."
+    exit 0
+    ;;
 esac
 
 # Adding a model.
@@ -291,17 +399,26 @@ if [ -n "$serve" ]; then
   infer_model_ok "$serve" "$file" "$ctx" "$max" "$desc" ||
     die "--serve NAME may use only letters, digits, '.', '_', and '-'; --ctx and --max must be whole numbers; and --desc can't have quotes, backslashes, \$, or control characters."
   [ "$max" -le "$ctx" ] || die "--max ($max) is more than the context window ($ctx)."
-  models_file="$(infer_models_file)"
-  if awk -v n="$serve" '$0 == "  " n ":" || $0 == "  \"" n "\":" { found = 1 } END { exit !found }' "$models_file"; then
-    die "$models_file already has a model named $serve."
+  if [ -n "$(with_infer_models model_lines in "$serve")" ]; then
+    die "there's already a model named $serve."
   fi
-  # The new list of models, checked now so a bad entry stops us before
-  # the download, and put in place only after it.
+  # The new list of models you've added, checked now so a bad entry
+  # stops us before the download, and put in place only after it.
   new_models="$SCRIPT_DIR/infer-models.local.yaml.new"
   trap 'rm -f "$new_models"' EXIT
-  cp "$models_file" "$new_models"
-  # Make sure it ends with a newline.
-  [ -z "$(tail -c 1 "$new_models")" ] || echo >> "$new_models"
+  if [ -f "$SCRIPT_DIR/infer-models.local.yaml" ]; then
+    cp "$SCRIPT_DIR/infer-models.local.yaml" "$new_models"
+    # Make sure it ends with a newline.
+    [ -z "$(tail -c 1 "$new_models")" ] || echo >> "$new_models"
+  else
+    cat > "$new_models" <<'EOF'
+# infer-models.local.yaml: the models you've added to the ones in
+# infer-models.yaml, in the same format (see its opening comment), so
+# host-setup.sh serves both. Gitignored. ./add-model.sh --serve adds to
+# it, and --remove takes a model out.
+models:
+EOF
+  fi
   cat >> "$new_models" <<EOF
   $serve:
     name: "$desc"
@@ -322,7 +439,8 @@ if [ -n "$serve" ]; then
     #     top_k?: 20
     #     min_p?: 0
 EOF
-  infer_models_ok "$new_models" || die "the new entry for $serve breaks infer-models.yaml's rules (a bug)."
+  infer_models_ok "$SCRIPT_DIR/infer-models.yaml" "$new_models" ||
+    die "the new entry for $serve breaks infer-models.yaml's rules (a bug)."
 fi
 
 prepare_models_dir
@@ -352,7 +470,7 @@ case "$license" in
 esac
 if [ -n "$serve" ]; then
   [ -f "$SCRIPT_DIR/infer-models.local.yaml" ] ||
-    echo "Started infer-models.local.yaml from infer-models.yaml; host-setup.sh now uses it instead."
+    echo "Started infer-models.local.yaml, which lists the models you add."
   mv "$new_models" "$SCRIPT_DIR/infer-models.local.yaml"
   echo "Added $serve to infer-models.local.yaml; you may want to add its sampling"
   echo "defaults there. To serve it, rerun ./host-setup.sh here, then"

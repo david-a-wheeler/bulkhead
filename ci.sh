@@ -141,7 +141,25 @@ for bad in 'apiKeys:
   '  n:
     cmd: ${llama-server} --model ${models-dir}/n.gguf
     proxy: http://127.0.0.1:1234' \
-  "$(printf '  n:\n\tcmd: ${llama-server}\n    proxy: ${proxy}')"; do
+  "$(printf '  n:\n\tcmd: ${llama-server}\n    proxy: ${proxy}')" \
+  '  n: {cmd: /bin/sh -c evil, proxy: ${proxy}}' \
+  '  n:
+    "cmd": /bin/sh -c evil
+    proxy: ${proxy}' \
+  '  n:
+      cmd: /bin/sh -c evil
+    proxy: ${proxy}' \
+  '  n:
+    cmd: ${llama-server} --model ${models-dir}/n.gguf
+    cmd: ${llama-server} --model ${models-dir}/n.gguf
+    proxy: ${proxy}' \
+  '  m:
+    cmd: ${llama-server} --model ${models-dir}/m.gguf
+    proxy: ${proxy}' \
+  'models:
+  n:
+    cmd: ${llama-server} --model ${models-dir}/n.gguf
+    proxy: ${proxy}'; do
   printf 'models:\n%s\n%s\n' "$good" "$bad" > "$tmp/bad-models.yaml"
   if infer_models_ok "$tmp/bad-models.yaml" 2>/dev/null; then
     echo "FAILED: infer_models_ok accepted:" >&2
@@ -152,6 +170,21 @@ done
 printf 'models:\n%s\n' "$good" > "$tmp/good-models.yaml"
 infer_models_ok "$tmp/good-models.yaml" ||
   { echo "FAILED: infer_models_ok rejected a good entry" >&2; fail=1; }
+# infer-models.local.yaml adds to infer-models.yaml, without reusing its
+# names, and the combined config has both files' models.
+infer_models_ok infer-models.yaml "$tmp/good-models.yaml" ||
+  { echo "FAILED: infer_models_ok rejected a good local file" >&2; fail=1; }
+if infer_models_ok infer-models.yaml infer-models.yaml 2>/dev/null; then
+  echo "FAILED: infer_models_ok accepted a model defined twice" >&2
+  fail=1
+fi
+infer_llama_swap_yaml sk-test /llama-server 8999 infer-models.yaml "$tmp/good-models.yaml" > "$tmp/both.yaml"
+got="$(python3 -I -c 'import sys, yaml; print(" ".join(yaml.safe_load(open(sys.argv[1]))["models"]))' "$tmp/both.yaml")"
+want="$(sed -n 's/^  \([^ #][^:]*\):$/\1/p' infer-models.yaml | tr '\n' ' ')m"
+if [ "$got" != "$want" ]; then
+  echo "FAILED: combining infer-models.yaml with a local file gave models '$got', not '$want'" >&2
+  fail=1
+fi
 # pi's models.json and nopi's default, from llama-swap v265's real
 # listing for infer-models.yaml (trimmed to the fields we use). A
 # variant (type "alias") repeats its model's metadata, and comes first

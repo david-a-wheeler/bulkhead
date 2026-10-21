@@ -45,8 +45,8 @@ https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf eed
 https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffusion_pytorch_model.safetensors ca70d2202afe6415bdbcb8793ba8cd99fd159cfe6192381504d6c4d3036e0f04 apache-2.0 flux2-klein-4b"
 
 # The text models the local AI engine serves, and their settings (e.g.,
-# sampling defaults), are in infer-models.yaml, or your
-# infer-models.local.yaml if it exists.
+# sampling defaults), are in infer-models.yaml, plus any you add in
+# infer-models.local.yaml.
 
 # The local AI engine's releases. host-setup.sh installs the newest
 # release of llama.cpp (a stable vX.Y.Z release, then the build it names)

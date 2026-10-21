@@ -474,10 +474,14 @@ esac
 
 # The models the engine serves (see infer-models.yaml), behind our
 # settings. check_config, below, has llama-swap check the result.
-infer_models="$(infer_models_file)"
-echo "Serving the models in $infer_models"
-infer_models_ok "$infer_models" || die "$infer_models breaks the rules in infer-models.yaml's opening comment."
-infer_llama_swap_yaml "$infer_key" "$LLAMA_SERVER" "$INFER_BACKEND_PORT" "$infer_models" \
+if [ -f "$SCRIPT_DIR/infer-models.local.yaml" ]; then
+  echo "Serving the models in infer-models.yaml and infer-models.local.yaml"
+else
+  echo "Serving the models in infer-models.yaml"
+fi
+with_infer_models infer_models_ok ||
+  die "the models break the rules in infer-models.yaml's opening comment. infer-models.local.yaml now holds only the models you add, not a copy of infer-models.yaml."
+with_infer_models infer_llama_swap_yaml "$infer_key" "$LLAMA_SERVER" "$INFER_BACKEND_PORT" \
   > "$infer_tmp/llama-swap.yaml"
 render_template "$SCRIPT_DIR/infer.template.sb" "$infer_tmp/infer.sb" \
   INFER_BACKEND_PORT METAL_CACHE MODELS_DIR

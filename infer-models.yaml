@@ -1,13 +1,17 @@
 # infer-models.yaml: the text models the local AI engine serves, in
 # llama-swap's own config format (its "models:" section; see
 # https://github.com/mostlygeek/llama-swap/blob/main/docs/config.example.yaml).
-# To change them, copy this file to infer-models.local.yaml (gitignored)
-# and edit that; host-setup.sh uses it instead of this file whenever it
-# exists. ./add-model.sh --serve appends to it.
+# To serve more models without changing this file, list them in
+# infer-models.local.yaml (gitignored), in this same format, starting
+# with its own "models:" line; host-setup.sh serves the models in both.
+# ./add-model.sh --serve adds to it, and --remove takes a model out. Its
+# models can't reuse a name from this file; to change one of these
+# models, add your version under another name.
 #
-# host-setup.sh puts its own settings in front of this file, including
-# the API key, so neither file ever holds a secret, and this file may
-# have only the "models:" section. Its macros, which hold the flags
+# host-setup.sh puts its own settings in front of these files, including
+# the API key, so neither file ever holds a secret, and each may have
+# only the "models:" section. Indent each model's name by two spaces,
+# alone on its line, and its settings by four. Its macros, which hold the flags
 # every model needs (listening only on 127.0.0.1, on the one port the
 # sandbox allows, with no prompt cache), are:
 #   ${llama-server}  llama-server and those flags; start every cmd with it,
