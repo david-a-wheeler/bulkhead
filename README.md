@@ -89,8 +89,11 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   architecture.md's "Currently supported" note.
 - `host-models.sh`: downloads and checks local AI models (only GGUF and
   safetensors, matching their published SHA-256) into `MODELS_DIR`.
-  `host-setup.sh` sources it.
+  `host-setup.sh` and `add-model.sh` source it.
 - `host-setup.sh`: host setup (macOS today).
+- `add-model.sh`: on the Mac, adds a local AI model (given its Hugging
+  Face link) to `config.local.sh` and downloads it; `--check` and
+  `--update` find and install publishers' updates.
 - `secrets-server.template.py`, `com.user.secretsserver.template.plist`:
   the host-side secrets server (see architecture.md) and its LaunchAgent.
   Serves any secret `host-secrets.sh` has stored under Keychain's

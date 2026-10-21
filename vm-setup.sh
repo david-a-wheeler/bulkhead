@@ -411,7 +411,8 @@ if [ -s "$INFER_KEY_FILE" ]; then
   # --before limits pi and its dependencies to versions published by
   # then. For the floor or a pin, that's an hour after it was published,
   # since pi's sibling packages (e.g., pi-tui) come out moments after it.
-  pi_before="$(date -u -d "$INFER_COOLING_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)"
+  pi_before="$(cooling_cutoff)" ||
+    die "config.sh's INFER_COOLING_DAYS isn't a number of days."
   pi_spec="$pi_package@latest"
   pi_floor="${PI_PIN:-$PI_MIN}"
   if [ -n "$pi_floor" ]; then

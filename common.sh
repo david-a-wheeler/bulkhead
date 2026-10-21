@@ -188,6 +188,30 @@ ask_once() {
   esac
 }
 
+# Usage: infer_model_ok <name> <file> <ctx> <max> <description>
+# True if these fields of an INFER_MODELS line are safe to put in
+# llama-swap's YAML and pi's JSON: a plain name, a relative path inside
+# MODELS_DIR, whole numbers, and a description with no quotes or
+# backslashes.
+infer_model_ok() {
+  case "$1" in "" | *[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$2" in "" | *[!A-Za-z0-9._/-]* | /* | */../* | ../*) return 1 ;; esac
+  case "$3" in "" | *[!0-9]*) return 1 ;; esac
+  case "$4" in "" | *[!0-9]*) return 1 ;; esac
+  case "$5" in "" | *'"'* | *\\*) return 1 ;; esac
+}
+
+# Usage: cooling_cutoff
+# Prints the time INFER_COOLING_DAYS ago (UTC) as YYYY-MM-DDTHH:MM:SSZ,
+# or fails if INFER_COOLING_DAYS isn't a number of days. Releases and
+# model updates newer than this are too new to install. Works with
+# macOS's date and GNU date.
+cooling_cutoff() {
+  case "$INFER_COOLING_DAYS" in "" | *[!0-9]*) return 1 ;; esac
+  date -u -v-"${INFER_COOLING_DAYS}"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null ||
+    date -u -d "$INFER_COOLING_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ
+}
+
 # Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <backend-port>
 # Prints llama-swap's config for config.sh's INFER_MODELS, or fails on a
 # malformed line. host-setup.sh uses it; it's here, next to
@@ -210,10 +234,7 @@ infer_llama_swap_yaml() {
   printf 'healthCheckTimeout: 500\nlogLevel: info\nperformance:\n  disabled: true\napiKeys:\n  - "%s"\nmodels:\n' "$1"
   while read -r name file ctx max desc; do
     [ -n "$name" ] || continue
-    case "$name" in *[!A-Za-z0-9._-]*) return 1 ;; esac
-    case "$file" in *[!A-Za-z0-9._/-]* | */../* | ../*) return 1 ;; esac
-    case "$ctx$max" in "" | *[!0-9]*) return 1 ;; esac
-    case "$desc" in "" | *'"'* | *\\*) return 1 ;; esac
+    infer_model_ok "$name" "$file" "$ctx" "$max" "$desc" || return 1
     cat <<EOF
   "$name":
     name: "$desc"

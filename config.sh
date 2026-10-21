@@ -32,7 +32,10 @@ MACOS_INFER_USER="_infer"
 # whose file isn't in MODELS_DIR yet. One file per line: URL, then its
 # SHA-256 from the publisher (e.g., on Hugging Face), then its license,
 # then (for a model made of several files, such as an image model) the
-# subdirectory of MODELS_DIR to put it in.
+# subdirectory of MODELS_DIR to put it in. The SHA-256 pins each file.
+# To add a model, run ./add-model.sh on the Mac, which fills these in and
+# appends them to config.local.sh; ./add-model.sh --check and --update
+# find and install publishers' updates.
 MODELS_DIR="/Users/Shared/models"
 MODEL_DOWNLOADS="https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-Q8_0.gguf a680f44a06920e5d689774823782006aa3acc8db95750323373b24139b67e348 apache-2.0
 https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_M.gguf 322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482 apache-2.0

@@ -20,7 +20,7 @@ step() {
 }
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-setup.sh vm-setup.sh host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-setup.sh add-model.sh vm-setup.sh host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -111,6 +111,25 @@ if (INFER_MODELS='bad Bad.gguf 4096 512 A "quoted" name'
   echo "FAILED: infer_llama_swap_yaml accepted a description with quotes" >&2
   fail=1
 fi
+# add-model.sh relies on infer_model_ok to reject these before it
+# appends a line to config.local.sh.
+infer_model_ok m-1.5 sub/M.gguf 4096 512 "A model" ||
+  { echo "FAILED: infer_model_ok rejected a valid line" >&2; fail=1; }
+while IFS='|' read -r name file ctx max desc; do
+  if infer_model_ok "$name" "$file" "$ctx" "$max" "$desc"; then
+    echo "FAILED: infer_model_ok accepted: $name|$file|$ctx|$max|$desc" >&2
+    fail=1
+  fi
+done <<'EOF'
+a b|M.gguf|4096|512|ok
+m|/abs/M.gguf|4096|512|ok
+m|../M.gguf|4096|512|ok
+m|a/../M.gguf|4096|512|ok
+m|M.gguf||512|ok
+m|M.gguf|4096|5x|ok
+m|M.gguf|4096|512|
+m|M.gguf|4096|512|back\slash
+EOF
 
 step "python unit tests (tests/)"
 # tests/render_helper.py renders a template in memory and imports it as a

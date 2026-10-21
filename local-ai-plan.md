@@ -620,8 +620,19 @@ The strict profile, if built:
   (URL, the publisher's SHA-256, license) whose file is missing: to
   `FILE.partial` first, deleting it and stopping on a SHA-256 mismatch.
   `SHA256SUMS` (check with `shasum -a 256 -c SHA256SUMS`) and
-  `SOURCES.tsv` (source URL, license, date added) record each file, and
-  `README.txt` describes the conventions.
+  `SOURCES.tsv` (source URL, license, date added, and the Hugging Face
+  commit it came from) record each file, and `README.txt` describes the
+  conventions. The download code is in `host-models.sh`.
+* `add-model.sh` (2026-10-20) adds a model from its Hugging Face link:
+  it gets the SHA-256, license, and context length from Hugging Face's
+  API, refuses gated repos, downloads with the same checks, and appends
+  to `MODEL_DOWNLOADS` (and, with `--serve NAME`, `INFER_MODELS`) in
+  `config.local.sh`. URLs stay on `main`; the SHA-256 is the pin.
+  `--check` lists models whose files changed upstream, and
+  `--update FILE` installs the new version (refusing changes newer than
+  `INFER_COOLING_DAYS` without `--force`), replacing the old file only
+  after the new one passes every check. Tested 2026-10-20 on Linux with
+  stand-ins for the macOS commands; not yet run on the Mac.
 * Layout: single-file models directly in it, each multi-file model
   (multi-shard, or with an `mmproj` file) in its own subdirectory, the
   convention llama-server's `--models-dir` uses. An image model is

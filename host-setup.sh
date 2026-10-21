@@ -286,10 +286,8 @@ for d in /opt "$LLAMA_OPT" "$SWAP_OPT" /usr/local /usr/local/etc "$INFER_ETC"; d
   esac
 done
 
-case "$INFER_COOLING_DAYS" in
-  "" | *[!0-9]*) die "config.sh's INFER_COOLING_DAYS isn't a number of days." ;;
-esac
-cooling_cutoff="$(date -u -v-"${INFER_COOLING_DAYS}"d +%Y-%m-%dT%H:%M:%SZ)"
+cooling_cutoff="$(cooling_cutoff)" ||
+  die "config.sh's INFER_COOLING_DAYS isn't a number of days."
 
 # github_api PATH: get PATH under a repository from GitHub's REST API.
 # Unauthenticated, which allows 60 requests an hour; this makes a few.
