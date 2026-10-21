@@ -625,14 +625,16 @@ The strict profile, if built:
   conventions. The download code is in `host-models.sh`.
 * `add-model.sh` (2026-10-20) adds a model from its Hugging Face link:
   it gets the SHA-256, license, and context length from Hugging Face's
-  API, refuses gated repos, downloads with the same checks, and appends
+  API (recording `NOASSERTION` when no license is published), refuses
+  gated repos, downloads with the same checks, and appends
   to `MODEL_DOWNLOADS` (and, with `--serve NAME`, `INFER_MODELS`) in
   `config.local.sh`. URLs stay on `main`; the SHA-256 is the pin.
   `--check` lists models whose files changed upstream, and
   `--update FILE` installs the new version (refusing changes newer than
   `INFER_COOLING_DAYS` without `--force`), replacing the old file only
-  after the new one passes every check. Tested 2026-10-20 on Linux with
-  stand-ins for the macOS commands; not yet run on the Mac.
+  after the new one passes every check. Nothing in it is macOS-specific
+  (`host-models.sh` skips the Time Machine exclusion where there's no
+  `tmutil`). Tested 2026-10-20 on Linux; not yet run on the Mac.
 * Layout: single-file models directly in it, each multi-file model
   (multi-shard, or with an `mmproj` file) in its own subdirectory, the
   convention llama-server's `--models-dir` uses. An image model is

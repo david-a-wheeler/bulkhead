@@ -1,7 +1,8 @@
 #!/bin/sh
-# add-model.sh: add a local AI model on the macOS host, or update the
-# ones you have when their publishers change them. POSIX sh, like
-# host-setup.sh. It doesn't use sudo.
+# add-model.sh: add a local AI model to MODELS_DIR, or update the ones
+# you have when their publishers change them. Run it where the engine
+# runs (the Mac today). POSIX sh, like host-setup.sh, and nothing in it
+# is macOS-specific. It doesn't use sudo.
 #
 # Usage:
 #   ./add-model.sh [--serve NAME] [--dir SUBDIR] [--ctx N] [--max N]
@@ -13,7 +14,9 @@
 # appends it to MODEL_DOWNLOADS in config.local.sh, so host-setup.sh
 # downloads it on a fresh Mac too. For a Hugging Face URL (a file page's
 # link or its download link), the SHA-256 and license come from Hugging
-# Face's API. Other URLs must use https and need --sha256 and --license.
+# Face's API. Other URLs must use https and need --sha256. When there's
+# no license to record, it's recorded as NOASSERTION (SPDX's term for
+# "unknown"), and you should check the license yourself.
 # --dir puts the file in a subdirectory of MODELS_DIR, for a model made
 # of several files (an image model, or a text model split into shards):
 # add each file with the same --dir. --serve NAME also appends an
@@ -38,8 +41,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/config.sh"
 . "$SCRIPT_DIR/common.sh"
 . "$SCRIPT_DIR/host-models.sh"
-
-macos_only "add-model.sh"
 
 usage() {
   sed -n '/^# Usage:/,/^#$/s/^# \{0,1\}//p' "$0" >&2
@@ -199,8 +200,10 @@ EOF
       *" config.sh "*) echo "Changed its SHA-256 in config.sh; commit that." ;;
     esac
     echo "A model that's loaded keeps using the old file until llama-swap unloads it"
-    echo "(after 30 idle minutes). To switch now:"
-    echo "  sudo launchctl kickstart -k system/$INFER_LABEL"
+    echo "(after 30 idle minutes)."
+    if command -v launchctl >/dev/null 2>&1; then
+      echo "To switch now: sudo launchctl kickstart -k system/$INFER_LABEL"
+    fi
     exit 0
     ;;
 esac
@@ -225,9 +228,9 @@ if hf_parse "$url"; then
   size="$hf_size"
 else
   case "$url" in https://*) ;; *) die "the URL must use https." ;; esac
-  [ -n "$sha256" ] && [ -n "$license" ] ||
-    die "for a URL outside Hugging Face, give --sha256 (from its publisher) and --license."
+  [ -n "$sha256" ] || die "for a URL outside Hugging Face, give --sha256 (from its publisher)."
 fi
+license="${license:-NOASSERTION}"
 
 # Everything here goes into config.local.sh inside double quotes, so
 # allow nothing the shell would treat specially there.
@@ -235,7 +238,7 @@ case "$url" in *[!A-Za-z0-9._~:/%+=-]*) die "the URL has characters I won't put 
 case "$sha256" in *[!0-9a-f]*) die "the SHA-256 must be 64 lowercase hex digits." ;; esac
 [ "${#sha256}" -eq 64 ] || die "the SHA-256 must be 64 lowercase hex digits."
 case "$license" in
-  "" | *[!A-Za-z0-9._+-]*) die "no usable license ID; give one with --license (e.g., apache-2.0)." ;;
+  *[!A-Za-z0-9._+-]*) die "\"$license\" isn't a license ID; give one with --license (e.g., apache-2.0)." ;;
 esac
 case "$subdir" in
   . | .. | *[!A-Za-z0-9._-]*) die "--dir must be one directory name (letters, digits, '.', '_', and '-')." ;;
@@ -296,7 +299,10 @@ local_config="$SCRIPT_DIR/config.local.sh"
 } >> "$local_config"
 
 echo "Added $file to MODEL_DOWNLOADS in config.local.sh."
-[ "$license" != other ] || echo "Its license is \"other\"; read it on Hugging Face before you use the model."
+case "$license" in
+  NOASSERTION) echo "WARNING: no license was published, so I recorded NOASSERTION; check the license before you use the model." >&2 ;;
+  other) echo "Its license is \"other\"; read it on Hugging Face before you use the model." ;;
+esac
 if [ -n "$serve" ]; then
   echo "Added $serve to INFER_MODELS. To serve it, rerun ./host-setup.sh here,"
   echo "then ./vm-setup.sh on each VM so pi lists it."

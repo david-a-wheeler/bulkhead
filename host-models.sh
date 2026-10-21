@@ -4,19 +4,23 @@
 # or updating one), so the checks that keep a bad file out of MODELS_DIR
 # exist only once.
 #
-# Host-only (macOS today). Source this after config.sh/common.sh:
+# Nothing here is macOS-specific except keeping MODELS_DIR out of Time
+# Machine, which it skips elsewhere. Source this after
+# config.sh/common.sh:
 #   . "$(dirname "$0")/host-models.sh"
 
 SOURCES_HEADER="$(printf 'file\tsource_url\tlicense\tadded\tcommit')"
 
 # Usage: prepare_models_dir
 # Creates MODELS_DIR (readable by everyone, so by MACOS_INFER_USER, but
-# writable only by you), keeps it out of Time Machine, and starts
-# SOURCES.tsv, or adds the commit column to an older one.
+# writable only by you), keeps it out of Time Machine on macOS, and
+# starts SOURCES.tsv, or adds the commit column to an older one.
 prepare_models_dir() {
   mkdir -p "$MODELS_DIR"
   chmod 755 "$MODELS_DIR"
-  tmutil addexclusion "$MODELS_DIR"
+  if command -v tmutil >/dev/null 2>&1; then
+    tmutil addexclusion "$MODELS_DIR"
+  fi
   if [ ! -f "$MODELS_DIR/SOURCES.tsv" ]; then
     printf '%s\n' "$SOURCES_HEADER" > "$MODELS_DIR/SOURCES.tsv"
   elif [ "$(head -n 1 "$MODELS_DIR/SOURCES.tsv")" = "$(printf 'file\tsource_url\tlicense\tadded')" ]; then
