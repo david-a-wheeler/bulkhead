@@ -225,7 +225,12 @@ infer_engine_models() {
 # without capabilities.context or metadata.max_tokens, or a name with
 # characters other than letters, digits, '.', '_', ':', and '-'. jq
 # writes the JSON, so the listing can't inject anything into it.
-# Every model so far is a reasoning model.
+# Every model so far is a reasoning model. thinkingTokenBudgetField makes
+# pi send each thinking level's budget (e.g., 8192 for "medium") in the
+# field llama-server reads; otherwise every level gets the server's
+# --reasoning-budget. thinkingLevelMap makes "off" send
+# reasoning_effort "none", which turns thinking off; otherwise pi sends
+# nothing and the model still thinks.
 infer_pi_models_json() {
   # shellcheck disable=SC2016
   jq --arg url "http://127.0.0.1:$INFER_PORT/v1" '{
@@ -234,6 +239,7 @@ infer_pi_models_json() {
       baseUrl: $url,
       api: "openai-completions",
       apiKey: "${INFER_API_KEY}",
+      compat: {thinkingTokenBudgetField: "thinking_budget_tokens"},
       models: [.data[] |
         if (.id | test("^[A-Za-z0-9._:-]+$") | not) then error("bad model name: \(.id)")
         elif (.context_length | type) != "number" or (.meta.llamaswap.max_tokens | type) != "number"
@@ -243,6 +249,7 @@ infer_pi_models_json() {
           name: ((.name // .id) +
             (if .meta.llamaswap.type == "alias" then " (\(.id))" else "" end)),
           reasoning: true,
+          thinkingLevelMap: {off: "none"},
           contextWindow: .context_length,
           maxTokens: .meta.llamaswap.max_tokens
         } end]

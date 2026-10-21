@@ -164,6 +164,13 @@ if [ "$got" != "$want" ]; then
   echo "FAILED: infer_pi_models_json gave $got, not $want" >&2
   fail=1
 fi
+got="$(printf '%s' "$listing" | infer_pi_models_json | jq -c '.providers["mac-local"] |
+  [.compat.thinkingTokenBudgetField, ([.models[].thinkingLevelMap.off] | unique)]')"
+want='["thinking_budget_tokens",["none"]]'
+if [ "$got" != "$want" ]; then
+  echo "FAILED: infer_pi_models_json's thinking settings are $got, not $want" >&2
+  fail=1
+fi
 got="$(printf '%s' "$listing" | infer_default_model)"
 [ "$got" = qwen3.8-27b ] ||
   { echo "FAILED: infer_default_model gave '$got', not qwen3.8-27b" >&2; fail=1; }
