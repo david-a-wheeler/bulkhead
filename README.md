@@ -87,6 +87,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   named after what they do rather than how. Today there's exactly one
   implementation of each (macOS Keychain, UTM's `utmctl`); see
   architecture.md's "Currently supported" note.
+- `host-models.sh`: downloads and checks local AI models (only GGUF and
+  safetensors, matching their published SHA-256) into `MODELS_DIR`.
+  `host-setup.sh` sources it.
 - `host-setup.sh`: host setup (macOS today).
 - `secrets-server.template.py`, `com.user.secretsserver.template.plist`:
   the host-side secrets server (see architecture.md) and its LaunchAgent.
