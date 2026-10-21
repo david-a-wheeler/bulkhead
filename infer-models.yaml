@@ -40,8 +40,11 @@ models:
     # --reasoning-budget caps thinking at 8192 tokens (pi's "medium"),
     # then makes the model answer, unless a request sets its own budget
     # (thinking_budget_tokens). Without it, thinking may run until
-    # max_tokens, leaving no answer at all.
-    cmd: ${llama-server} --model ${models-dir}/Qwen3.8-27B-Q8_0.gguf --ctx-size 262144 --reasoning-budget 8192
+    # max_tokens, leaving no answer at all. When the budget runs out,
+    # llama-server inserts --reasoning-budget-message (the sentence Qwen
+    # suggests for this) before ending the thinking, so the model answers
+    # from what it's worked out instead of stopping mid-thought.
+    cmd: ${llama-server} --model ${models-dir}/Qwen3.8-27B-Q8_0.gguf --ctx-size 262144 --reasoning-budget 8192 --reasoning-budget-message "Considering the limited time by the user, I have to give the solution based on the thinking directly now."
     proxy: ${proxy}
     capabilities:
       context: 262144
