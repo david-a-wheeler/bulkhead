@@ -336,16 +336,18 @@ EOF
   done
 }
 
-# Usage: infer_model_ok <name> <file> <ctx> <max> <description>
+# Usage: infer_model_ok <name> <description> <file>...
 # True if these fields of a new model (from add-model.sh) are safe to put
-# in infer-models.local.yaml: a plain name, a relative path inside
-# MODELS_DIR, whole numbers, and a description with no quotes,
-# backslashes, "$" (llama-swap's macros start with it), or control
-# characters (e.g., a newline would start another line).
+# in infer-models.local.yaml: a plain name, a description with no
+# quotes, backslashes, "$" (llama-swap's macros start with it), or
+# control characters (e.g., a newline would start another line), and at
+# least one file, each a relative path inside MODELS_DIR.
 infer_model_ok() {
   case "$1" in "" | *[!A-Za-z0-9._-]*) return 1 ;; esac
-  case "$2" in "" | *[!A-Za-z0-9._/-]* | /* | */../* | ../*) return 1 ;; esac
-  case "$3" in "" | *[!0-9]*) return 1 ;; esac
-  case "$4" in "" | *[!0-9]*) return 1 ;; esac
-  case "$5" in "" | *'"'* | *\\* | *'$'* | *[[:cntrl:]]*) return 1 ;; esac
+  case "$2" in "" | *'"'* | *\\* | *'$'* | *[[:cntrl:]]*) return 1 ;; esac
+  shift 2
+  [ $# -gt 0 ] || return 1
+  for f do
+    case "$f" in "" | *[!A-Za-z0-9._/-]* | /* | */../* | ../* | */.. | ..) return 1 ;; esac
+  done
 }

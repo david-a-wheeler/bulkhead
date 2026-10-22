@@ -108,9 +108,13 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `host-setup.sh` and `add-model.sh` source it.
 - `host-setup.sh`: host setup (macOS today).
 - `add-model.sh`: adds a local AI model (given its Hugging Face link)
-  to `config.local.sh` and downloads it; `--check` and
-  `--update` find and install publishers' updates, and `--remove`
-  takes out a model you added.
+  to `config.local.sh` and downloads it, and with `--serve NAME` serves
+  it: a generalist from one GGUF file, or with `--sd-args` a specialist
+  from the sd-server arguments you'd use, each model file written as its
+  link. `--check` and `--update` find and install publishers' updates,
+  and `--remove` takes out a model you added. All of it changes only
+  gitignored files and `MODELS_DIR`, so you can add and remove models
+  without touching the repo.
 - `infer-models.yaml`: the models the local AI engine serves, with
   their sampling defaults, in llama-swap's format. List more in
   `infer-models.local.yaml` (gitignored); `host-setup.sh` serves both.

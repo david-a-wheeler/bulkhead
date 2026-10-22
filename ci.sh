@@ -326,26 +326,36 @@ for bad in '{"data": [{"id": "a b", "context_length": 1, "meta": {"llamaswap": {
 done
 # add-model.sh relies on infer_model_ok to reject these before it
 # appends an entry to infer-models.local.yaml.
-infer_model_ok m-1.5 sub/M.gguf 4096 512 "A model" ||
+infer_model_ok m-1.5 "A model" sub/M.gguf ||
   { echo "FAILED: infer_model_ok rejected a valid entry" >&2; fail=1; }
-while IFS='|' read -r name file ctx max desc; do
-  if infer_model_ok "$name" "$file" "$ctx" "$max" "$desc"; then
-    echo "FAILED: infer_model_ok accepted: $name|$file|$ctx|$max|$desc" >&2
+infer_model_ok img "An image model" img/a.gguf img/vae.safetensors ||
+  { echo "FAILED: infer_model_ok rejected a valid multi-file entry" >&2; fail=1; }
+while IFS='|' read -r name desc file; do
+  if infer_model_ok "$name" "$desc" "$file"; then
+    echo "FAILED: infer_model_ok accepted: $name|$desc|$file" >&2
     fail=1
   fi
 done <<'EOF'
-a b|M.gguf|4096|512|ok
-m|/abs/M.gguf|4096|512|ok
-m|../M.gguf|4096|512|ok
-m|a/../M.gguf|4096|512|ok
-m|M.gguf||512|ok
-m|M.gguf|4096|5x|ok
-m|M.gguf|4096|512|
-m|M.gguf|4096|512|back\slash
-m|M.gguf|4096|512|A "quoted" name
-m|M.gguf|4096|512|a ${macro}
+a b|ok|M.gguf
+m|ok|/abs/M.gguf
+m|ok|../M.gguf
+m|ok|a/../M.gguf
+m|ok|a/..
+m|ok|
+m||M.gguf
+m|back\slash|M.gguf
+m|A "quoted" name|M.gguf
+m|a ${macro}|M.gguf
 EOF
-if infer_model_ok m M.gguf 4096 512 "$(printf 'two\nlines')"; then
+if infer_model_ok m ok; then
+  echo "FAILED: infer_model_ok accepted a model with no files" >&2
+  fail=1
+fi
+if infer_model_ok m ok M.gguf ../x.gguf; then
+  echo "FAILED: infer_model_ok accepted a bad second file" >&2
+  fail=1
+fi
+if infer_model_ok m "$(printf 'two\nlines')" M.gguf; then
   echo "FAILED: infer_model_ok accepted a description with a newline" >&2
   fail=1
 fi
@@ -444,6 +454,14 @@ step "infer-watch.c (tests/test_infer_watch.sh)"
 # Builds the sleep watcher against stand-ins for Apple's headers, with
 # strict gcc warnings and -fanalyzer, then runs it under the sanitizers.
 if ! shellcheck -x tests/test_infer_watch.sh || ! tests/test_infer_watch.sh; then
+  fail=1
+fi
+
+step "add-model.sh (tests/test_add_model.sh)"
+# Adds and removes a generalist and a specialist on a copy of the repo,
+# with a stand-in for Hugging Face, and checks that bad requests change
+# nothing.
+if ! shellcheck -x tests/test_add_model.sh || ! tests/test_add_model.sh; then
   fail=1
 fi
 

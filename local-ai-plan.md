@@ -732,6 +732,12 @@ The strict profile, if built:
   gated repos, downloads with the same checks, and appends
   to `MODEL_DOWNLOADS` in `config.local.sh` (and, with `--serve NAME`,
   an entry to `infer-models.local.yaml`; `--remove NAME` undoes that). URLs stay on `main`; the SHA-256 is the pin.
+  Since 2026-10-22, `--serve NAME --sd-args ARGS` adds a specialist:
+  ARGS are sd-server's arguments with each model file written as its
+  Hugging Face link, so it needs no list of sd-server's file flags. It
+  downloads every file before recording any, and `--remove` handles a
+  model with several files. `tests/test_add_model.sh` runs it end to
+  end in CI, against a stand-in for Hugging Face.
   `--check` lists models whose files changed upstream, and
   `--update FILE` installs the new version (refusing changes newer than
   `INFER_COOLING_DAYS` without `--force`), replacing the old file only
