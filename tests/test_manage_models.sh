@@ -37,6 +37,8 @@ printf 'GGUF changed in transit' > "$F/t.gguf.served"
 printf 'GGUF another' > "$F/n.gguf"
 printf 'GGUF old' > "$F/o.gguf"
 printf 'GGUF unused' > "$F/u.gguf"
+printf 'GGUF sees' > "$F/w.gguf"
+printf 'GGUF projector' > "$F/m.gguf"
 sha() {
   sha256sum "$1" | cut -d ' ' -f 1
 }
@@ -192,6 +194,25 @@ mm "$T" default i1 || { cat "$work/out" >&2; failed "default i1"; }
 [ "$(in_repo "$T" infer_models_default)" = i1 ] || failed "default i1 didn't make i1 the only default"
 in_repo "$T" infer_models_ok || failed "the list's rules refused it after default i1"
 
+# A generalist with vision: both files go in its own directory, and it
+# says it takes images.
+mm "$T" add w1 --mmproj "$HF/o/w/resolve/main/m.gguf" "$HF/o/w/resolve/main/w.gguf" ||
+  { cat "$work/out" >&2; failed "adding a model with --mmproj"; }
+# shellcheck disable=SC2016 # a literal cmd line
+grep -qxF '    cmd: ${llama-server} --model ${models-dir}/w1/w.gguf --mmproj ${models-dir}/w1/m.gguf --ctx-size 8192' "$L" ||
+  failed "--mmproj didn't put the projector in w1's cmd"
+model_lines_w1="$(awk '/^  w1:$/ { p = 1; next } /^  [^ ]/ { p = 0 } p' "$L")"
+printf '%s\n' "$model_lines_w1" | grep -qx '      in: \[text, image\]' ||
+  failed "--mmproj didn't say w1 takes images"
+printf '%s\n' "$model_lines_w1" | grep -q '^    # file: w1/m.gguf ' ||
+  failed "--mmproj didn't list w1/m.gguf"
+[ -f "$T/models/w1/w.gguf" ] && [ -f "$T/models/w1/m.gguf" ] || failed "--mmproj didn't download both files"
+mm "$T" check || { cat "$work/out" >&2; failed "check after adding w1"; }
+mm "$T" remove w1 || { cat "$work/out" >&2; failed "removing w1"; }
+for f in w1/w.gguf w1/m.gguf; do
+  mm "$T" prune --delete "$f" || { cat "$work/out" >&2; failed "pruning $f"; }
+done
+
 # Bad requests: each must fail and change nothing.
 snapshot() {
   (cd "$T" && cat models.local.yaml models/SHA256SUMS; find models -type f | sort)
@@ -224,7 +245,11 @@ for bad in \
   "prune --delete|../models/i.gguf" \
   "prune --delete|nosuch.gguf" \
   "prune --delete s1/d.gguf|i.gguf" \
-  "prune --delete --|--yes"; do
+  "prune --delete --|--yes" \
+  "add w2 --mmproj $HF/o/w/resolve/main/w.gguf|$HF/o/w/resolve/main/w.gguf" \
+  "add w2 --mmproj $HF/o/v/resolve/main/v.safetensors|$HF/o/w/resolve/main/w.gguf" \
+  "add w2 --mmproj https://example.com/m.gguf|$HF/o/w/resolve/main/w.gguf" \
+  "add w2 --mmproj $HF/o/w/resolve/main/m.gguf --sd-args|--diffusion-model $HF/o/d/blob/main/d.gguf"; do
   opts="${bad%%|*}" last="${bad#*|}"
   # shellcheck disable=SC2086 # opts is plain words
   if [ -n "$last" ]; then

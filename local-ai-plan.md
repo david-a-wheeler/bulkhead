@@ -756,6 +756,23 @@ The strict profile, if built:
   which nothing served; it's no longer in the initial list, so
   `manage-models.sh prune` lists it (add it with `manage-models.sh add`
   to serve it, or prune it).
+* Vision (2026-10-22): Qwen3.8-27B reads images (Hugging Face lists
+  the base model as `image-text-to-text`), but only with its vision
+  projector, a separate GGUF that llama-server loads with `--mmproj`.
+  We'd served it without one, so it was text-only. Its entry now loads
+  `qwen3.8-27b/mmproj-F16.gguf` (0.93 GB, from the same unsloth repo;
+  in its own directory, since many models' projectors have that name)
+  and sets `capabilities.in: [text, image]`. llama-swap v265 lists
+  that as `architecture.input_modalities`, for the model and its
+  aliases (`internal/server/api.go`); without it, llama-swap learns a
+  llama-server model's modalities only once it's loaded.
+  `infer_pi_models_json` turns it into pi's `input: ["text", "image"]`,
+  without which pi won't send images. `manage-models.sh add --mmproj
+  URL` adds other vision models this way. Not yet tried on the Mac.
+  pi can also call image models itself, through its `codemode` tool
+  (`models.generateImages`; see pi's `docs/models.md`), which may be a
+  simpler way for pi to use flux than a script of our own; not yet
+  checked whether it works with a local provider.
 * Safety against malicious models:
   * GGUF or safetensors only, never pickle formats (`.bin`, `.pt`,
     `.ckpt`), which run code on load. `host-setup.sh` enforces this: it
@@ -1203,6 +1220,12 @@ migrates and should download nothing; check `models.local.yaml` and
 `./manage-models.sh prune` (which should list only the unused
 UD-Q4_K_M file); then `./install-models.sh` (the config should be
 unchanged except for the `# file:` comments) and `./host-setup.sh`.
+
+Then: vision (see "Models"). On the Mac, `git pull` and
+`./add-vision-once.sh`, which adds the projector to `models.local.yaml`,
+downloads it, and runs `./install-models.sh`; then delete the script.
+On each VM, `./vm-setup.sh`, then paste an image into `nopi` and ask
+about it. Check the sandbox log for denials.
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
    2026-10-19): on the

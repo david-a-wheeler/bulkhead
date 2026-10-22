@@ -9,7 +9,8 @@
 #   ./manage-models.sh init
 #   ./manage-models.sh list
 #   ./manage-models.sh add [--dir SUBDIR] [--ctx N] [--max N] [--desc TEXT]
-#                      [--sha256 HEX] [--license ID] [--default] NAME URL
+#                      [--sha256 HEX] [--license ID] [--default]
+#                      [--mmproj URL] NAME URL
 #   ./manage-models.sh add --sd-args ARGS [--dir SUBDIR] [--ttl N]
 #                      [--desc TEXT] NAME
 #   ./manage-models.sh remove [--yes] NAME
@@ -40,7 +41,12 @@
 # repository's GGUF files, --max (the most tokens one reply may use) to
 # 32768 (or the context window, if smaller), and --desc to the file
 # name. --dir puts the file in a subdirectory of MODELS_DIR. --default
-# makes it the default model (see default, below).
+# makes it the default model (see default, below). --mmproj gives the
+# URL of a vision model's projector file (e.g., mmproj-F16.gguf, from
+# the same Hugging Face repository), which lets it read images; the
+# entry then says it takes images, so pi sends them. Both files go in
+# --dir, which then defaults to NAME, since many models' projector files
+# have the same name.
 #
 # add NAME --sd-args ARGS instead adds a specialist (an sd-server model,
 # which makes images): ARGS are the sd-server arguments you'd use (e.g.,
@@ -473,11 +479,11 @@ add_pos() {
     *) usage ;;
   esac
 }
-subdir="" ctx="" max="" desc="" sha256="" license="" sd_args="" ttl=""
+subdir="" ctx="" max="" desc="" sha256="" license="" sd_args="" ttl="" mmproj=""
 make_default=false yes=false force=false delete=false
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dir | --ctx | --max | --desc | --sha256 | --license | --sd-args | --ttl)
+    --dir | --ctx | --max | --desc | --sha256 | --license | --sd-args | --ttl | --mmproj)
       [ $# -ge 2 ] || usage
       case "$1" in
         --dir) subdir="$2" ;;
@@ -488,6 +494,7 @@ while [ $# -gt 0 ]; do
         --license) license="$2" ;;
         --sd-args) sd_args="$2" ;;
         --ttl) ttl="$2" ;;
+        --mmproj) mmproj="$2" ;;
       esac
       opts="$opts $1"
       shift 2
@@ -722,8 +729,14 @@ if [ -n "$sd_args" ]; then
   )"
   [ -n "$urls" ] || die "--sd-args names no model file; write each one as its Hugging Face URL."
 else
-  allow 2 --dir --ctx --max --desc --sha256 --license --default
+  allow 2 --dir --ctx --max --desc --sha256 --license --default --mmproj
   urls="$pos2"
+  if [ -n "$mmproj" ]; then
+    [ -z "$sha256" ] || die "--sha256 is for one file; with --mmproj, both files must come from Hugging Face."
+    subdir="${subdir:-$serve}"
+    urls="$urls
+$mmproj"
+  fi
 fi
 case "$subdir" in
   . | .. | *[!A-Za-z0-9._-]*) die "--dir must be one directory name (letters, digits, '.', '_', and '-')." ;;
@@ -755,7 +768,7 @@ while read -r given; do
     f_size="${hf_size:-0}"
     [ -n "$sd_args" ] || ctx="${ctx:-$hf_ctx}"
   else
-    [ -z "$sd_args" ] || die "$given isn't a Hugging Face file link; with --sd-args, each file must come from Hugging Face."
+    [ -z "$sd_args$mmproj" ] || die "$given isn't a Hugging Face file link; with --sd-args or --mmproj, each file must come from Hugging Face."
     case "$given" in https://*) ;; *) die "the URL must use https." ;; esac
     [ -n "$sha256" ] || die "for a URL outside Hugging Face, give --sha256 (from its publisher)."
     f_url="$given" f_sha256="$sha256" f_license="$license"
@@ -783,7 +796,7 @@ EOM
     f_url="$l_url" f_license="$l_license"
   fi
   if printf '%s\n' "$files" | awk -v f="$f_file" '$5 == f { found = 1 } END { exit !found }'; then
-    die "--sd-args names $f_file twice (or two files with that name)."
+    die "the URLs name $f_file twice (or two files with that name)."
   fi
   files="$files$given $f_url $f_sha256 $f_license $f_file $f_size
 "
@@ -811,12 +824,14 @@ if [ -n "$sd_args" ]; then
   infer_model_ok "$serve" "$desc" $entry_files ||
     die "NAME may use only letters, digits, '.', '_', and '-'; and --desc can't have quotes, backslashes, \$, or control characters."
 else
-  file="$(printf '%s' "$files" | awk '{ print $5 }')"
+  file="$(printf '%s' "$files" | awk 'NR == 1 { print $5 }')"
+  mmproj_file="$(printf '%s' "$files" | awk 'NR == 2 { print $5 }')"
   case "$ctx" in
     "") die "Hugging Face doesn't say $file's context length; give --ctx." ;;
     *[!0-9]*) die "--ctx must be a whole number." ;;
   esac
   case "$file" in *.gguf) ;; *) die "llama-server only serves GGUF files." ;; esac
+  case "$mmproj_file" in "" | *.gguf) ;; *) die "--mmproj must be a GGUF file." ;; esac
   if [ -z "$max" ]; then
     max=32768
     [ "$max" -le "$ctx" ] || max="$ctx"
@@ -824,7 +839,8 @@ else
   case "$max" in *[!0-9]*) die "--max must be a whole number." ;; esac
   [ "$max" -le "$ctx" ] || die "--max ($max) is more than the context window ($ctx)."
   desc="${desc:-$(basename "$file" .gguf)}"
-  infer_model_ok "$serve" "$desc" "$file" ||
+  # shellcheck disable=SC2086 # mmproj_file is a checked file name, or empty
+  infer_model_ok "$serve" "$desc" "$file" $mmproj_file ||
     die "NAME may use only letters, digits, '.', '_', and '-'; and --desc can't have quotes, backslashes, \$, or control characters."
 fi
 
@@ -849,14 +865,21 @@ $file_lines
       out: [image]
 EOM
 else
+  vision_arg="" vision_caps=""
+  if [ -n "$mmproj_file" ]; then
+    vision_arg=" --mmproj \${models-dir}/$mmproj_file"
+    vision_caps="
+      in: [text, image]
+      out: [text]"
+  fi
   cat >> "$INFER_MODELS.new" <<EOM
   $serve:
 $file_lines
     name: "$desc"
-    cmd: \${llama-server} --model \${models-dir}/$file --ctx-size $ctx
+    cmd: \${llama-server} --model \${models-dir}/$file$vision_arg --ctx-size $ctx
     proxy: \${proxy}
     capabilities:
-      context: $ctx
+      context: $ctx$vision_caps
     metadata:
       max_tokens: $max
     # Sampling defaults from the model card. Without them, llama-server

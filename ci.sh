@@ -376,12 +376,14 @@ fi
 # pi's models.json and nopi's default, from llama-swap v265's real
 # listing for initial-models.yaml (trimmed to the fields we use). A
 # variant (type "alias") repeats its model's metadata, and comes first
-# here, so picking it as the default would show. The image model, added
-# as llama-swap's api.go would list it, must not reach pi.
-listing='{"data": [{"id": "flux2-klein-4b", "name": "FLUX.2-klein 4B Q8_0 (images)", "architecture": {"input_modalities": ["text"], "output_modalities": ["image"], "modality": "text->image"}, "meta": {"llamaswap": {"type": "model"}}}, {"id": "qwen3.8-27b:instruct", "name": "Qwen3.8-27B Q8_0", "context_length": 262144, "meta": {"llamaswap": {"default": true, "max_tokens": 16384, "modelID": "qwen3.8-27b", "type": "alias"}, "n_ctx": 262144}}, {"id": "qwen3-0.6b", "name": "Qwen3-0.6B Q4_0 (tests)", "context_length": 32768, "meta": {"llamaswap": {"max_tokens": 4096, "type": "model"}, "n_ctx": 32768}}, {"id": "qwen3.8-27b", "name": "Qwen3.8-27B Q8_0", "context_length": 262144, "meta": {"llamaswap": {"aliases": ["qwen3.8-27b:instruct"], "default": true, "max_tokens": 16384, "type": "model"}, "n_ctx": 262144}}]}'
+# here, so picking it as the default would show. The image model, and
+# qwen3.8-27b's capabilities.in (which its alias shares), are added as
+# llama-swap's api.go would list them: the image model must not reach
+# pi, and pi must learn which models take images.
+listing='{"data": [{"id": "flux2-klein-4b", "name": "FLUX.2-klein 4B Q8_0 (images)", "architecture": {"input_modalities": ["text"], "output_modalities": ["image"], "modality": "text->image"}, "meta": {"llamaswap": {"type": "model"}}}, {"id": "qwen3.8-27b:instruct", "name": "Qwen3.8-27B Q8_0", "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"], "modality": "text+image->text"}, "context_length": 262144, "meta": {"llamaswap": {"default": true, "max_tokens": 16384, "modelID": "qwen3.8-27b", "type": "alias"}, "n_ctx": 262144}}, {"id": "qwen3-0.6b", "name": "Qwen3-0.6B Q4_0 (tests)", "context_length": 32768, "meta": {"llamaswap": {"max_tokens": 4096, "type": "model"}, "n_ctx": 32768}}, {"id": "qwen3.8-27b", "name": "Qwen3.8-27B Q8_0", "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"], "modality": "text+image->text"}, "context_length": 262144, "meta": {"llamaswap": {"aliases": ["qwen3.8-27b:instruct"], "default": true, "max_tokens": 16384, "type": "model"}, "n_ctx": 262144}}]}'
 got="$(printf '%s' "$listing" | infer_pi_models_json |
-  jq -c '[.providers["mac-local"].models[] | [.id, .name, .contextWindow, .maxTokens]]')"
-want='[["qwen3.8-27b:instruct","Qwen3.8-27B Q8_0 (qwen3.8-27b:instruct)",262144,16384],["qwen3-0.6b","Qwen3-0.6B Q4_0 (tests)",32768,4096],["qwen3.8-27b","Qwen3.8-27B Q8_0",262144,16384]]'
+  jq -c '[.providers["mac-local"].models[] | [.id, .name, .contextWindow, .maxTokens, .input]]')"
+want='[["qwen3.8-27b:instruct","Qwen3.8-27B Q8_0 (qwen3.8-27b:instruct)",262144,16384,["text","image"]],["qwen3-0.6b","Qwen3-0.6B Q4_0 (tests)",32768,4096,["text"]],["qwen3.8-27b","Qwen3.8-27B Q8_0",262144,16384,["text","image"]]]'
 if [ "$got" != "$want" ]; then
   echo "FAILED: infer_pi_models_json gave $got, not $want" >&2
   fail=1

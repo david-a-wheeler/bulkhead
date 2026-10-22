@@ -115,10 +115,11 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   root-owned, each checked before it replaces the running engine's.
   `host-setup.sh` and `install-models.sh` source it.
 - `host-setup.sh`: host setup (macOS today).
-- `manage-models.sh`: manages the host's models, without sudo: `list` them; `add` a
-  generalist from its GGUF file's Hugging Face link, or a specialist
-  from the sd-server arguments you'd use (`--sd-args`, each model file
-  written as its link); `remove` any model; `default` to show or set the
+- `manage-models.sh`: manages the host's models, without sudo: `list`
+  them; `add` a generalist from its GGUF file's Hugging Face link (with
+  `--mmproj`, one that reads images), or a specialist from the sd-server
+  arguments you'd use (`--sd-args`, each model file written as its
+  link); `remove` any model; `default` to show or set the
   default; `sync` to download what the list names (only GGUF and
   safetensors, matching their published SHA-256); `outdated` and
   `update` to find and install publishers' updates; and `prune` to find

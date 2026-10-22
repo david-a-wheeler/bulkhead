@@ -285,6 +285,10 @@ infer_pi_models_json() {
           id: .id,
           name: ((.name // .id) +
             (if .meta.llamaswap.type == "alias" then " (\(.id))" else "" end)),
+          # pi sends images only to a model that says it takes them
+          # (capabilities.in in models.local.yaml).
+          input: (if (.architecture.input_modalities // []) | any(. == "image")
+            then ["text", "image"] else ["text"] end),
           reasoning: true,
           thinkingLevelMap: {off: "none"},
           contextWindow: .context_length,
