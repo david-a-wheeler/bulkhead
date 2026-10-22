@@ -49,7 +49,7 @@
 #
 # Each text model also needs capabilities.context (its context window,
 # which must match --ctx-size) and metadata.max_tokens (the most tokens
-# one reply may use); vm-setup.sh reads both from the engine to tell pi.
+# one reply may use); infer-models reads both from the engine, for pi.
 # A specialist instead needs capabilities.out: [image], which keeps it
 # out of pi's list, and a ttl (seconds without a request before it
 # unloads) of at most 3600.

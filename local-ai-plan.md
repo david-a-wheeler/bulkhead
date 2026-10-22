@@ -216,11 +216,12 @@ be malicious and try to send my sensitive data out. So:
     (`metadata.max_tokens`), and sampling defaults. `host-setup.sh`
     puts our settings in front (the API key, and macros holding the
     flags every model needs) and checks the file's rules
-    (`infer_models_ok` in `host-models.sh`). `vm-setup.sh` builds pi's
-    `models.json` (`contextWindow`, `maxTokens`) and nopi's default
-    (`metadata.default`) from the engine's `/v1/models` through the
-    tunnel, so they can't disagree, and the VMs need no copy of my
-    local file. (Until 2026-10-20 this was `config.sh`'s
+    (`infer_models_ok` in `host-models.sh`). Each time `nopi` starts,
+    it builds pi's `models.json` (`contextWindow`, `maxTokens`, `input`)
+    and picks the default (`metadata.default`) from the engine's
+    `/v1/models` through the tunnel (see "Clients learn the models from
+    the engine"), so they can't disagree, and the VMs need no copy of
+    my local file. (Until 2026-10-20 this was `config.sh`'s
     `INFER_MODELS`.)
   * sampling defaults (2026-10-20): llama-server uses a GGUF's
     `general.sampling.*` metadata as its defaults. Qwen3.8-27B's files
@@ -857,7 +858,7 @@ runs.
     downloaded again, and keeps the line it has.
   * `remove NAME`: delete NAME's entry, for any model, including the
     initial ones. Removing the default or the last model asks first,
-    since afterward `vm-setup.sh` stops until you set a default, or
+    since afterward `nopi` picks no model until you set a default, or
     `install-models.sh` has nothing to install. Without a terminal to
     ask on, it refuses unless you add `--yes`. The files stay until you
     prune them.
@@ -866,11 +867,9 @@ runs.
     `default NAME` makes NAME, a generalist, the default: the model
     `nopi` uses unless you give `--model`. The default is the one entry
     with `metadata.default: true`, so this sets that on NAME and removes
-    it from the rest. Each VM learns the default when `vm-setup.sh`
-    runs: it asks the engine for its models through the tunnel
-    (`/v1/models`, whose listing includes each model's metadata) and
-    writes the default into `nopi`. So after changing it, rerun
-    `vm-setup.sh` on each VM.
+    it from the rest. Once the engine serves the change, each client
+    learns it the next time it starts (see "Clients learn the models
+    from the engine").
   * `check`: the list's rules (`infer_models_ok`), and that `MODELS_DIR`
     has each file it names, in that version. The rules now include the
     file lines, and that at most one model is the default, and it's a
@@ -1060,10 +1059,42 @@ own list. I think that's fine for one checkout per host.
     or pin, `--before` is an hour after that release, since pi's
     sibling packages come out moments after it. It also installs
     `nopi` and `infer-logs` in `/usr/local/bin`,
-    `infer-logs@.service` in `/etc/systemd/user`, and pi's
-    `models.json` (now generated from the engine's list), and removes the
+    `infer-logs@.service` in `/etc/systemd/user`, and removes the
     trial's copies in my home directory. A VM without the key skips
     all of it.
+
+### Clients learn the models from the engine (2026-10-22)
+
+Until now, `vm-setup.sh` wrote pi's `models.json` and baked the default
+into `nopi`, so every change on the Mac meant rerunning it on every VM,
+and each new client (e.g., goose) would need its own copy of that.
+Now there's one generic query, and a thin adapter per client:
+
+* `infer-models` (from `infer-models.template.sh`, installed in
+  `/usr/local/bin`) asks the engine for `/v1/models` through the tunnel
+  and prints a client-neutral list: the URL, the default, and each
+  model's name, the model it's a variant of, its context window and
+  maximum reply, and its input and output modalities. It's the only
+  code that knows llama-swap's listing. Anything on the VM could answer
+  on the port while the tunnel's down, so it rejects names that
+  aren't plain, missing or non-numeric limits, bad modalities, and more
+  than one default. The key
+  reaches curl on its stdin, not its command line. `--stdin` reads a
+  listing instead, for tests.
+* `nopi` runs it each time pi starts, turns its answer into pi's
+  `models.json` with `pi-models.jq` (in `/usr/local/libexec/bulkhead`),
+  replacing the file only if it changed (keeping a `.bak`), and starts
+  pi with `--model` set to the default; a later `--model` still wins.
+  If the engine doesn't answer, it warns and pi uses its last list. A
+  goose wrapper would do the same with its own jq file, or skip it if
+  goose can read `/v1/models` itself (not checked).
+* `vm-setup.sh` only installs these. A running pi keeps the list it
+  started with.
+* Tested in CI (`infer-models --stdin` and `pi-models.jq` on the real
+  listing, and seven bad listings), and `nopi` against stand-ins for
+  the engine and `anon-access` on 2026-10-22: a first run, an
+  unchanged list, a model removed, the engine down, and no default. Not
+  yet run against the real engine.
 
 ## Test results (2026-10-18 and 2026-10-19)
 
@@ -1224,8 +1255,12 @@ unchanged except for the `# file:` comments) and `./host-setup.sh`.
 Then: vision (see "Models"). On the Mac, `git pull` and
 `./add-vision-once.sh`, which adds the projector to `models.local.yaml`,
 downloads it, and runs `./install-models.sh`; then delete the script.
-On each VM, `./vm-setup.sh`, then paste an image into `nopi` and ask
-about it. Check the sandbox log for denials.
+On each VM, `./vm-setup.sh` once (it installs `infer-models` and the
+new `nopi`; see "Clients learn the models from the engine"), then
+paste an image into `nopi` and ask about it. Check the sandbox log for
+denials. After that, changing models on the Mac should need nothing
+done on a VM: check that by setting another default and restarting
+`nopi`.
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
    2026-10-19): on the

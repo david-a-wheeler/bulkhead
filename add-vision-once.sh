@@ -56,5 +56,5 @@ fi
 "$MM" sync
 "$MM" check
 "$SCRIPT_DIR/install-models.sh"
-echo "Done. Now rerun ./vm-setup.sh on each VM, so pi sends qwen3.8-27b"
-echo "images, and then you can delete add-vision-once.sh."
+echo "Done. Now run ./vm-setup.sh once on each VM (for the new nopi), so"
+echo "pi sends qwen3.8-27b images, and then delete add-vision-once.sh."

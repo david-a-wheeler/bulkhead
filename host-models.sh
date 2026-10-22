@@ -280,7 +280,7 @@ infer_models_default() {
 # seconds for GPU statistics we don't use, and the sandbox denies each
 # run's read of /etc/passwd.
 # includeAliasesInList lists each model's variants (setParamsByID), so
-# vm-setup.sh can tell pi about them. See local-ai-plan.md for the other
+# infer-models can tell clients (e.g., pi) about them. See local-ai-plan.md for the other
 # flags.
 infer_llama_swap_yaml() {
   cat <<EOF

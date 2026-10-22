@@ -73,4 +73,4 @@ fi
 sudo /bin/launchctl kickstart -k "system/$INFER_LABEL"
 wait_for_engine
 echo "Installed the new config and restarted the engine."
-echo "If you added or removed a model pi should list, rerun ./vm-setup.sh on each VM."
+echo "Each VM's clients (e.g., nopi) see the change the next time they start."

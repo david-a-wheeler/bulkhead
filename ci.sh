@@ -20,7 +20,7 @@ step() {
 }
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh manage-models.sh install-models.sh vm-setup.sh host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh manage-models.sh install-models.sh vm-setup.sh nopi host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -67,12 +67,11 @@ for f in secrets-client secrets-server.py; do
   fi
 done
 
-INFER_DEFAULT_MODEL=qwen3.8-27b
-render_template nopi.template.sh "$tmp/nopi" INFER_DEFAULT_MODEL
+render_template infer-models.template.sh "$tmp/infer-models" INFER_PORT
 render_template infer-logs.template.sh "$tmp/infer-logs" INFER_PORT
 render_template infer-watch-hook.template.sh "$tmp/infer-watch-hook" \
   INFER_PORT INFER_KEY_FILE INFER_LABEL INFER_LOW_POWER_BELOW INFER_LOW_POWER_UNTIL
-for f in nopi infer-logs infer-watch-hook; do
+for f in infer-models infer-logs infer-watch-hook; do
   if ! dash -n "$tmp/$f" || ! shellcheck "$tmp/$f"; then
     echo "FAILED: $f" >&2
     fail=1
@@ -373,35 +372,50 @@ if ! (
   echo "FAILED: render_engine_config (above)" >&2
   fail=1
 fi
-# pi's models.json and nopi's default, from llama-swap v265's real
-# listing for initial-models.yaml (trimmed to the fields we use). A
-# variant (type "alias") repeats its model's metadata, and comes first
-# here, so picking it as the default would show. The image model, and
-# qwen3.8-27b's capabilities.in (which its alias shares), are added as
-# llama-swap's api.go would list them: the image model must not reach
-# pi, and pi must learn which models take images.
+# infer-models and pi-models.jq, from llama-swap v265's real listing
+# for initial-models.yaml (trimmed to the fields we use). A variant (type
+# "alias") repeats its model's metadata, and comes first here, so picking
+# it as the default would show. The image model, and qwen3.8-27b's
+# capabilities.in (which its alias shares), are added as llama-swap's
+# api.go would list them: the image model must not reach pi, and pi must
+# learn which models take images.
 listing='{"data": [{"id": "flux2-klein-4b", "name": "FLUX.2-klein 4B Q8_0 (images)", "architecture": {"input_modalities": ["text"], "output_modalities": ["image"], "modality": "text->image"}, "meta": {"llamaswap": {"type": "model"}}}, {"id": "qwen3.8-27b:instruct", "name": "Qwen3.8-27B Q8_0", "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"], "modality": "text+image->text"}, "context_length": 262144, "meta": {"llamaswap": {"default": true, "max_tokens": 16384, "modelID": "qwen3.8-27b", "type": "alias"}, "n_ctx": 262144}}, {"id": "qwen3-0.6b", "name": "Qwen3-0.6B Q4_0 (tests)", "context_length": 32768, "meta": {"llamaswap": {"max_tokens": 4096, "type": "model"}, "n_ctx": 32768}}, {"id": "qwen3.8-27b", "name": "Qwen3.8-27B Q8_0", "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"], "modality": "text+image->text"}, "context_length": 262144, "meta": {"llamaswap": {"aliases": ["qwen3.8-27b:instruct"], "default": true, "max_tokens": 16384, "type": "model"}, "n_ctx": 262144}}]}'
-got="$(printf '%s' "$listing" | infer_pi_models_json |
+infer_models_stdin() {
+  sh "$tmp/infer-models" --stdin
+}
+got="$(printf '%s' "$listing" | infer_models_stdin |
+  jq -c '[.url, .default, [.models[] | [.id, .variant_of, .context, .max_tokens, .input, .output]]]')"
+want='["http://127.0.0.1:'"$INFER_PORT"'/v1","qwen3.8-27b",[["flux2-klein-4b",null,null,null,["text"],["image"]],["qwen3.8-27b:instruct","qwen3.8-27b",262144,16384,["text","image"],["text"]],["qwen3-0.6b",null,32768,4096,["text"],["text"]],["qwen3.8-27b",null,262144,16384,["text","image"],["text"]]]]'
+if [ "$got" != "$want" ]; then
+  echo "FAILED: infer-models gave $got, not $want" >&2
+  fail=1
+fi
+got="$(printf '%s' "$listing" | infer_models_stdin | jq -f pi-models.jq |
   jq -c '[.providers["mac-local"].models[] | [.id, .name, .contextWindow, .maxTokens, .input]]')"
 want='[["qwen3.8-27b:instruct","Qwen3.8-27B Q8_0 (qwen3.8-27b:instruct)",262144,16384,["text","image"]],["qwen3-0.6b","Qwen3-0.6B Q4_0 (tests)",32768,4096,["text"]],["qwen3.8-27b","Qwen3.8-27B Q8_0",262144,16384,["text","image"]]]'
 if [ "$got" != "$want" ]; then
-  echo "FAILED: infer_pi_models_json gave $got, not $want" >&2
+  echo "FAILED: pi-models.jq gave $got, not $want" >&2
   fail=1
 fi
-got="$(printf '%s' "$listing" | infer_pi_models_json | jq -c '.providers["mac-local"] |
-  [.compat.thinkingTokenBudgetField, ([.models[].thinkingLevelMap.off] | unique)]')"
-want='["thinking_budget_tokens",["none"]]'
+got="$(printf '%s' "$listing" | infer_models_stdin | jq -f pi-models.jq | jq -c '.providers["mac-local"] |
+  [.baseUrl, .apiKey, .compat.thinkingTokenBudgetField, ([.models[].thinkingLevelMap.off] | unique)]')"
+want='["http://127.0.0.1:'"$INFER_PORT"'/v1","${INFER_API_KEY}","thinking_budget_tokens",["none"]]'
 if [ "$got" != "$want" ]; then
-  echo "FAILED: infer_pi_models_json's thinking settings are $got, not $want" >&2
+  echo "FAILED: pi-models.jq's provider settings are $got, not $want" >&2
   fail=1
 fi
-got="$(printf '%s' "$listing" | infer_default_model)"
-[ "$got" = qwen3.8-27b ] ||
-  { echo "FAILED: infer_default_model gave '$got', not qwen3.8-27b" >&2; fail=1; }
+got="$(printf '%s' '{"data": [{"id": "a", "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1}}}]}' |
+  infer_models_stdin | jq -c .default)"
+[ "$got" = null ] || { echo "FAILED: infer-models gave a default ($got) for a listing with none" >&2; fail=1; }
 for bad in '{"data": [{"id": "a b", "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1}}}]}' \
-  '{"data": [{"id": "a", "context_length": 1}]}'; do
-  if printf '%s' "$bad" | infer_pi_models_json >/dev/null 2>&1; then
-    echo "FAILED: infer_pi_models_json accepted $bad" >&2
+  '{"data": [{"id": "a", "context_length": 1}]}' \
+  '{"data": [{"id": "a", "context_length": "1", "meta": {"llamaswap": {"max_tokens": 1}}}]}' \
+  '{"data": [{"id": "a", "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1, "type": "alias", "modelID": "b c"}}}]}' \
+  '{"data": [{"id": "a", "architecture": {"input_modalities": "text"}, "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1}}}]}' \
+  '{"data": [{"id": "a", "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1, "default": true}}}, {"id": "b", "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1, "default": true}}}]}' \
+  'not JSON'; do
+  if printf '%s' "$bad" | infer_models_stdin >/dev/null 2>&1; then
+    echo "FAILED: infer-models accepted $bad" >&2
     fail=1
   fi
 done

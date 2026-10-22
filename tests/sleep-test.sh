@@ -40,9 +40,9 @@ show() {
         "$HOME/Library/Logs/infer-watch.log" | tail -n 1 | grep -q watching; then
       echo "WARNING: infer-watch isn't watching yet; wait and rerun this."
     fi
-    model="$(infer_engine_models "$key" | infer_default_model)"
+    model="$("$SCRIPT_DIR/manage-models.sh" default 2>/dev/null)" || model=""
     if [ -z "$model" ]; then
-      echo "WARNING: the engine didn't name its default model; is it running?"
+      echo "WARNING: models.local.yaml names no default model (see ./manage-models.sh default)."
     else
       echo "Loading $model (this can take a minute)"
       curl -sS -m 300 -o /dev/null -w 'HTTP %{http_code}\n' \

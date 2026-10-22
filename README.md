@@ -221,6 +221,17 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   rather than a hand-rolled `--allow` list this repo would have to keep
   in sync with what Claude Code actually needs at runtime. Plain
   executable file, not a bash function: any shell can run it.
+- `infer-models.template.sh`: installed as `infer-models`, which asks
+  the Mac's engine (through the tunnel) what models it serves now, and
+  prints them in a form any client can use: each model's name, context
+  window, maximum reply, and whether it takes images, plus the default.
+  It treats the answer as untrusted. Each client's wrapper runs it at
+  start, so changing the models on the Mac needs nothing done on a VM.
+- `nopi`: runs pi like `noclaude` runs Claude Code, against the Mac's
+  models. Each time, it turns `infer-models`' answer into pi's
+  `models.json` with `pi-models.jq`, and starts pi with the default
+  model. A wrapper for another client (e.g., goose) would do the same,
+  with its own small jq file.
 - `nono-default-profile.json`: filesystem access every nono-sandboxed
   harness should have beyond what its own pack grants: `~/.rbenv`,
   `~/.gitconfig`, program and header directories nono lacks (e.g.,
