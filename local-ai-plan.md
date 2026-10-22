@@ -396,7 +396,10 @@ be malicious and try to send my sensitive data out. So:
   `exclusive: false` (it leaves the other group alone). I confirmed
   that in llama-swap v265's source and with stand-in backends: flux ran
   beside `qwen3.8-27b`, `qwen3-0.6b` swapped out only `qwen3.8-27b`,
-  and flux's `ttl` unloaded flux alone. Memory allows the pair (Q8_0
+  and flux's `ttl` unloaded flux alone. On the Mac (2026-10-22),
+  `infer-check.sh` passed for all four models and ended with flux and
+  `qwen3.8-27b` both loaded, so the two-port sandbox rule works too.
+  Memory allows the pair (Q8_0
   at 27 GB, plus its KV cache, plus an image model, within the roughly
   107 GB Metal can use). To make room for a larger specialist, request
   a small generalist or unload the generalist
@@ -1021,10 +1024,9 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-Next (2026-10-22): on the Mac, run `./host-setup.sh` and
-`./infer-check.sh` again, to check that flux runs beside the chat
-model (generalists and specialists; see "Image generation"), and a
-forced sleep with both loaded (see step 8).
+Next (2026-10-22): flux runs beside the chat model on the Mac (see
+"Image generation"). Still to check: a forced sleep with both loaded,
+which should unload both (see step 8).
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
    2026-10-19): on the
