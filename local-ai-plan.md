@@ -780,6 +780,152 @@ The strict profile, if built:
   cache. Metal's `recommendedMaxWorkingSetSize` here is 115448.73 MB
   (about 107 GiB), so the GPU memory limit doesn't need raising.
 
+### Managing models on the host (planned, 2026-10-22)
+
+Today the repo's models (`infer-models.yaml` and `config.sh`'s
+`MODEL_DOWNLOADS`) are a floor: you can add models on the host, but you
+can't remove or change the repo's, so you can't replace them with
+something better without editing the repo. The fix is for each host to
+own its whole list, and for the repo to provide only the list a new
+host starts with. Nothing here is implemented yet.
+
+**Files.**
+
+* `initial-models.yaml` (in the repo) replaces `infer-models.yaml` and
+  `MODEL_DOWNLOADS`. It's read only when a host has no list yet, and by
+  CI as test data. The name says that it's used only at the start:
+  editing it later changes no host's models.
+* `models.local.yaml` (gitignored, beside `config.local.sh`) is the
+  host's list, and the only one host-setup.sh and the engine use.
+  You can edit it by hand, e.g., to use a llama-swap option our
+  scripts don't know; `manage-models.sh check` then tells you whether
+  it still follows the rules.
+* Both use the current format (llama-swap's `models:` section), plus
+  one comment line per file, inside the entry that uses it:
+  ```yaml
+    flux2-klein-4b:
+      # file: flux2-klein-4b/flux-2-klein-4b-Q8_0.gguf SHA256 LICENSE URL
+      cmd: ${sd-server} --diffusion-model ${models-dir}/flux2-klein-4b/...
+  ```
+  The fields are the path in `MODELS_DIR`, the publisher's SHA-256, the
+  license, and the URL. These are comments, so llama-swap never sees
+  them, and we use no keys of our own. A file that two models share is
+  listed in both entries, and `check` requires the lines to agree. The
+  list must name exactly the files each `cmd` uses. With the files in
+  the entries, `MODEL_DOWNLOADS` and its edits to `config.local.sh` go
+  away, and removing a model means deleting its entry.
+* In `MODELS_DIR`, `SHA256SUMS` is regenerated from the list by each
+  `sync`, instead of being edited one line at a time. `SOURCES.tsv`
+  becomes a log, appended to at each download (URL, license, date, and
+  the Hugging Face commit) and never edited, so it also records models
+  you've since removed.
+
+**Scripts.** Each has one job, and only `install-models.sh` and
+`host-setup.sh` use sudo. Neither gets a passwordless sudoers rule.
+
+* `manage-models.sh` (renamed from `add-model.sh`; no sudo) manages the
+  list and the files in `MODELS_DIR`:
+  * `init`: copy `initial-models.yaml` to `models.local.yaml`, if
+    there's no list yet. It also does the one-time migration (below).
+  * `add [--serve NAME] ... URL` and `add --serve NAME --sd-args ARGS`:
+    as `add-model.sh` does now, but the result is one entry, with its
+    file lines.
+  * `remove NAME`: delete NAME's entry. Any model can be removed,
+    including the initial ones. Removing the default or the last
+    model asks you to confirm first, since afterward the VMs have no
+    default (`vm-setup.sh` stops until you set one), or the engine
+    serves nothing. Without a terminal to ask on, it refuses unless
+    you add `--yes`.
+  * `default`: print the default model's name, for you on the host.
+    VMs can't run this; each learns the default from the engine (see
+    below).
+  * `default NAME`: make NAME, a generalist, the default: the model
+    `nopi` uses unless you give `--model`. The default is the one
+    entry with `metadata.default: true` (as now), so this sets that on
+    NAME and removes it from the rest. `add --serve NAME --default`
+    does the same for a new model. Each VM learns the default when
+    `vm-setup.sh` runs: it asks the engine for its models through the
+    tunnel (`/v1/models`, whose listing includes each model's
+    metadata) and writes the default into `nopi`. That already works
+    and doesn't change, so after changing
+    it, rerun `vm-setup.sh` on each VM.
+  * `check`: the rules host-setup.sh checks today
+    (`infer_models_ok`), plus the file lines', plus a new one: at most
+    one model is the default, and it's a generalist. Today nothing on
+    the host checks that; `vm-setup.sh` silently takes the first. No
+    default is only a warning, since you may be between models.
+  * `sync`: make `MODELS_DIR` match the list: download each missing
+    file, and each file whose line's SHA-256 differs from the one
+    `SHA256SUMS` records for it (to `FILE.partial`, replacing the old
+    file only once the new one passes every check). Then regenerate
+    `SHA256SUMS`. A file that `SHA256SUMS` doesn't list (e.g., one
+    copied in by hand) is hashed once, and downloaded only if it doesn't
+    match. It doesn't rehash files whose SHA-256 hasn't changed,
+    so a run with nothing to do is quick; `shasum -a 256 -c SHA256SUMS`
+    still checks them all when you want that.
+  * `outdated`: list the files whose publishers have changed them
+    (today's `--check`).
+  * `update FILE [--force]`: write FILE's new SHA-256 into the list
+    (still waiting `INFER_COOLING_DAYS` unless `--force`), then `sync`.
+    The search for which config file holds the line goes away.
+  * `prune [--delete]`: list the files in `MODELS_DIR` that no entry
+    names; delete them only with `--delete`, so a typo in the list
+    can't cost a 40 GB download. This replaces `--remove`'s "does
+    another model use this file?" logic.
+
+  After a change, it says to run `./install-models.sh`, and offers to.
+* `install-models.sh [--no-restart]` (sudo, with your password): check
+  the list (as `check` does), refuse if a file it names is missing or
+  unverified (it never downloads; that's `sync`'s job), render the
+  llama-swap config, install it root-owned and readable only by
+  `_infer`, and restart the engine if the config changed. It takes
+  the binaries' paths from the targets of host-setup.sh's
+  `/opt/.../current` links, so an engine upgrade still changes the
+  config. `--no-restart` installs only, for host-setup.sh. `stage()`
+  moves from `host-setup.sh` into a file both source.
+* `host-setup.sh` installs the engine (`_infer`, binaries, sandbox
+  profile, plist, sudoers), then runs `manage-models.sh init` (if
+  there's no list), `manage-models.sh sync`, and
+  `install-models.sh --no-restart`. It restarts the engine once, if
+  anything either script installed changed. It sets the `current`
+  links before calling `install-models.sh`; today it sets them after
+  staging.
+
+**Removed code.** Merging the repo's list with the local one
+(`with_infer_models`, the rule against reusing a repo model's name, and
+`--remove`'s refusal of repo models), host-setup.sh's download loop
+(now `sync`), the `MODEL_DOWNLOADS` edits, `remove_model_records`, and
+the per-file checks in `--remove`. I expect `manage-models.sh` to end
+up smaller than `add-model.sh`, even with `sync` and `prune`; most of
+what remains is the Hugging Face lookups and checks, unchanged.
+
+**Migration.** It never deletes, moves, or re-downloads a model you
+have. The Mac's files are already where the new list says (the layout
+doesn't change: one file directly in `MODELS_DIR`, or a model's files
+in its subdirectory), and their SHA-256s match `SHA256SUMS`, so the
+first `sync` downloads nothing. The Mac now has `infer-models.local.yaml` (only the
+models it added) and download lines in `config.local.sh`. If
+`models.local.yaml` doesn't exist, `init` writes it from
+`initial-models.yaml` plus those added entries, with file lines taken
+from `config.local.sh`, then renames the old file to
+`infer-models.local.yaml.old` and removes the download lines (keeping
+a copy as `config.local.sh.old`, and showing what it moved). The new name means no host can mistake an old file of
+additions for a whole list. Once the Mac has migrated, we delete the
+migration code. If anything goes wrong, the old files are still
+there: put `infer-models.local.yaml.old` back, restore
+`config.local.sh` from its backup, and rerun the old scripts.
+
+**Testing.** `tests/test_add_model.sh` becomes
+`tests/test_manage_models.sh`, covering `init` (including a
+migration that downloads nothing), `add`, `remove`, `check`, `sync` (including a changed
+SHA-256), `update`, and `prune`. The rendering is already tested in
+ci.sh. The installing (sudo, `/opt`, launchd) can only be tested on
+the Mac; CI runs shellcheck on it.
+
+**Open question.** `models.local.yaml` lives in the checkout, like
+`config.local.sh`, so a second checkout on the same Mac would have its
+own list. I think that's fine for one checkout per host.
+
 ### Alternatives considered
 
 * Engines: MLX (faster on small and mixture-of-experts models, but a
@@ -1035,6 +1181,9 @@ here.
 Next (2026-10-22): flux runs beside the chat model on the Mac (see
 "Image generation"). Still to check: a forced sleep with both loaded,
 which should unload both (see step 8).
+
+After that: the host owns its list of models (see "Managing models on
+the host"), with `manage-models.sh` and `install-models.sh`.
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
    2026-10-19): on the
