@@ -185,8 +185,9 @@ mm "$T" add g2 --default --license mit "$HF/o/g/resolve/main/g.gguf" ||
   failed "a shared file didn't keep the line it already had"
 mm "$T" default && [ "$(cat "$work/out")" = g2 ] || failed "add --default didn't make g2 the default"
 in_repo "$T" infer_models_ok || failed "the list's rules refused what manage-models.sh added"
-got="$(in_repo "$T" infer_model_roles | tr '\n' ' ')"
-[ "$got" = "i1 generalist g1 generalist s1 specialist g2 generalist " ] || failed "the roles are '$got'"
+mm "$T" list || { cat "$work/out" >&2; failed "list"; }
+got="$(tr '\n' ',' < "$work/out")"
+[ "$got" = "i1 generalist,g1 generalist,s1 specialist,g2 generalist (default)," ] || failed "list printed '$got'"
 mm "$T" default i1 || { cat "$work/out" >&2; failed "default i1"; }
 [ "$(in_repo "$T" infer_models_default)" = i1 ] || failed "default i1 didn't make i1 the only default"
 in_repo "$T" infer_models_ok || failed "the list's rules refused it after default i1"
@@ -216,6 +217,7 @@ for bad in \
   "default|s1" \
   "default|nosuch" \
   "update|nosuch.gguf" \
+  "list|i1" \
   "prune --yes|"; do
   opts="${bad%%|*}" last="${bad#*|}"
   # shellcheck disable=SC2086 # opts is plain words
@@ -265,6 +267,7 @@ mm "$T" prune || { cat "$work/out" >&2; failed "prune"; }
 if ! grep -qx '  s1/d.gguf' "$work/out" || ! grep -qx '  s1/v.safetensors' "$work/out"; then
   failed "prune didn't list s1's files"
 fi
+grep -q 'install-models\.sh' "$work/out" || failed "prune didn't mention install-models.sh"
 grep -q 'g.gguf' "$work/out" && failed "prune listed g.gguf, which g2 still uses"
 [ -f "$T/models/s1/d.gguf" ] || failed "prune deleted without --delete"
 mm "$T" prune --delete || { cat "$work/out" >&2; failed "prune --delete"; }

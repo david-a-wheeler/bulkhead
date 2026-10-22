@@ -832,6 +832,7 @@ runs.
   if there's no list yet.
   * `init`: copy `initial-models.yaml` to `models.local.yaml`, with its
     own opening paragraph. It also does the one-time migration (below).
+  * `list`: print each model's name and role, marking the default.
   * `add NAME URL` (a generalist) and `add NAME --sd-args ARGS` (a
     specialist): one entry, with its file lines. `--default` makes a
     new generalist the default. It downloads every file before it
@@ -926,9 +927,9 @@ goes wrong, the old files are still there: put
 copy, and check out the commit before this change.
 
 **Testing.** `tests/test_manage_models.sh` covers `init`, a migration
-that downloads nothing, `add` (including a shared file), `default`,
+that downloads nothing, `list`, `add` (including a shared file), `default`,
 `remove`, `check`, `sync`, `outdated`, `update`, `prune`, refusing a bad
-`MODELS_DIR`, and 20 bad requests that must each fail and change
+`MODELS_DIR`, and 21 bad requests that must each fail and change
 nothing. Seven deliberate bugs in `manage-models.sh` each made it fail.
 ci.sh checks `render_engine_config` and the new rules. The installing
 (sudo, `/opt`, launchd) can only be tested on the Mac; CI runs

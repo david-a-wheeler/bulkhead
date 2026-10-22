@@ -7,6 +7,7 @@
 #
 # Usage:
 #   ./manage-models.sh init
+#   ./manage-models.sh list
 #   ./manage-models.sh add NAME [--dir SUBDIR] [--ctx N] [--max N] [--desc TEXT]
 #                      [--sha256 HEX] [--license ID] [--default] URL
 #   ./manage-models.sh add NAME --sd-args ARGS [--dir SUBDIR] [--ttl N]
@@ -24,6 +25,9 @@
 # command does that first too, and host-setup.sh runs sync. From then
 # on, the list is yours: change it with this script, or edit it by hand
 # (see initial-models.yaml's opening comment for its rules).
+#
+# list prints each model in the list, with its role (generalist or
+# specialist), and marks the default.
 #
 # add NAME URL adds a generalist (a llama-server model, which can chat)
 # from its GGUF file's URL. For a Hugging Face URL (a file page's link
@@ -427,7 +431,7 @@ command="$1"
 shift
 case "$command" in
   -h | --help) help ;;
-  init | add | remove | default | check | sync | outdated | update | prune) ;;
+  init | list | add | remove | default | check | sync | outdated | update | prune) ;;
   *) usage ;;
 esac
 pos1="" pos2="" npos=0 opts=""
@@ -516,6 +520,13 @@ case "$command" in
     infer_models_synced "$INFER_MODELS" ||
       die "models.local.yaml follows the rules, but MODELS_DIR doesn't have every file it names (above); run ./manage-models.sh sync."
     echo "models.local.yaml follows the rules, and MODELS_DIR has its files."
+    exit 0
+    ;;
+  list)
+    allow 0
+    init_list
+    d="$(infer_models_default "$INFER_MODELS")"
+    infer_model_roles "$INFER_MODELS" | awk -v d="$d" '{ print $0 ($1 == d ? " (default)" : "") }'
     exit 0
     ;;
   default)
@@ -632,6 +643,8 @@ EOF
       echo "No model in models.local.yaml uses these files in $MODELS_DIR:"
       printf '%s\n' "$unused" | sed 's/^/  /'
       echo "To delete them, run: ./manage-models.sh prune --delete"
+      echo "To serve one, add a model that uses it (./manage-models.sh add),"
+      echo "then run ./install-models.sh."
       exit 0
     fi
     printf '%s\n' "$unused" | while IFS= read -r f; do
