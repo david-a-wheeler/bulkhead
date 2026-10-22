@@ -122,7 +122,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   default; `sync` to download what the list names (only GGUF and
   safetensors, matching their published SHA-256); `outdated` and
   `update` to find and install publishers' updates; and `prune` to find
-  (and with `--delete`, delete) files no model uses. It changes only
+  files no model uses, with how to serve each (and with `--delete`,
+  delete them). It changes only
   `models.local.yaml` and `MODELS_DIR`, never the repo.
 - `install-models.sh`: has the engine serve `models.local.yaml`: checks
   it, installs llama-swap's config from it (with sudo, asking for your

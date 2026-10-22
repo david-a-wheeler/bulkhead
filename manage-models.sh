@@ -8,17 +8,18 @@
 # Usage:
 #   ./manage-models.sh init
 #   ./manage-models.sh list
-#   ./manage-models.sh add NAME [--dir SUBDIR] [--ctx N] [--max N] [--desc TEXT]
-#                      [--sha256 HEX] [--license ID] [--default] URL
-#   ./manage-models.sh add NAME --sd-args ARGS [--dir SUBDIR] [--ttl N]
-#                      [--desc TEXT]
-#   ./manage-models.sh remove NAME [--yes]
+#   ./manage-models.sh add [--dir SUBDIR] [--ctx N] [--max N] [--desc TEXT]
+#                      [--sha256 HEX] [--license ID] [--default] NAME URL
+#   ./manage-models.sh add --sd-args ARGS [--dir SUBDIR] [--ttl N]
+#                      [--desc TEXT] NAME
+#   ./manage-models.sh remove [--yes] NAME
 #   ./manage-models.sh default [NAME]
 #   ./manage-models.sh check
 #   ./manage-models.sh sync
 #   ./manage-models.sh outdated
-#   ./manage-models.sh update FILE [--force]
-#   ./manage-models.sh prune [--delete]
+#   ./manage-models.sh update [--force] FILE
+#   ./manage-models.sh prune [--delete [FILE]]
+# Options may also come after the other arguments, and "--" ends them.
 #
 # init starts models.local.yaml as a copy of initial-models.yaml (the
 # repo's list for a new host), if there's no list yet. Every other
@@ -84,9 +85,10 @@
 # releases, it refuses a change newer than INFER_COOLING_DAYS, so others
 # have had time to notice a bad or malicious one; --force overrides that.
 #
-# prune lists the files in MODELS_DIR that no model in the list uses;
-# --delete deletes them, so a typo in the list can't cost you a long
-# download.
+# prune lists the files in MODELS_DIR that no model in the list uses,
+# each with its size, where it came from (by SOURCES.tsv), and how to
+# serve it. --delete deletes them all, or just FILE; it never runs
+# unless you ask, so a typo in the list can't cost you a long download.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -321,6 +323,34 @@ unused_files() {
   done | sort
 }
 
+# explain_unused FILE: describes FILE (in MODELS_DIR), which no model
+# uses, and how to serve it, for prune.
+explain_unused() {
+  eu_size="$(du -h "$MODELS_DIR/$1" | cut -f 1)"
+  case "$1" in
+    *.partial)
+      echo "  $1 ($eu_size): an unfinished download; rerun what started it to finish it."
+      return 0 ;;
+  esac
+  eu_url="$(awk -F '\t' -v f="$1" '$1 == f { s = $2 } END { print s }' "$MODELS_DIR/SOURCES.tsv" 2>/dev/null)"
+  if [ -n "$eu_url" ]; then
+    echo "  $1 ($eu_size), from $eu_url"
+  else
+    echo "  $1 ($eu_size), from a URL SOURCES.tsv doesn't record"
+    eu_url=URL
+  fi
+  eu_dir=""
+  case "$1" in */*) eu_dir="--dir ${1%/*} " ;; esac
+  case "$1" in
+    *.gguf)
+      echo "    To serve it: ./manage-models.sh add NAME $eu_dir$eu_url"
+      echo "    (or name its URL in a specialist's --sd-args)" ;;
+    *)
+      echo "    To serve it: name its URL in a specialist's --sd-args:"
+      echo "    ./manage-models.sh add NAME ${eu_dir}--sd-args ARGS" ;;
+  esac
+}
+
 # file_record FILE: prints FILE's "# file:" fields (FILE SHA256 LICENSE
 # URL), from MODELS_DIR's SHA256SUMS and SOURCES.tsv, for the migration
 # below.
@@ -435,6 +465,14 @@ case "$command" in
   *) usage ;;
 esac
 pos1="" pos2="" npos=0 opts=""
+add_pos() {
+  npos=$((npos + 1))
+  case "$npos" in
+    1) pos1="$1" ;;
+    2) pos2="$1" ;;
+    *) usage ;;
+  esac
+}
 subdir="" ctx="" max="" desc="" sha256="" license="" sd_args="" ttl=""
 make_default=false yes=false force=false delete=false
 while [ $# -gt 0 ]; do
@@ -460,14 +498,10 @@ while [ $# -gt 0 ]; do
     --force) force=true ;;
     --delete) delete=true ;;
     -h | --help) help ;;
+    --) shift; break ;;
     -*) usage ;;
     *)
-      npos=$((npos + 1))
-      case "$npos" in
-        1) pos1="$1" ;;
-        2) pos2="$1" ;;
-        *) usage ;;
-      esac
+      add_pos "$1"
       shift
       continue
       ;;
@@ -475,6 +509,7 @@ while [ $# -gt 0 ]; do
   opts="$opts $1"
   shift
 done
+for arg in "$@"; do add_pos "$arg"; done
 # allow N OPTION...: usage unless there are N arguments (besides
 # options), and every option given is one of OPTION...
 allow() {
@@ -632,19 +667,26 @@ EOF
     exit 0
     ;;
   prune)
-    allow 0 --delete
+    if [ "$npos" -eq 0 ]; then allow 0 --delete; else allow 1 --delete; fi
+    [ "$npos" -eq 0 ] || $delete || usage
     init_list
     unused="$(unused_files)"
+    if [ "$npos" -eq 1 ]; then
+      printf '%s\n' "$unused" | grep -qxF -- "$pos1" ||
+        die "$pos1 isn't a file in $MODELS_DIR that no model uses; ./manage-models.sh prune lists those."
+      unused="$pos1"
+    fi
     if [ -z "$unused" ]; then
       echo "Every file in $MODELS_DIR is used by a model in models.local.yaml."
       exit 0
     fi
     if ! $delete; then
       echo "No model in models.local.yaml uses these files in $MODELS_DIR:"
-      printf '%s\n' "$unused" | sed 's/^/  /'
-      echo "To delete them, run: ./manage-models.sh prune --delete"
-      echo "To serve one, add a model that uses it (./manage-models.sh add),"
-      echo "then run ./install-models.sh."
+      printf '%s\n' "$unused" | while IFS= read -r f; do explain_unused "$f"; done
+      echo "After adding a model, run ./install-models.sh to serve it. A file"
+      echo "that's already here isn't downloaded again."
+      echo "To delete one: ./manage-models.sh prune --delete FILE"
+      echo "To delete them all: ./manage-models.sh prune --delete"
       exit 0
     fi
     printf '%s\n' "$unused" | while IFS= read -r f; do

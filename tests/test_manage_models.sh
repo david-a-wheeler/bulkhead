@@ -218,7 +218,13 @@ for bad in \
   "default|nosuch" \
   "update|nosuch.gguf" \
   "list|i1" \
-  "prune --yes|"; do
+  "prune --yes|" \
+  "prune|s1/d.gguf" \
+  "prune --delete|i.gguf" \
+  "prune --delete|../models/i.gguf" \
+  "prune --delete|nosuch.gguf" \
+  "prune --delete s1/d.gguf|i.gguf" \
+  "prune --delete --|--yes"; do
   opts="${bad%%|*}" last="${bad#*|}"
   # shellcheck disable=SC2086 # opts is plain words
   if [ -n "$last" ]; then
@@ -262,14 +268,21 @@ mm "$T" check || { cat "$work/out" >&2; failed "check after update"; }
 mm "$T" remove s1 || { cat "$work/out" >&2; failed "removing the specialist"; }
 grep -q '^  s1:$' "$L" && failed "removing s1 left its entry"
 [ -f "$T/models/s1/d.gguf" ] || failed "removing s1 deleted its files"
-mm "$T" remove g1 || { cat "$work/out" >&2; failed "removing g1"; }
+mm "$T" remove -- g1 || { cat "$work/out" >&2; failed "removing g1 (after \"--\")"; }
 mm "$T" prune || { cat "$work/out" >&2; failed "prune"; }
-if ! grep -qx '  s1/d.gguf' "$work/out" || ! grep -qx '  s1/v.safetensors' "$work/out"; then
-  failed "prune didn't list s1's files"
+if ! grep -q "^  s1/d.gguf (.*), from $HF/o/d/" "$work/out" ||
+  ! grep -q "^  s1/v.safetensors (.*), from $HF/o/v/" "$work/out"; then
+  failed "prune didn't list s1's files, with where each came from"
 fi
+grep -qxF "    To serve it: ./manage-models.sh add NAME --dir s1 $(grep "^s1/d.gguf	" "$T/models/SOURCES.tsv" | cut -f 2)" "$work/out" ||
+  failed "prune didn't say how to serve s1/d.gguf"
 grep -q 'install-models\.sh' "$work/out" || failed "prune didn't mention install-models.sh"
 grep -q 'g.gguf' "$work/out" && failed "prune listed g.gguf, which g2 still uses"
 [ -f "$T/models/s1/d.gguf" ] || failed "prune deleted without --delete"
+mm "$T" prune --delete g.gguf && failed "prune --delete deleted g.gguf, which g2 uses"
+mm "$T" prune --delete s1/v.safetensors || { cat "$work/out" >&2; failed "prune --delete FILE"; }
+[ ! -e "$T/models/s1/v.safetensors" ] || failed "prune --delete FILE didn't delete it"
+[ -f "$T/models/s1/d.gguf" ] || failed "prune --delete FILE deleted another file"
 mm "$T" prune --delete || { cat "$work/out" >&2; failed "prune --delete"; }
 [ ! -e "$T/models/s1" ] || failed "prune --delete left s1's directory"
 [ -f "$T/models/g.gguf" ] || failed "prune --delete deleted g.gguf, which g2 still uses"
@@ -277,7 +290,7 @@ mm "$T" remove i1 --yes || { cat "$work/out" >&2; failed "removing the default w
 mm "$T" default && failed "default printed a default after it was removed"
 mm "$T" remove g2 || { cat "$work/out" >&2; failed "removing g2"; }
 mm "$T" remove s3 && failed "removing the last model without --yes"
-mm "$T" remove s3 --yes || { cat "$work/out" >&2; failed "removing the last model with --yes"; }
+mm "$T" remove --yes s3 || { cat "$work/out" >&2; failed "removing the last model with --yes"; }
 mm "$T" check && failed "check accepted a list with no models"
 
 # A MODELS_DIR that could reach outside itself is refused, before any

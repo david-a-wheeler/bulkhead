@@ -870,12 +870,14 @@ runs.
     changed, so a run with nothing to do is quick; `shasum -a 256 -c
     SHA256SUMS` still checks them all when you want that.
   * `outdated`: list the files whose publishers have changed them.
-  * `update FILE [--force]`: download FILE's new version (still waiting
+  * `update [--force] FILE`: download FILE's new version (still waiting
     `INFER_COOLING_DAYS` unless `--force`), and only then write its new
     SHA-256 into each of its lines in the list.
-  * `prune [--delete]`: list the files in `MODELS_DIR` that no entry
-    names; delete them only with `--delete`, so a typo in the list
-    can't cost a 40 GB download.
+  * `prune [--delete [FILE]]`: list the files in `MODELS_DIR` that no
+    entry names, each with its size, its URL (from `SOURCES.tsv`), and
+    the `add` command that would serve it. It deletes them only with
+    `--delete` (all of them, or just FILE), so a typo in the list can't
+    cost a 40 GB download.
 
   It refuses a `MODELS_DIR` that isn't a plain absolute path below `/`
   (e.g., an empty one in `config.local.sh`), since `prune --delete`
@@ -929,7 +931,7 @@ copy, and check out the commit before this change.
 **Testing.** `tests/test_manage_models.sh` covers `init`, a migration
 that downloads nothing, `list`, `add` (including a shared file), `default`,
 `remove`, `check`, `sync`, `outdated`, `update`, `prune`, refusing a bad
-`MODELS_DIR`, and 21 bad requests that must each fail and change
+`MODELS_DIR`, and 27 bad requests that must each fail and change
 nothing. Seven deliberate bugs in `manage-models.sh` each made it fail.
 ci.sh checks `render_engine_config` and the new rules. The installing
 (sudo, `/opt`, launchd) can only be tested on the Mac; CI runs
