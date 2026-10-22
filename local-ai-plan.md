@@ -385,6 +385,12 @@ be malicious and try to send my sensitive data out. So:
   use llama-swap's `matrix` to keep both loaded; memory allows it (Q8_0
   at 27 GB plus an image model, within the roughly 107 GB Metal can use),
   but each concurrent backend needs its own port and sandbox allowance.
+  Decided 2026-10-22: I want to be *able* to load flux without
+  unloading the chat model, though usually I won't. So only that pair
+  may run together, flux gets a much shorter `ttl` than the chat
+  model's day (it's also reachable without the key while loaded), and
+  every other model still swaps. That's the next step once the image
+  model works at all on the Mac.
 * Every backend, text or image, uses the same fixed localhost port,
   since only one runs at a time, so the sandbox needs only one outbound
   allowance.
@@ -1002,6 +1008,11 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
 
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
+
+Now (2026-10-22): on the Mac, run `./host-setup.sh` (it installs
+stable-diffusion.cpp and downloads FLUX.2-klein 4B), then
+`./infer-check.sh`, and look at the image it saves. Once that works,
+let flux run alongside the chat model (see "Image generation").
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
    2026-10-19): on the
