@@ -265,6 +265,7 @@ INFER_SUDOERS=/etc/sudoers.d/infer
 INFER_BACKEND_PORT=8999
 LLAMA_OPT=/opt/llama.cpp
 SWAP_OPT=/opt/llama-swap
+SD_OPT=/opt/stable-diffusion.cpp
 infer_tmp="$SCRIPT_DIR/.tmp/infer"
 rm -rf "${infer_tmp:?}"
 mkdir -p "$infer_tmp"
@@ -274,7 +275,7 @@ command -v jq >/dev/null 2>&1 || die "jq is missing (macOS 15 and later include 
 # them: otherwise a process running as you could swap in its own engine
 # and see the secure VM's prompts. (An old Intel Homebrew install, e.g.,
 # made parts of /usr/local yours.)
-for d in /opt "$LLAMA_OPT" "$SWAP_OPT" /usr/local /usr/local/etc "$INFER_ETC"; do
+for d in /opt "$LLAMA_OPT" "$SWAP_OPT" "$SD_OPT" /usr/local /usr/local/etc "$INFER_ETC"; do
   sudo mkdir -p "$d"
   owner_mode="$(stat -f '%Su %Sp' "$d")"
   case "$owner_mode" in
@@ -407,6 +408,23 @@ choose_swap_version() {
     return 1
   echo "${tag#v}"
 }
+# choose_sd_tag: print the stable-diffusion.cpp release to install (see
+# config.sh's SD_CPP_PIN): the newest release old enough to install
+# (see cooled_release). Its tags aren't versions, so unlike
+# cooled_release this lists releases; at about two a day, 100 cover the
+# cooling period.
+choose_sd_tag() {
+  if [ -n "$SD_CPP_PIN" ]; then
+    echo "WARNING: stable-diffusion.cpp is pinned to $SD_CPP_PIN. Clear the pin in config.sh when you can." >&2
+    echo "$SD_CPP_PIN"
+    return 0
+  fi
+  github_api "leejet/stable-diffusion.cpp/releases?per_page=100" > "$infer_tmp/releases.json" || return 1
+  jq -er --arg cutoff "$cooling_cutoff" '[.[]
+    | select(((.draft or .prerelease) | not) and .published_at <= $cutoff
+      and (.tag_name | test("^master-[0-9]+-[0-9a-f]+$")))]
+    | max_by(.published_at) | .tag_name' "$infer_tmp/releases.json"
+}
 # release_or_installed NAME DIR COMMAND...: print the release COMMAND
 # chooses, or if it can't (e.g., GitHub is unreachable), the one
 # installed in DIR, with a warning.
@@ -423,25 +441,34 @@ llama_build="$(release_or_installed llama.cpp "$LLAMA_OPT" choose_llama_build)" 
   die "couldn't choose a llama.cpp release to install."
 swap_version="$(release_or_installed llama-swap "$SWAP_OPT" choose_swap_version)" ||
   die "couldn't choose a llama-swap release to install."
-echo "llama.cpp $llama_build, llama-swap $swap_version"
+sd_tag="$(release_or_installed stable-diffusion.cpp "$SD_OPT" choose_sd_tag)" ||
+  die "couldn't choose a stable-diffusion.cpp release to install."
+echo "llama.cpp $llama_build, llama-swap $swap_version, stable-diffusion.cpp $sd_tag"
 LLAMA_SERVER="$LLAMA_OPT/$llama_build/llama-server"
 SWAP_BIN="$SWAP_OPT/$swap_version/llama-swap"
+SD_SERVER="$SD_OPT/$sd_tag/sd-server"
 
 # install_release REPO TAG NAME DEST [SUBDIR]: unless DEST exists,
-# download release TAG's tarball NAME (see fetch_asset) and unpack it (or
-# just its SUBDIR) into DEST, root-owned. It's unpacked as you, then
-# copied, so the tarball's own file owners don't matter. It refuses a
-# tarball with a name that could unpack outside its directory, or that
-# unpacks to anything that could reach outside it (see archive_names_ok
-# and unpacked_tree_ok in common.sh).
+# download release TAG's tarball or zip NAME (see fetch_asset) and unpack
+# it (or just its SUBDIR) into DEST, root-owned. It's unpacked as you,
+# then copied, so the archive's own file owners don't matter. It refuses
+# an archive with a name that could unpack outside its directory, or
+# that unpacks to anything that could reach outside it (see
+# archive_names_ok and unpacked_tree_ok in common.sh).
 install_release() {
   [ -d "$4" ] && return 0
   fetch_asset "$1" "$2" "$3" || exit 1
-  tar tzf "$infer_tmp/$3" > "$infer_tmp/names"
+  case "$3" in
+    *.zip) unzip -Z1 "$infer_tmp/$3" > "$infer_tmp/names" ;;
+    *) tar tzf "$infer_tmp/$3" > "$infer_tmp/names" ;;
+  esac || die "couldn't list $3 from $1 $2."
   archive_names_ok < "$infer_tmp/names" ||
     die "$3 from $1 $2 has names that could unpack outside its directory; not installing it."
   mkdir "$infer_tmp/unpack"
-  tar xzf "$infer_tmp/$3" -C "$infer_tmp/unpack"
+  case "$3" in
+    *.zip) unzip -q "$infer_tmp/$3" -d "$infer_tmp/unpack" ;;
+    *) tar xzf "$infer_tmp/$3" -C "$infer_tmp/unpack" ;;
+  esac
   unpacked_tree_ok "$infer_tmp/unpack" ||
     die "$3 from $1 $2 has links or special files that could reach outside it; not installing it."
   sudo rm -rf "${4:?}.partial"
@@ -455,12 +482,31 @@ install_release ggml-org/llama.cpp "$llama_build" "llama-$llama_build-bin-macos-
   "$LLAMA_OPT/$llama_build" "llama-$llama_build"
 install_release mostlygeek/llama-swap "v$swap_version" "llama-swap_${swap_version}_darwin_arm64.tar.gz" \
   "$SWAP_OPT/$swap_version"
+# stable-diffusion.cpp's zip name includes its build machine's macOS
+# version, so look it up.
+if [ ! -d "$SD_OPT/$sd_tag" ]; then
+  sd_zip="$(github_api "leejet/stable-diffusion.cpp/releases/tags/$sd_tag" | jq -er '
+    [.assets[].name | select(test("^sd-master-[0-9a-f]+-bin-Darwin-macOS-[0-9.]+-arm64\\.zip$"))]
+    | if length == 1 then .[0] else error("expected one macOS zip, found \(length)") end')" ||
+    die "couldn't find stable-diffusion.cpp $sd_tag's macOS zip."
+  install_release leejet/stable-diffusion.cpp "$sd_tag" "$sd_zip" "$SD_OPT/$sd_tag"
+fi
+[ -x "$SD_SERVER" ] || die "stable-diffusion.cpp $sd_tag has no sd-server."
 # Every run of the engine's programs is as _infer, never as you or
 # root, from a directory it can enter.
 as_infer() {
   (cd /var/empty && sudo -u "$MACOS_INFER_USER" "$@")
 }
-as_infer "$SWAP_BIN" -version
+# runs_as_infer PROGRAM VERSION-OPTION: PROGRAM at least starts as
+# _infer, so a bad signature, a missing library, or the wrong
+# architecture shows up here, not at the engine's first request.
+runs_as_infer() {
+  as_infer "$1" "$2" ||
+    die "$1 doesn't run as $MACOS_INFER_USER; its error, above, should say why."
+}
+runs_as_infer "$SWAP_BIN" -version
+runs_as_infer "$LLAMA_SERVER" --version
+runs_as_infer "$SD_SERVER" --version
 
 # The API key: clients send it as "Authorization: Bearer KEY". Copy it
 # to each VM that should use the engine (see vm-setup.sh).
@@ -489,7 +535,7 @@ else
 fi
 with_infer_models infer_models_ok ||
   die "the models break the rules in infer-models.yaml's opening comment. infer-models.local.yaml now holds only the models you add, not a copy of infer-models.yaml."
-with_infer_models infer_llama_swap_yaml "$infer_key" "$LLAMA_SERVER" "$INFER_BACKEND_PORT" \
+with_infer_models infer_llama_swap_yaml "$infer_key" "$LLAMA_SERVER" "$INFER_BACKEND_PORT" "$SD_SERVER" \
   > "$infer_tmp/llama-swap.yaml"
 render_template "$SCRIPT_DIR/infer.template.sb" "$infer_tmp/infer.sb" \
   INFER_BACKEND_PORT METAL_CACHE MODELS_DIR
@@ -592,8 +638,10 @@ for f in $staged; do
 done
 sudo ln -sfn "$llama_build" "$LLAMA_OPT/current"
 sudo ln -sfn "$swap_version" "$SWAP_OPT/current"
+sudo ln -sfn "$sd_tag" "$SD_OPT/current"
 
-# Your own commands: each llama.cpp program and llama-swap, linked into
+# Your own commands: each llama.cpp program, stable-diffusion.cpp's sd-*
+# (not its start-server.sh), and llama-swap, linked into
 # /usr/local/bin through "current", without replacing anything else
 # there. Links to programs a newer release dropped are removed.
 # link_command TARGET: link /usr/local/bin/NAME to TARGET.
@@ -601,7 +649,7 @@ link_command() {
   link="/usr/local/bin/$(basename "$1")"
   if [ -e "$link" ] || [ -L "$link" ]; then
     case "$(readlink "$link" 2>/dev/null)" in
-      "$LLAMA_OPT"/* | "$SWAP_OPT"/*) ;;
+      "$LLAMA_OPT"/* | "$SWAP_OPT"/* | "$SD_OPT"/*) ;;
       *)
         echo "WARNING: $link already exists; not replacing it." >&2
         return 0
@@ -611,7 +659,7 @@ link_command() {
   sudo ln -sfn "$1" "$link"
 }
 sudo mkdir -p /usr/local/bin
-for f in "$LLAMA_OPT/current"/*; do
+for f in "$LLAMA_OPT/current"/* "$SD_OPT/current"/sd-*; do
   case "$f" in *.dylib) continue ;; esac
   if [ -f "$f" ] && [ -x "$f" ]; then
     link_command "$f"
@@ -621,7 +669,7 @@ link_command "$SWAP_OPT/current/llama-swap"
 for link in /usr/local/bin/*; do
   if [ -L "$link" ] && [ ! -e "$link" ]; then
     case "$(readlink "$link")" in
-      "$LLAMA_OPT"/* | "$SWAP_OPT"/*) sudo rm -f "$link" ;;
+      "$LLAMA_OPT"/* | "$SWAP_OPT"/* | "$SD_OPT"/*) sudo rm -f "$link" ;;
     esac
   fi
 done
@@ -675,6 +723,7 @@ prune_releases() {
 }
 prune_releases "$LLAMA_OPT" "$llama_build"
 prune_releases "$SWAP_OPT" "$swap_version"
+prune_releases "$SD_OPT" "$sd_tag"
 rm -rf "${infer_tmp:?}"
 if [ "$infer_restarted" = true ] || [ "$infer_sudoers_changed" = true ]; then
   # Check the sudoers rule: restart the engine without a password, as

@@ -125,16 +125,20 @@ with_infer_models() {
 
 # Usage: infer_models_ok FILE...
 # Checks the rules in infer-models.yaml's opening comment that keep each
-# model behind the flags in ${llama-server}: each FILE has only a
-# "models:" section; each model's name is alone on its line, indented
-# two spaces, and no other FILE uses it; and each model has exactly one
-# cmd and one proxy, indented four spaces, where the cmd starts with
-# ${llama-server} and doesn't change --host, --port, --cors-origins, or
-# --api-key, and the proxy is ${proxy}. Being this strict about layout
-# means YAML's other ways of writing a cmd (e.g., a flow mapping like
-# "{cmd: ...}") can't slip past it. Reports each problem and fails if
-# there's any. llama-swap checks the rest when host-setup.sh validates
-# the config.
+# model behind the flags in ${llama-server} or ${sd-server}: each FILE
+# has only a "models:" section; each model's name is alone on its line,
+# indented two spaces, and no other FILE uses it; and each model has
+# exactly one cmd and one proxy, indented four spaces, where the cmd
+# starts with ${llama-server} (and doesn't change --host, --port,
+# --cors-origins, or --api-key) or with ${sd-server} (and doesn't change
+# -l, --listen-ip, or --listen-port), and the proxy is ${proxy}. A model
+# may not set its own macros, since llama-swap lets those override ours.
+# Being this strict about layout means YAML's other ways of writing a cmd
+# (e.g., a flow mapping like "{cmd: ...}") can't slip past it. It catches
+# mistakes, such as a pasted --host 0.0.0.0, not a deliberate attacker:
+# anyone who can write these files can change host-setup.sh too. Reports
+# each problem and fails if there's any. llama-swap checks the rest when
+# host-setup.sh validates the config.
 infer_models_ok() {
   awk '
     function bad(msg) {
@@ -175,11 +179,17 @@ infer_models_ok() {
     }
     /^( |   )[^ ]/ { bad("indent by two spaces per level"); next }
     model == "" { bad("must be inside a model"); next }
+    /^    macros:/ { bad("a model must not set its own macros") }
     /^    cmd:/ {
       cmds++
-      if ($0 !~ /^    cmd: \$\{llama-server\} /) bad("cmd must start with ${llama-server}")
-      else if ($0 ~ /--(host|port|cors-origins|api-key)([ =]|$)/)
-        bad("cmd must not set --host, --port, --cors-origins, or --api-key")
+      if ($0 ~ /^    cmd: \$\{llama-server\} /) {
+        if ($0 ~ /--(host|port|cors-origins|api-key)([ =]|$)/)
+          bad("cmd must not set --host, --port, --cors-origins, or --api-key")
+      } else if ($0 ~ /^    cmd: \$\{sd-server\} /) {
+        if ($0 ~ / (-l|--listen-ip|--listen-port)([ =]|$)/)
+          bad("cmd must not set -l, --listen-ip, or --listen-port")
+      } else
+        bad("cmd must start with ${llama-server} or ${sd-server}")
     }
     /^    proxy:/ {
       proxies++
@@ -192,7 +202,7 @@ infer_models_ok() {
     }' "$@"
 }
 
-# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <backend-port> <models-file>...
+# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <backend-port> <sd-server-path> <models-file>...
 # Prints llama-swap's config: our settings, then the models in each
 # <models-file> (see infer-models.yaml), as one "models:" section. The macros hold the flags every model needs. Every
 # model uses the same fixed backend port, since llama-swap runs only one
@@ -200,6 +210,15 @@ infer_models_ok() {
 # backend has no API key of its own, so --cors-origins names an origin no
 # web page can have (.invalid is reserved): otherwise any page open in a
 # browser on the Mac could query it directly and read the replies.
+# sd-server has neither an API key nor such a flag (it allows any
+# origin), so while an image model is loaded, any process or web page on
+# the Mac can use it directly, and can see other callers' images: a live
+# preview of each /sdapi/v1/txt2img or img2img request (from
+# /sdapi/v1/progress), and each /sdcpp/v1/img_gen job's results for 10
+# minutes (from /sdcpp/v1/jobs/ID, with guessable IDs). As of
+# master-964-1d0a58a, /v1/images/generations and /v1/images/edits keep
+# neither, so use those for anything private. I accept this for now; see
+# local-ai-plan.md's "Image generation" for why, and what's left to check.
 # --cache-ram 0 turns off the prompt cache (by default 8192 MiB), which
 # keeps earlier prompts' KV state in ordinary, swappable memory. With one
 # agent it barely helps, since the slot's own KV cache is reused as each
@@ -229,10 +248,11 @@ apiKeys:
   - "$1"
 macros:
   llama-server: "$2 --host 127.0.0.1 --port $3 -ngl 99 -fa on --parallel 1 --no-slots --cache-ram 0 --cors-origins http://cors.invalid"
+  sd-server: "$4 --listen-ip 127.0.0.1 --listen-port $3"
   models-dir: "$MODELS_DIR"
   proxy: "http://127.0.0.1:$3"
 EOF
-  shift 3
+  shift 4
   cat "$1"
   shift
   for f in "$@"; do

@@ -20,7 +20,7 @@ step() {
 }
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-setup.sh add-model.sh vm-setup.sh host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-setup.sh infer-check.sh add-model.sh vm-setup.sh host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -99,10 +99,21 @@ if ! infer_models_ok infer-models.yaml; then
   echo "FAILED: infer-models.yaml breaks its own rules" >&2
   fail=1
 fi
+# Each file a model's cmd names is one MODEL_DOWNLOADS puts there.
+printf '%s\n' "$MODEL_DOWNLOADS" | while read -r url _ _ subdir; do
+  model_file "$url" "$subdir"
+done > "$tmp/downloaded"
+missing="$(grep -o '\${models-dir}/[^ ]*' infer-models.yaml |
+  sed 's/^\${models-dir}\///' | grep -vxF -f "$tmp/downloaded")" || true
+if [ -n "$missing" ]; then
+  echo "FAILED: infer-models.yaml uses files MODEL_DOWNLOADS doesn't download:" >&2
+  printf '%s\n' "$missing" >&2
+  fail=1
+fi
 # llama-swap isn't here to check the config, so check what pi and nopi
 # need from it: each model's context matches its --ctx-size, max_tokens
 # fits in it, and exactly one model is the default.
-infer_llama_swap_yaml sk-test /llama-server 8999 infer-models.yaml > "$tmp/llama-swap.yaml"
+infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server infer-models.yaml > "$tmp/llama-swap.yaml"
 if ! python3 -I - "$tmp/llama-swap.yaml" <<'EOF'
 import re, sys, yaml
 cfg = yaml.safe_load(open(sys.argv[1]))
@@ -112,6 +123,9 @@ defaults = []
 for name, m in cfg["models"].items():
     ctx = (m.get("capabilities") or {}).get("context")
     max_tokens = (m.get("metadata") or {}).get("max_tokens")
+    if m["cmd"].startswith("${sd-server} "):
+        assert m["capabilities"]["out"] == ["image"], f"{name}: needs capabilities.out: [image]"
+        continue
     size = re.search(r"--ctx-size (\d+)", m["cmd"])
     assert isinstance(ctx, int) and size and int(size.group(1)) == ctx, \
         f"{name}: capabilities.context must match --ctx-size"
@@ -157,6 +171,17 @@ for bad in 'apiKeys:
   '  m:
     cmd: ${llama-server} --model ${models-dir}/m.gguf
     proxy: ${proxy}' \
+  '  n:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf -l 0.0.0.0
+    proxy: ${proxy}' \
+  '  n:
+    macros:
+      sd-server: /bin/sh -c evil
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
+    proxy: ${proxy}' \
+  '  n:
+    cmd: ${other} --model ${models-dir}/n.gguf
+    proxy: ${proxy}' \
   'models:
   n:
     cmd: ${llama-server} --model ${models-dir}/n.gguf
@@ -168,7 +193,10 @@ for bad in 'apiKeys:
     fail=1
   fi
 done
-printf 'models:\n%s\n' "$good" > "$tmp/good-models.yaml"
+good_sd='  m-img:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/m.gguf --vae ${models-dir}/vae.gguf
+    proxy: ${proxy}'
+printf 'models:\n%s\n%s\n' "$good" "$good_sd" > "$tmp/good-models.yaml"
 infer_models_ok "$tmp/good-models.yaml" ||
   { echo "FAILED: infer_models_ok rejected a good entry" >&2; fail=1; }
 # infer-models.local.yaml adds to infer-models.yaml, without reusing its
@@ -179,9 +207,9 @@ if infer_models_ok infer-models.yaml infer-models.yaml 2>/dev/null; then
   echo "FAILED: infer_models_ok accepted a model defined twice" >&2
   fail=1
 fi
-infer_llama_swap_yaml sk-test /llama-server 8999 infer-models.yaml "$tmp/good-models.yaml" > "$tmp/both.yaml"
+infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server infer-models.yaml "$tmp/good-models.yaml" > "$tmp/both.yaml"
 got="$(python3 -I -c 'import sys, yaml; print(" ".join(yaml.safe_load(open(sys.argv[1]))["models"]))' "$tmp/both.yaml")"
-want="$(sed -n 's/^  \([^ #][^:]*\):$/\1/p' infer-models.yaml | tr '\n' ' ')m"
+want="$(sed -n 's/^  \([^ #][^:]*\):$/\1/p' infer-models.yaml | tr '\n' ' ')m m-img"
 if [ "$got" != "$want" ]; then
   echo "FAILED: combining infer-models.yaml with a local file gave models '$got', not '$want'" >&2
   fail=1
@@ -189,8 +217,9 @@ fi
 # pi's models.json and nopi's default, from llama-swap v265's real
 # listing for infer-models.yaml (trimmed to the fields we use). A
 # variant (type "alias") repeats its model's metadata, and comes first
-# here, so picking it as the default would show.
-listing='{"data": [{"id": "qwen3.8-27b:instruct", "name": "Qwen3.8-27B Q8_0", "context_length": 262144, "meta": {"llamaswap": {"default": true, "max_tokens": 16384, "modelID": "qwen3.8-27b", "type": "alias"}, "n_ctx": 262144}}, {"id": "qwen3-0.6b", "name": "Qwen3-0.6B Q4_0 (tests)", "context_length": 32768, "meta": {"llamaswap": {"max_tokens": 4096, "type": "model"}, "n_ctx": 32768}}, {"id": "qwen3.8-27b", "name": "Qwen3.8-27B Q8_0", "context_length": 262144, "meta": {"llamaswap": {"aliases": ["qwen3.8-27b:instruct"], "default": true, "max_tokens": 16384, "type": "model"}, "n_ctx": 262144}}]}'
+# here, so picking it as the default would show. The image model, added
+# as llama-swap's api.go would list it, must not reach pi.
+listing='{"data": [{"id": "flux2-klein-4b", "name": "FLUX.2-klein 4B Q8_0 (images)", "architecture": {"input_modalities": ["text"], "output_modalities": ["image"], "modality": "text->image"}, "meta": {"llamaswap": {"type": "model"}}}, {"id": "qwen3.8-27b:instruct", "name": "Qwen3.8-27B Q8_0", "context_length": 262144, "meta": {"llamaswap": {"default": true, "max_tokens": 16384, "modelID": "qwen3.8-27b", "type": "alias"}, "n_ctx": 262144}}, {"id": "qwen3-0.6b", "name": "Qwen3-0.6B Q4_0 (tests)", "context_length": 32768, "meta": {"llamaswap": {"max_tokens": 4096, "type": "model"}, "n_ctx": 32768}}, {"id": "qwen3.8-27b", "name": "Qwen3.8-27B Q8_0", "context_length": 262144, "meta": {"llamaswap": {"aliases": ["qwen3.8-27b:instruct"], "default": true, "max_tokens": 16384, "type": "model"}, "n_ctx": 262144}}]}'
 got="$(printf '%s' "$listing" | infer_pi_models_json |
   jq -c '[.providers["mac-local"].models[] | [.id, .name, .contextWindow, .maxTokens]]')"
 want='[["qwen3.8-27b:instruct","Qwen3.8-27B Q8_0 (qwen3.8-27b:instruct)",262144,16384],["qwen3-0.6b","Qwen3-0.6B Q4_0 (tests)",32768,4096],["qwen3.8-27b","Qwen3.8-27B Q8_0",262144,16384]]'
@@ -298,6 +327,29 @@ for t in "$tmp"/tars/*.tar.gz; do
       { echo "FAILED: unpacked_tree_ok accepted $name" >&2; fail=1; } ;;
   esac
 done
+# stable-diffusion.cpp's release is a zip, listed with "unzip -Z1": one
+# with a ".." name, and one with a symlink out.
+python3 -I - "$tmp" <<'EOF'
+import os, stat, sys, zipfile
+def z(name, path, data, mode):
+    with zipfile.ZipFile(os.path.join(sys.argv[1], name + ".zip"), "w") as f:
+        i = zipfile.ZipInfo(path)
+        i.create_system = 3
+        i.external_attr = mode << 16
+        f.writestr(i, data)
+z("up", "../x", "x", stat.S_IFREG | 0o644)
+z("link", "sd-server", "/bin/sh", stat.S_IFLNK | 0o777)
+EOF
+if unzip -Z1 "$tmp/up.zip" | archive_names_ok 2>/dev/null; then
+  echo "FAILED: archive_names_ok accepted a zip's ../x" >&2
+  fail=1
+fi
+rm -rf "$tmp/unpack"
+unzip -q "$tmp/link.zip" -d "$tmp/unpack"
+if unpacked_tree_ok "$tmp/unpack" 2>/dev/null; then
+  echo "FAILED: unpacked_tree_ok accepted a zip's symlink to /bin/sh" >&2
+  fail=1
+fi
 
 step "python unit tests (tests/)"
 # tests/render_helper.py renders a template in memory and imports it as a

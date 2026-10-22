@@ -287,9 +287,52 @@ be malicious and try to send my sensitive data out. So:
   with its own command line). stable-diffusion.cpp is MIT-licensed C++
   from the same ggml family as llama.cpp, publishes a prebuilt macOS
   arm64 build (36 MB), and supports FLUX.2-dev and FLUX.2-klein, so it
-  needs no Python and runs as `_infer` under the same sandbox. (I
-  haven't confirmed the macOS build includes its server; llama-swap's
-  support for its API suggests it does.)
+  needs no Python and runs as `_infer` under the same sandbox. Its
+  macOS zip (checked 2026-10-21) is flat and includes `sd-server`,
+  `sd-cli`, and `libstable-diffusion.dylib`.
+* Written 2026-10-21, not yet run on the Mac: `host-setup.sh` installs
+  it under `/opt/stable-diffusion.cpp` like the other engines (the
+  newest `master-N-HASH` release older than the cooling period, or
+  `SD_CPP_PIN`), and `infer-models.yaml` serves FLUX.2-klein 4B through
+  the `${sd-server}` macro (`--listen-ip 127.0.0.1` and the backend
+  port). sd-server has no `/health`, so the entry checks `/v1/models`
+  (sd-server loads its model before it listens, so that answers only
+  once it's ready), and its `capabilities.out: [image]` keeps it out of
+  pi's list. `host-setup.sh` runs each program's `--version` as
+  `_infer`, so a binary that can't start stops it. Still to check on
+  the Mac: whether sd-server accepts klein's diffusers VAE (below), and
+  whether it runs in the sandbox. `infer-check.sh` checks both: it asks
+  each model for a little output, and on a failure shows the model's
+  log and the sandbox denials (tested here 2026-10-22 against llama-swap
+  v265 with stand-in backends).
+* sd-server has no API key and allows any CORS origin, so while it's
+  loaded, any process or web page on the Mac can use it directly on the
+  backend port, bypassing llama-swap's key (checked in
+  master-964-1d0a58a's source, 2026-10-21). That also exposes other
+  callers' images: `/sdapi/v1/progress` returns a live preview of any
+  running `/sdapi/v1/txt2img` or `img2img` request, and
+  `/sdcpp/v1/jobs/ID` returns an `/sdcpp/v1/img_gen` job's results for
+  10 minutes, with IDs that are a timestamp and a counter. No prompt
+  text is exposed. `/v1/images/generations` and `/v1/images/edits` run
+  synchronously and keep no preview or job. llama-server has the same
+  lack of a key on the backend port, but `--cors-origins` keeps web
+  pages out and `/slots` is off.
+* Accepted for now (decided 2026-10-21): seeing my images takes a
+  hostile process or web page on the Mac while I'm generating them, or
+  within 10 minutes of an `/sdcpp` job, and an `infer-access.sh` mode
+  change restarts the engine, clearing them. For an image I want
+  private, I use the OpenAI routes, which leave nothing behind. I know
+  of no way, short of patching, to let only llama-swap connect to the
+  backend port: the sandbox can't tell who's connecting; llama-swap
+  v265 reaches backends only over TCP, so a Unix socket would need
+  changes to both programs, which I don't want unless they'd go
+  upstream; and pf can't filter loopback here (see "Host sandbox").
+  Still to check: what browsers already block (I believe recent Chrome
+  asks before a public site reaches localhost; Safari's behavior and
+  DNS rebinding are open, and sd-server doesn't check `Host`). If they
+  don't block it, consider asking upstream for an sd-server API key
+  (read from the environment or a file, since `ps` shows command lines
+  to every local process) or an origin check.
 * llama-swap routes the OpenAI-style image endpoints
   (`/v1/images/generations`, `/v1/images/edits`) and stable-diffusion.cpp's
   own (`/sdapi/v1/txt2img`, `/sdapi/v1/img2img`) by model name, the same
@@ -341,7 +384,12 @@ be malicious and try to send my sensitive data out. So:
   allowance.
 * Image clients: goose and pi are text agents, so call the image
   endpoint through the tunnel with a client in the secure VM, from
-  `curl` up to a web UI.
+  `curl` up to a web UI. An A1111-style client (`/sdapi`) can't use
+  llama-swap's own routes, which pick the model from a JSON `model`
+  field and don't include paths like `/sdapi/v1/sd-models`; instead
+  point it at `/upstream/flux2-klein-4b`, which passes every path
+  through, with the API key as an HTTP Basic password (llama-swap
+  accepts that). Not yet tried with a real client.
 
 ### The `_infer` account
 
@@ -515,8 +563,12 @@ The strict profile, if built:
   including the KV cache) can never be written.
 * TCC adds a layer: a daemon with no privacy grants can't read protected
   folders (Documents, Desktop, ...).
-* Maybe pf as a second network layer (`block out ... user _infer`), if
-  macOS's pf honors `user`.
+* pf as a second network layer doesn't work here (tested 2026-10-21):
+  pf skips `lo0` (`pfctl -v -s Interfaces` shows `lo0 (skip)`), so it
+  never sees loopback traffic. That's a global setting, I believe from
+  `pfd` (which holds pf's only enable reference), and removing it would
+  apply every system anchor (AirDrop, the Application Firewall) to
+  loopback, so I won't. pf being on didn't disturb UTM or the tunnels.
 * Fallback, if `(deny default)` turns into an endless list of Metal
   allowances: allow by default but deny outbound network, writes
   outside the allowed places, and reads of `/Users` and other sensitive

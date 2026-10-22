@@ -98,6 +98,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `infer-models.yaml`: the models the local AI engine serves, with
   their sampling defaults, in llama-swap's format. List more in
   `infer-models.local.yaml` (gitignored); `host-setup.sh` serves both.
+- `infer-check.sh`: run on the Mac to check that the engine really
+  serves each model (a few tokens, or one image to look at), showing
+  why when one fails.
 - `secrets-server.template.py`, `com.user.secretsserver.template.plist`:
   the host-side secrets server (see architecture.md) and its LaunchAgent.
   Serves any secret `host-secrets.sh` has stored under Keychain's

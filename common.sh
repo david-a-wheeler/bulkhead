@@ -273,8 +273,12 @@ infer_pi_models_json() {
       api: "openai-completions",
       apiKey: "${INFER_API_KEY}",
       compat: {thinkingTokenBudgetField: "thinking_budget_tokens"},
-      models: [.data[] |
-        if (.id | test("^[A-Za-z0-9._:-]+$") | not) then error("bad model name: \(.id)")
+      models: [.data[]
+        # pi can only chat, so list only the models that output text,
+        # or that report no modalities (llama-swap learns those for a
+        # llama-server model only once it loads), not e.g. image models.
+        | select((.architecture.output_modalities // ["text"]) | any(. == "text"))
+        | if (.id | test("^[A-Za-z0-9._:-]+$") | not) then error("bad model name: \(.id)")
         elif (.context_length | type) != "number" or (.meta.llamaswap.max_tokens | type) != "number"
         then error("\(.id) lacks capabilities.context or metadata.max_tokens")
         else {

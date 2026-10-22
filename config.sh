@@ -44,7 +44,7 @@ https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-
 https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d apache-2.0 flux2-klein-4b
 https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffusion_pytorch_model.safetensors ca70d2202afe6415bdbcb8793ba8cd99fd159cfe6192381504d6c4d3036e0f04 apache-2.0 flux2-klein-4b"
 
-# The text models the local AI engine serves, and their settings (e.g.,
+# The models the local AI engine serves, and their settings (e.g.,
 # sampling defaults), are in infer-models.yaml, plus any you add in
 # infer-models.local.yaml.
 
@@ -69,6 +69,10 @@ LLAMA_CPP_MIN="v0.7.0"
 LLAMA_CPP_PIN=""
 LLAMA_SWAP_MIN="v265"
 LLAMA_SWAP_PIN=""
+# stable-diffusion.cpp (for image models) releases each build, with tags
+# like "master-964-1d0a58a", not versions, so it has a pin but no floor;
+# it waits INFER_COOLING_DAYS like the others.
+SD_CPP_PIN=""
 PI_MIN="1.3.0"
 PI_PIN=""
 
