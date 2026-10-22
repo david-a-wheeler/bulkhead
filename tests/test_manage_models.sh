@@ -39,6 +39,10 @@ printf 'GGUF old' > "$F/o.gguf"
 printf 'GGUF unused' > "$F/u.gguf"
 printf 'GGUF sees' > "$F/w.gguf"
 printf 'GGUF projector' > "$F/m.gguf"
+printf 'GGUF sees more' > "$F/x.gguf"
+printf 'GGUF sees less' > "$F/y.gguf"
+printf 'GGUF F16 projector' > "$F/mmproj-F16.gguf"
+printf 'GGUF BF16 projector' > "$F/mmproj-BF16.gguf"
 sha() {
   sha256sum "$1" | cut -d ' ' -f 1
 }
@@ -76,6 +80,9 @@ case "$url" in
     else
       echo '[]'
     fi
+    ;;
+  */api/models/o/vis\?*)
+    echo '{"gated": false, "cardData": {"license": "apache-2.0"}, "gguf": {"context_length": 8192}, "siblings": [{"rfilename": "README.md"}, {"rfilename": "mmproj-BF16.gguf"}, {"rfilename": "x.gguf"}, {"rfilename": "mmproj-F16.gguf"}, {"rfilename": "y.gguf"}]}'
     ;;
   */api/models/*)
     echo '{"gated": false, "cardData": {"license": "apache-2.0"}, "gguf": {"context_length": 8192}}'
@@ -213,6 +220,32 @@ for f in w1/w.gguf w1/m.gguf; do
   mm "$T" prune --delete "$f" || { cat "$work/out" >&2; failed "pruning $f"; }
 done
 
+# A repository with vision projectors: add uses the F16 one without
+# being asked, and a second model from it reuses that copy.
+mm "$T" add x1 "$HF/o/vis/resolve/main/x.gguf" || { cat "$work/out" >&2; failed "adding x1"; }
+# shellcheck disable=SC2016 # a literal cmd line
+grep -qxF '    cmd: ${llama-server} --model ${models-dir}/x1/x.gguf --mmproj ${models-dir}/x1/mmproj-F16.gguf --ctx-size 8192' "$L" ||
+  failed "add didn't use the repository's F16 vision projector"
+n="$(downloads)"
+mm "$T" add x2 "$HF/o/vis/resolve/main/y.gguf" || { cat "$work/out" >&2; failed "adding x2"; }
+# shellcheck disable=SC2016 # a literal cmd line
+grep -qxF '    cmd: ${llama-server} --model ${models-dir}/x2/y.gguf --mmproj ${models-dir}/x1/mmproj-F16.gguf --ctx-size 8192' "$L" ||
+  failed "x2 didn't reuse x1's vision projector"
+[ "$(downloads)" = "$((n + 1))" ] || failed "x2 downloaded the vision projector again"
+# A file no model uses any more is reused where it is, and --no-mmproj
+# leaves out the projector.
+for m in x1 x2; do
+  mm "$T" remove "$m" || { cat "$work/out" >&2; failed "removing $m"; }
+done
+n="$(downloads)"
+mm "$T" add x3 --no-mmproj "$HF/o/vis/resolve/main/x.gguf" || { cat "$work/out" >&2; failed "adding x3"; }
+# shellcheck disable=SC2016 # a literal cmd line
+grep -qxF '    cmd: ${llama-server} --model ${models-dir}/x1/x.gguf --ctx-size 8192' "$L" ||
+  failed "x3 didn't reuse x1/x.gguf, or used a projector despite --no-mmproj"
+[ "$(downloads)" = "$n" ] || failed "x3 downloaded x.gguf again"
+mm "$T" check || { cat "$work/out" >&2; failed "check after adding x3"; }
+mm "$T" remove x3 || { cat "$work/out" >&2; failed "removing x3"; }
+
 # Bad requests: each must fail and change nothing.
 snapshot() {
   (cd "$T" && cat models.local.yaml models/SHA256SUMS; find models -type f | sort)
@@ -249,6 +282,7 @@ for bad in \
   "add w2 --mmproj $HF/o/w/resolve/main/w.gguf|$HF/o/w/resolve/main/w.gguf" \
   "add w2 --mmproj $HF/o/v/resolve/main/v.safetensors|$HF/o/w/resolve/main/w.gguf" \
   "add w2 --mmproj https://example.com/m.gguf|$HF/o/w/resolve/main/w.gguf" \
+  "add w2 --no-mmproj --mmproj $HF/o/w/resolve/main/m.gguf|$HF/o/w/resolve/main/w.gguf" \
   "add w2 --mmproj $HF/o/w/resolve/main/m.gguf --sd-args|--diffusion-model $HF/o/d/blob/main/d.gguf"; do
   opts="${bad%%|*}" last="${bad#*|}"
   # shellcheck disable=SC2086 # opts is plain words

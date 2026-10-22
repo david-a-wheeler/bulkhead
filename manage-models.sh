@@ -10,7 +10,7 @@
 #   ./manage-models.sh list
 #   ./manage-models.sh add [--dir SUBDIR] [--ctx N] [--max N] [--desc TEXT]
 #                      [--sha256 HEX] [--license ID] [--default]
-#                      [--mmproj URL] NAME URL
+#                      [--mmproj URL | --no-mmproj] NAME URL
 #   ./manage-models.sh add --sd-args ARGS [--dir SUBDIR] [--ttl N]
 #                      [--desc TEXT] NAME
 #   ./manage-models.sh remove [--yes] NAME
@@ -41,12 +41,12 @@
 # repository's GGUF files, --max (the most tokens one reply may use) to
 # 32768 (or the context window, if smaller), and --desc to the file
 # name. --dir puts the file in a subdirectory of MODELS_DIR. --default
-# makes it the default model (see default, below). --mmproj gives the
-# URL of a vision model's projector file (e.g., mmproj-F16.gguf, from
-# the same Hugging Face repository), which lets it read images; the
-# entry then says it takes images, so pi sends them. Both files go in
-# --dir, which then defaults to NAME, since many models' projector files
-# have the same name.
+# makes it the default model (see default, below). If the Hugging Face
+# repository has a vision projector (an mmproj*.gguf file), it's added
+# too, so the model reads images, and the entry says so, so pi sends
+# them; --no-mmproj skips it, and --mmproj URL names another one. Both
+# files then go in --dir, which defaults to NAME, since many models'
+# projectors have the same name.
 #
 # add NAME --sd-args ARGS instead adds a specialist (an sd-server model,
 # which makes images): ARGS are the sd-server arguments you'd use (e.g.,
@@ -60,9 +60,11 @@
 # defaults to NAME.
 #
 # Either way, it downloads every file before it changes the list, so if
-# a download fails, just rerun it. A file another model already lists is
-# shared, not downloaded again, and keeps the line it has (e.g., its
-# license).
+# a download fails, just rerun it. A file MODELS_DIR already has (by its
+# SHA-256) isn't downloaded again, even under another path: a file
+# another model lists is shared, and keeps the line it has (e.g., its
+# license), and a file with the same name elsewhere in MODELS_DIR (e.g.,
+# one no model uses any more) is used where it is.
 #
 # remove NAME takes NAME out of the list; any model can go, including
 # the initial ones. If NAME is the default or the last model, it asks
@@ -166,14 +168,20 @@ hf_file_info() {
 }
 
 # hf_repo_info: sets hf_gated ("false" unless you must accept terms
-# first), hf_license, and hf_ctx (a GGUF model's context length) for
-# hf_repo.
+# first), hf_license, hf_ctx (a GGUF model's context length), and
+# hf_mmproj (the repository's vision projector, if it has one: the F16
+# one if there's a choice, since every llama.cpp backend handles that,
+# then BF16, then F32) for hf_repo.
 hf_repo_info() {
-  hf_json="$(curl -fsSg "$HF/api/models/$hf_repo?expand[]=gguf&expand[]=cardData&expand[]=gated")" ||
+  hf_json="$(curl -fsSg "$HF/api/models/$hf_repo?expand[]=gguf&expand[]=cardData&expand[]=gated&expand[]=siblings")" ||
     die "couldn't get $hf_repo's details from Hugging Face (does it exist?)."
   hf_gated="$(printf '%s' "$hf_json" | jq -r '.gated')"
   hf_license="$(printf '%s' "$hf_json" | jq -r '.cardData.license // empty')"
   hf_ctx="$(printf '%s' "$hf_json" | jq -r '.gguf.context_length // empty')"
+  hf_mmproj="$(printf '%s' "$hf_json" | jq -r '[.siblings[]?.rfilename | strings
+    | select(test("(^|/)mmproj[^/]*\\.gguf$"; "i"))]
+    | sort_by(if test("[-_.]f16\\.gguf$"; "i") then 0 elif test("bf16\\.gguf$"; "i") then 1
+        elif test("f32\\.gguf$"; "i") then 2 else 3 end) | .[0] // empty')"
 }
 
 # too_new DATE: true if DATE (from hf_file_info) is after the cooling
@@ -300,15 +308,42 @@ fetch_model() {
 
 # sync_list FILE: make MODELS_DIR match the list FILE (see sync, above),
 # then rewrite SHA256SUMS from it.
+# have_file PATH SHA256: true if MODELS_DIR has PATH with that SHA-256,
+# by SHA256SUMS or, if that doesn't say so, by hashing it.
+have_file() {
+  [ -f "$MODELS_DIR/$1" ] &&
+    { [ "$(recorded_sha256 "$1")" = "$2" ] ||
+      [ "$(shasum -a 256 "$MODELS_DIR/$1" | cut -d ' ' -f 1)" = "$2" ]; }
+}
+
+# reusable_file PATH SHA256: prints where MODELS_DIR already has the
+# file PATH names, with that SHA-256, if anywhere: a path the list
+# names with that SHA-256, or a file with PATH's name in MODELS_DIR or
+# one of its subdirectories (e.g., one no model uses any more). So
+# adding a model doesn't download a file again just because its path
+# differs, e.g., a vision projector two models share.
+reusable_file() {
+  rf_path="$(infer_model_files "$INFER_MODELS" | awk -v s="$2" '$2 == s { print $1; exit }')"
+  if [ -n "$rf_path" ]; then
+    printf '%s\n' "$rf_path"
+    return 0
+  fi
+  [ -d "$MODELS_DIR" ] || return 0
+  rf_leaf="${1##*/}"
+  for rf_path in "$rf_leaf" "$MODELS_DIR"/*/"$rf_leaf"; do
+    rf_path="${rf_path#"$MODELS_DIR"/}"
+    if have_file "$rf_path" "$2"; then
+      printf '%s\n' "$rf_path"
+      return 0
+    fi
+  done
+}
+
 sync_list() {
   prepare_models_dir
   while read -r s_path s_sha256 s_license s_url; do
     [ -n "$s_path" ] || continue
-    if [ -f "$MODELS_DIR/$s_path" ] &&
-        { [ "$(recorded_sha256 "$s_path")" = "$s_sha256" ] ||
-          [ "$(shasum -a 256 "$MODELS_DIR/$s_path" | cut -d ' ' -f 1)" = "$s_sha256" ]; }; then
-      continue
-    fi
+    have_file "$s_path" "$s_sha256" && continue
     fetch_model "$s_url" "$s_sha256" "$s_license" "$s_path" < /dev/null
   done <<EOF
 $(infer_model_files "$1")
@@ -480,7 +515,7 @@ add_pos() {
   esac
 }
 subdir="" ctx="" max="" desc="" sha256="" license="" sd_args="" ttl="" mmproj=""
-make_default=false yes=false force=false delete=false
+make_default=false yes=false force=false delete=false no_mmproj=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir | --ctx | --max | --desc | --sha256 | --license | --sd-args | --ttl | --mmproj)
@@ -504,6 +539,7 @@ while [ $# -gt 0 ]; do
     --yes) yes=true ;;
     --force) force=true ;;
     --delete) delete=true ;;
+    --no-mmproj) no_mmproj=true ;;
     -h | --help) help ;;
     --) shift; break ;;
     -*) usage ;;
@@ -729,8 +765,18 @@ if [ -n "$sd_args" ]; then
   )"
   [ -n "$urls" ] || die "--sd-args names no model file; write each one as its Hugging Face URL."
 else
-  allow 2 --dir --ctx --max --desc --sha256 --license --default --mmproj
+  allow 2 --dir --ctx --max --desc --sha256 --license --default --mmproj --no-mmproj
   urls="$pos2"
+  [ -z "$mmproj" ] || ! $no_mmproj || die "give --mmproj or --no-mmproj, not both."
+  # A Hugging Face repository with a vision projector: use it, so the
+  # model reads images too.
+  if [ -z "$mmproj$sha256" ] && ! $no_mmproj && hf_parse "$pos2"; then
+    hf_repo_info
+    if [ -n "$hf_mmproj" ]; then
+      mmproj="$HF/$hf_repo/resolve/$hf_rev/$hf_mmproj"
+      echo "$hf_repo has a vision projector ($hf_mmproj), so $serve will read images too; --no-mmproj skips it."
+    fi
+  fi
   if [ -n "$mmproj" ]; then
     [ -z "$sha256" ] || die "--sha256 is for one file; with --mmproj, both files must come from Hugging Face."
     subdir="${subdir:-$serve}"
@@ -786,6 +832,12 @@ while read -r given; do
     *.gguf | *.safetensors) ;;
     *) die "$f_file isn't a .gguf or .safetensors file." ;;
   esac
+  reused="$(reusable_file "$f_file" "$f_sha256")"
+  if [ -n "$reused" ] && [ "$reused" != "$f_file" ]; then
+    echo "Reusing $reused for $f_file, since it's the same file."
+    f_file="$reused"
+  fi
+  [ -z "$reused" ] || f_size=0
   listed="$(infer_model_files "$INFER_MODELS" | awk -v f="$f_file" '$1 == f')"
   if [ -n "$listed" ]; then
     read -r _ l_sha256 l_license l_url <<EOM

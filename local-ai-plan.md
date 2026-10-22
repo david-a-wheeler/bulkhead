@@ -768,8 +768,14 @@ The strict profile, if built:
   aliases (`internal/server/api.go`); without it, llama-swap learns a
   llama-server model's modalities only once it's loaded.
   `infer_pi_models_json` turns it into pi's `input: ["text", "image"]`,
-  without which pi won't send images. `manage-models.sh add --mmproj
-  URL` adds other vision models this way. Not yet tried on the Mac.
+  without which pi won't send images. `manage-models.sh add` adds a
+  repository's projector by itself (the F16 one if there's a choice,
+  since every llama.cpp backend handles it; `--no-mmproj` skips it, and
+  `--mmproj URL` names another), and it doesn't download a file again
+  if `MODELS_DIR` already has it under another path: one the list
+  names with that SHA-256 (e.g., two quantizations from one repo share
+  a projector), or one with the same name elsewhere in `MODELS_DIR`
+  (e.g., the unused UD-Q4_K_M file). Not yet tried on the Mac.
   pi can also call image models itself, through its `codemode` tool
   (`models.generateImages`; see pi's `docs/models.md`), which may be a
   simpler way for pi to use flux than a script of our own; not yet
@@ -853,9 +859,11 @@ runs.
   * `list`: print each model's name and role, marking the default.
   * `add NAME URL` (a generalist) and `add NAME --sd-args ARGS` (a
     specialist): one entry, with its file lines. `--default` makes a
-    new generalist the default. It downloads every file before it
-    changes the list. A file another model lists is shared, not
-    downloaded again, and keeps the line it has.
+    new generalist the default, and a repository's vision projector
+    comes along unless `--no-mmproj` (see "Vision"). It downloads every
+    file before it changes the list, and never a file `MODELS_DIR`
+    already has, even under another path. A file another model lists
+    is shared, and keeps the line it has.
   * `remove NAME`: delete NAME's entry, for any model, including the
     initial ones. Removing the default or the last model asks first,
     since afterward `nopi` picks no model until you set a default, or
