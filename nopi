@@ -15,6 +15,11 @@
 # ./manage-models.sh default there). If the engine doesn't answer, pi
 # uses the list it had.
 #
+# It also loads infer-images.js, which gives pi's codemode tool the
+# engine's image models (e.g., flux2-klein-4b), and turns codemode on, so
+# you can ask pi for an image. The extension gets infer-models' answer in
+# INFER_MODELS.
+#
 # Usage: nopi [pi arguments...], e.g., nopi --print "Say hello"
 # or nopi --model qwen3-0.6b (a later --model overrides the default).
 
@@ -22,6 +27,7 @@ set -eu
 
 # vm-setup.sh installs pi where "npm install -g" would.
 PI_DIR=/usr/local/lib/node_modules/@earendil-works/pi-coding-agent
+LIB_DIR=/usr/local/libexec/bulkhead
 KEY_FILE="$HOME/.config/bulkhead/infer-api-key"
 AGENT_DIR="$HOME/.pi/agent"
 
@@ -29,7 +35,7 @@ default=""
 if models="$(/usr/local/bin/infer-models)"; then
   mkdir -p "$AGENT_DIR"
   new="$(mktemp "$AGENT_DIR/models.json.XXXXXX")"
-  printf '%s' "$models" | jq -f /usr/local/libexec/bulkhead/pi-models.jq > "$new" ||
+  printf '%s' "$models" | jq -f "$LIB_DIR/pi-models.jq" > "$new" ||
     { rm -f "$new"; exit 1; }
   if cmp -s "$new" "$AGENT_DIR/models.json"; then
     rm -f "$new"
@@ -41,15 +47,17 @@ if models="$(/usr/local/bin/infer-models)"; then
   [ -n "$default" ] ||
     echo "nopi: WARNING: the engine has no default model (see ./manage-models.sh default on the Mac)." >&2
 else
-  echo "nopi: WARNING: using pi's last list of models." >&2
+  models=""
+  echo "nopi: WARNING: using pi's last list of models, without image models." >&2
 fi
 [ -z "$default" ] || set -- --model "$default" "$@"
 
 INFER_API_KEY="$(cat "$KEY_FILE")"
+INFER_MODELS="$models"
 PI_OFFLINE=1
 PI_SKIP_VERSION_CHECK=1
 PI_TELEMETRY=0
-export INFER_API_KEY PI_OFFLINE PI_SKIP_VERSION_CHECK PI_TELEMETRY
+export INFER_API_KEY INFER_MODELS PI_OFFLINE PI_SKIP_VERSION_CHECK PI_TELEMETRY
 
-exec anon-access nono run --profile nolabs-ai/pi --allow-cwd --read "$PI_DIR" -- \
-  /usr/local/bin/pi --provider mac-local "$@"
+exec anon-access nono run --profile nolabs-ai/pi --allow-cwd --read "$PI_DIR" --read "$LIB_DIR" -- \
+  /usr/local/bin/pi --provider mac-local --extension "$LIB_DIR/infer-images.js" --tools +codemode "$@"

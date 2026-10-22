@@ -561,6 +561,13 @@ if ! shellcheck -x tests/test_manage_models.sh || ! tests/test_manage_models.sh;
   fail=1
 fi
 
+step "infer-images.js (tests/test_infer_images.sh)"
+# The pi extension for image models, with node, a stand-in for pi, and a
+# stand-in engine.
+if ! shellcheck -x tests/test_infer_images.sh || ! tests/test_infer_images.sh; then
+  fail=1
+fi
+
 step "tests/sleep-test.sh runs"
 # It only runs on the Mac, so run both phases here with stand-ins for
 # the Mac's commands. This catches mistakes that static checks can't

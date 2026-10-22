@@ -230,8 +230,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `nopi`: runs pi like `noclaude` runs Claude Code, against the Mac's
   models. Each time, it turns `infer-models`' answer into pi's
   `models.json` with `pi-models.jq`, and starts pi with the default
-  model. A wrapper for another client (e.g., goose) would do the same,
-  with its own small jq file.
+  model. It loads `infer-images.js`, a pi extension that lets pi's
+  `codemode` tool make and edit images with the Mac's image models
+  (e.g., flux). A wrapper for another client (e.g., goose) would do
+  the same, with its own small jq file.
 - `nono-default-profile.json`: filesystem access every nono-sandboxed
   harness should have beyond what its own pack grants: `~/.rbenv`,
   `~/.gitconfig`, program and header directories nono lacks (e.g.,

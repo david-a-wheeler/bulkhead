@@ -456,13 +456,14 @@ if [ -s "$INFER_KEY_FILE" ]; then
 
   # infer-models (what the engine serves now, for any client), and nopi,
   # which runs it each time pi starts and writes pi's models.json with
-  # pi-models.jq. So changing the models on the Mac needs nothing done
-  # here. An old models.json stays until nopi first reaches the engine.
+  # pi-models.jq, and loads infer-images.js, which lets pi make images
+  # with the engine's image models. So changing the models on the Mac
+  # needs nothing done here. An old models.json stays until nopi first reaches the engine.
   render_template "$SCRIPT_DIR/infer-models.template.sh" "$TMPDIR/infer-models" INFER_PORT
   sudo install -m 755 "$TMPDIR/infer-models" "$SCRIPT_DIR/nopi" /usr/local/bin/
   rm -f "$TMPDIR/infer-models"
   sudo install -d -m 755 /usr/local/libexec/bulkhead
-  sudo install -m 644 "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
+  sudo install -m 644 "$SCRIPT_DIR/pi-models.jq" "$SCRIPT_DIR/infer-images.js" /usr/local/libexec/bulkhead/
   if /usr/local/bin/infer-models > /dev/null; then
     echo "The engine answers; nopi asks it for its models each time pi starts."
   else
