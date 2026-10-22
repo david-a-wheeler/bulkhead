@@ -267,15 +267,23 @@ infer_default_model() {
     .meta.llamaswap.type != "alias")][0].id // empty'
 }
 
+# git_config_set KEY VALUE: set a global git config value only if it
+# differs, since every "git config --global" write replaces ~/.gitconfig
+# (a new inode), which breaks sandboxes that granted the old file.
+git_config_set() {
+  [ "$(git config --global --get "$1" || true)" = "$2" ] ||
+    git config --global "$1" "$2"
+}
+
 # Sets the git config values that make git pleasant to use day-to-day.
 # GIT_USER_NAME/GIT_USER_EMAIL come from config.sh; the rest are fixed
 # defaults worth having everywhere (fsck on transfer/fetch catches repo
 # corruption early, autosetupremote saves a step on first push of a branch).
 configure_git_niceties() {
-  git config --global user.name "$GIT_USER_NAME"
-  git config --global user.email "$GIT_USER_EMAIL"
-  git config --global init.defaultbranch main
-  git config --global push.autosetupremote true
-  git config --global transfer.fsckobjects true
-  git config --global fetch.fsckobjects true
+  git_config_set user.name "$GIT_USER_NAME"
+  git_config_set user.email "$GIT_USER_EMAIL"
+  git_config_set init.defaultbranch main
+  git_config_set push.autosetupremote true
+  git_config_set transfer.fsckobjects true
+  git_config_set fetch.fsckobjects true
 }

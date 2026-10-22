@@ -335,6 +335,15 @@ step "commit-msg git hook"
   git config --global user.name Test
   git config --global user.email test@example.com
   git config --global core.hooksPath "$tmp/hooks"
+  # git_config_set leaves ~/.gitconfig alone (same inode) unless a value
+  # changes.
+  before="$(ls -i "$GIT_CONFIG_GLOBAL")"
+  git_config_set user.name Test
+  [ "$(ls -i "$GIT_CONFIG_GLOBAL")" = "$before" ] ||
+    { echo "FAILED: git_config_set rewrote an unchanged ~/.gitconfig" >&2; exit 1; }
+  git_config_set init.defaultbranch main
+  [ "$(git config --global --get init.defaultbranch)" = main ] ||
+    { echo "FAILED: git_config_set didn't set a new value" >&2; exit 1; }
   git init -q "$tmp/repo"
   cd "$tmp/repo"
   echo a > f

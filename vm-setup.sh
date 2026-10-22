@@ -263,7 +263,7 @@ for pair in $GIT_SECRETS; do
   # git-credential-store), not "execute this literally" - confirmed
   # directly, a bare name fails with "'credential-vm-git-helper' is not
   # a git command" instead of ever running our script.
-  git config --global "credential.https://${host}.helper" "/usr/local/bin/vm-git-helper ${secret}"
+  git_config_set "credential.https://${host}.helper" "/usr/local/bin/vm-git-helper ${secret}"
 done
 # Remove the old single global credential.helper from before this
 # change, but only if it's still exactly what we used to set here:
@@ -342,7 +342,7 @@ else
       sendemail-validate; do
     sudo ln -sfn passthrough "$git_hooks_dir/$hook"
   done
-  git config --global core.hooksPath "$git_hooks_dir"
+  git_config_set core.hooksPath "$git_hooks_dir"
 fi
 
 if [ "$want_claude" = true ]; then
