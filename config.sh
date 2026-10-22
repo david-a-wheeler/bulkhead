@@ -28,25 +28,11 @@ VM_USER="dwheeler"
 MACOS_INFER_USER="_infer"
 
 # Local AI models, readable by MACOS_INFER_USER, writable only by you, and
-# downloaded once. host-setup.sh downloads each model in MODEL_DOWNLOADS
-# whose file isn't in MODELS_DIR yet. One file per line: URL, then its
-# SHA-256 from the publisher (e.g., on Hugging Face), then its license,
-# then (for a model made of several files, such as an image model) the
-# subdirectory of MODELS_DIR to put it in. The SHA-256 pins each file.
-# To add a model, run ./add-model.sh on the Mac, which fills these in and
-# appends them to config.local.sh; ./add-model.sh --check and --update
-# find and install publishers' updates.
+# downloaded once. Which models the engine serves, their files, and
+# their settings (e.g., sampling defaults) are in models.local.yaml, which
+# starts as a copy of initial-models.yaml; ./manage-models.sh on the Mac
+# changes it, and downloads the files.
 MODELS_DIR="/Users/Shared/models"
-MODEL_DOWNLOADS="https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-Q8_0.gguf a680f44a06920e5d689774823782006aa3acc8db95750323373b24139b67e348 apache-2.0
-https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_M.gguf 322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482 apache-2.0
-https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_0.gguf da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4 apache-2.0
-https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf 0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28 apache-2.0 flux2-klein-4b
-https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d apache-2.0 flux2-klein-4b
-https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffusion_pytorch_model.safetensors ca70d2202afe6415bdbcb8793ba8cd99fd159cfe6192381504d6c4d3036e0f04 apache-2.0 flux2-klein-4b"
-
-# The models the local AI engine serves, and their settings (e.g.,
-# sampling defaults), are in infer-models.yaml, plus any you add in
-# infer-models.local.yaml.
 
 # The local AI engine's releases. host-setup.sh installs the newest
 # release of llama.cpp (a stable vX.Y.Z release, then the build it names)

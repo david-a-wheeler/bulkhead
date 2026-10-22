@@ -208,9 +208,9 @@ be malicious and try to send my sensitive data out. So:
     to 13.5 at 32k). Set it explicitly anyway: this build otherwise
     sizes itself to nearly all memory Metal can use, which squeezes the
     VMs and macOS toward swap;
-  * define each model once, in `infer-models.yaml` (plus any I add in
-    my gitignored `infer-models.local.yaml`; until 2026-10-21 it
-    replaced `infer-models.yaml` instead), in
+  * define each model once, in the host's `models.local.yaml` (which
+    starts as a copy of `initial-models.yaml`; see "Managing models on
+    the host"), in
     llama-swap's own format: its name, file, context window (both
     `--ctx-size` and `capabilities.context`), maximum reply length
     (`metadata.max_tokens`), and sampling defaults. `host-setup.sh`
@@ -226,7 +226,7 @@ be malicious and try to send my sensitive data out. So:
     `general.sampling.*` metadata as its defaults. Qwen3.8-27B's files
     set temperature 1.0, top_p 0.95, and top_k 20 (the card's thinking
     mode), but not min_p, so llama-server would use 0.05, not the
-    card's 0. So `infer-models.yaml` sets each model card's values
+    card's 0. So `initial-models.yaml` sets each model card's values
     through llama-swap's `setParams`/`setParamsByID` with `?` keys,
     which apply only when a request doesn't set them, so clients can
     still choose. `qwen3.8-27b:instruct` is a variant (a llama-swap
@@ -299,7 +299,7 @@ be malicious and try to send my sensitive data out. So:
 * Written 2026-10-21, working on the Mac 2026-10-22: `host-setup.sh` installs
   it under `/opt/stable-diffusion.cpp` like the other engines (the
   newest `master-N-HASH` release older than the cooling period, or
-  `SD_CPP_PIN`), and `infer-models.yaml` serves FLUX.2-klein 4B through
+  `SD_CPP_PIN`), and `initial-models.yaml` serves FLUX.2-klein 4B through
   the `${sd-server}` macro (`--listen-ip 127.0.0.1` and the backend
   port). sd-server has no `/health`, so the entry checks `/v1/models`
   (sd-server loads its model before it listens, so that answers only
@@ -719,40 +719,43 @@ The strict profile, if built:
 * `/Users/Shared/models`: owned by my account, mode 755, model files
   read-only (444), excluded from Time Machine. Readable by `_infer` but
   not writable by it, and downloaded only once.
-* `host-setup.sh` downloads each model in `config.sh`'s `MODEL_DOWNLOADS`
-  (URL, the publisher's SHA-256, license) whose file is missing: to
-  `FILE.partial` first, deleting it and stopping on a SHA-256 mismatch.
-  `SHA256SUMS` (check with `shasum -a 256 -c SHA256SUMS`) and
-  `SOURCES.tsv` (source URL, license, date added, and the Hugging Face
-  commit it came from) record each file, and `README.txt` describes the
-  conventions. The download code is in `host-models.sh`.
-* `add-model.sh` (2026-10-20) adds a model from its Hugging Face link:
-  it gets the SHA-256, license, and context length from Hugging Face's
-  API (recording `NOASSERTION` when no license is published), refuses
-  gated repos, downloads with the same checks, and appends
-  to `MODEL_DOWNLOADS` in `config.local.sh` (and, with `--serve NAME`,
-  an entry to `infer-models.local.yaml`; `--remove NAME` undoes that). URLs stay on `main`; the SHA-256 is the pin.
-  Since 2026-10-22, `--serve NAME --sd-args ARGS` adds a specialist:
-  ARGS are sd-server's arguments with each model file written as its
-  Hugging Face link, so it needs no list of sd-server's file flags. It
-  downloads every file before recording any, and `--remove` handles a
-  model with several files. `tests/test_add_model.sh` runs it end to
-  end in CI, against a stand-in for Hugging Face.
-  `--check` lists models whose files changed upstream, and
-  `--update FILE` installs the new version (refusing changes newer than
-  `INFER_COOLING_DAYS` without `--force`), replacing the old file only
-  after the new one passes every check. Nothing in it is macOS-specific
-  (`host-models.sh` skips the Time Machine exclusion where there's no
-  `tmutil`). Tested 2026-10-20 on Linux; not yet run on the Mac.
+* Each host's list of models is `models.local.yaml` (gitignored), which
+  starts as a copy of `initial-models.yaml`; each entry names its files
+  (path, the publisher's SHA-256, license, and URL). See "Managing
+  models on the host".
+* `manage-models.sh sync` (run by `host-setup.sh`) downloads each file
+  that's missing or whose SHA-256 changed: to `FILE.partial` first,
+  deleting it and stopping on a SHA-256 mismatch. `SHA256SUMS` (check
+  with `shasum -a 256 -c SHA256SUMS`) lists the files the list names,
+  and `SOURCES.tsv` logs each download (source URL, license, date, and
+  the Hugging Face commit it came from).
+* `manage-models.sh add` (first as `add-model.sh`, 2026-10-20) adds a
+  model from its Hugging Face link: it gets the SHA-256, license, and
+  context length from Hugging Face's API (recording `NOASSERTION` when
+  no license is published), refuses gated repos, and downloads with the
+  same checks. With `--sd-args ARGS` (2026-10-22), it adds a
+  specialist: ARGS are sd-server's arguments with each model file
+  written as its Hugging Face link, so it needs no list of sd-server's
+  file flags. URLs stay on `main`; the SHA-256 is the pin. `outdated`
+  lists files whose publishers changed them, and `update FILE` installs
+  the new version (refusing changes newer than `INFER_COOLING_DAYS`
+  without `--force`), replacing the old file only after the new one
+  passes every check. Nothing in it is macOS-specific (it skips the
+  Time Machine exclusion where there's no `tmutil`).
+  `tests/test_manage_models.sh` runs it end to end in CI, against a
+  stand-in for Hugging Face. The Hugging Face code ran against the real
+  site on 2026-10-20 (on Linux); it hasn't run on the Mac.
 * Layout: single-file models directly in it, each multi-file model
   (multi-shard, or with an `mmproj` file) in its own subdirectory, the
   convention llama-server's `--models-dir` uses. An image model is
   usually several files (image model, text encoder, VAE), so each gets
-  its own subdirectory, named by an optional fourth field in each
-  `MODEL_DOWNLOADS` line.
-* Current models: Qwen3.8-27B as Q8_0 (default) and UD-Q4_K_M, from
-  unsloth, Qwen3-0.6B Q4_0 from ggml-org for quick tests, and
-  FLUX.2-klein 4B for images; all Apache-2.0.
+  its own subdirectory.
+* Initial models: Qwen3.8-27B as Q8_0 (default) from unsloth,
+  Qwen3-0.6B Q4_0 from ggml-org for quick tests, and FLUX.2-klein 4B for
+  images; all Apache-2.0. The Mac also has Qwen3.8-27B as UD-Q4_K_M,
+  which nothing served; it's no longer in the initial list, so
+  `manage-models.sh prune` lists it (add it with `manage-models.sh add`
+  to serve it, or prune it).
 * Safety against malicious models:
   * GGUF or safetensors only, never pickle formats (`.bin`, `.pt`,
     `.ckpt`), which run code on load. `host-setup.sh` enforces this: it
@@ -780,147 +783,156 @@ The strict profile, if built:
   cache. Metal's `recommendedMaxWorkingSetSize` here is 115448.73 MB
   (about 107 GiB), so the GPU memory limit doesn't need raising.
 
-### Managing models on the host (planned, 2026-10-22)
+### Managing models on the host (2026-10-22)
 
-Today the repo's models (`infer-models.yaml` and `config.sh`'s
-`MODEL_DOWNLOADS`) are a floor: you can add models on the host, but you
-can't remove or change the repo's, so you can't replace them with
-something better without editing the repo. The fix is for each host to
-own its whole list, and for the repo to provide only the list a new
-host starts with. Nothing here is implemented yet.
+The repo's models (`infer-models.yaml` and `config.sh`'s
+`MODEL_DOWNLOADS`) were a floor: you could add models on the host, but
+not remove or change the repo's, so you couldn't replace them with
+something better without editing the repo. Now each host owns its whole
+list, and the repo provides only the list a new host starts with.
+Implemented and tested in CI on 2026-10-22; not yet run on the Mac.
 
 **Files.**
 
-* `initial-models.yaml` (in the repo) replaces `infer-models.yaml` and
+* `initial-models.yaml` (in the repo) replaced `infer-models.yaml` and
   `MODEL_DOWNLOADS`. It's read only when a host has no list yet, and by
   CI as test data. The name says that it's used only at the start:
-  editing it later changes no host's models.
+  editing it later changes no host's models. Its opening comment has
+  the list's rules.
 * `models.local.yaml` (gitignored, beside `config.local.sh`) is the
-  host's list, and the only one host-setup.sh and the engine use.
-  You can edit it by hand, e.g., to use a llama-swap option our
-  scripts don't know; `manage-models.sh check` then tells you whether
-  it still follows the rules.
-* Both use the current format (llama-swap's `models:` section), plus
-  one comment line per file, inside the entry that uses it:
+  host's list, and the only one the engine uses. You can edit it by
+  hand, e.g., to use a llama-swap option our scripts don't know;
+  `manage-models.sh check` then tells you whether it still follows the
+  rules, and MODELS_DIR has its files.
+* Both use llama-swap's `models:` section, plus one comment line per
+  file, inside the entry that uses it:
   ```yaml
     flux2-klein-4b:
       # file: flux2-klein-4b/flux-2-klein-4b-Q8_0.gguf SHA256 LICENSE URL
       cmd: ${sd-server} --diffusion-model ${models-dir}/flux2-klein-4b/...
   ```
-  The fields are the path in `MODELS_DIR`, the publisher's SHA-256, the
-  license, and the URL. These are comments, so llama-swap never sees
-  them, and we use no keys of our own. A file that two models share is
-  listed in both entries, and `check` requires the lines to agree. The
-  list must name exactly the files each `cmd` uses. With the files in
-  the entries, `MODEL_DOWNLOADS` and its edits to `config.local.sh` go
-  away, and removing a model means deleting its entry.
-* In `MODELS_DIR`, `SHA256SUMS` is regenerated from the list by each
-  `sync`, instead of being edited one line at a time. `SOURCES.tsv`
-  becomes a log, appended to at each download (URL, license, date, and
-  the Hugging Face commit) and never edited, so it also records models
-  you've since removed.
+  The fields are the path in `MODELS_DIR` (the URL's file name, maybe
+  in one subdirectory), the publisher's SHA-256, the license, and the
+  URL. These are comments, so llama-swap never sees them, and we use no
+  keys of our own. A file that two models share is listed in both
+  entries, and the lines must agree. Each entry must list exactly the
+  files its `cmd` uses. Removing a model means deleting its entry.
+* In `MODELS_DIR`, `SHA256SUMS` is rewritten from the list by each
+  `sync`, not edited one line at a time. `SOURCES.tsv` is a log,
+  appended to at each download and never edited, so it also records
+  models you've since removed.
 
 **Scripts.** Each has one job, and only `install-models.sh` and
-`host-setup.sh` use sudo. Neither gets a passwordless sudoers rule.
+`host-setup.sh` use sudo. Neither gets a passwordless sudoers rule,
+since that would let any process running as me change what `_infer`
+runs.
 
 * `manage-models.sh` (renamed from `add-model.sh`; no sudo) manages the
-  list and the files in `MODELS_DIR`:
-  * `init`: copy `initial-models.yaml` to `models.local.yaml`, if
-    there's no list yet. It also does the one-time migration (below).
-  * `add [--serve NAME] ... URL` and `add --serve NAME --sd-args ARGS`:
-    as `add-model.sh` does now, but the result is one entry, with its
-    file lines.
-  * `remove NAME`: delete NAME's entry. Any model can be removed,
-    including the initial ones. Removing the default or the last
-    model asks you to confirm first, since afterward the VMs have no
-    default (`vm-setup.sh` stops until you set one), or the engine
-    serves nothing. Without a terminal to ask on, it refuses unless
-    you add `--yes`.
-  * `default`: print the default model's name, for you on the host.
-    VMs can't run this; each learns the default from the engine (see
-    below).
-  * `default NAME`: make NAME, a generalist, the default: the model
-    `nopi` uses unless you give `--model`. The default is the one
-    entry with `metadata.default: true` (as now), so this sets that on
-    NAME and removes it from the rest. `add --serve NAME --default`
-    does the same for a new model. Each VM learns the default when
-    `vm-setup.sh` runs: it asks the engine for its models through the
-    tunnel (`/v1/models`, whose listing includes each model's
-    metadata) and writes the default into `nopi`. That already works
-    and doesn't change, so after changing
-    it, rerun `vm-setup.sh` on each VM.
-  * `check`: the rules host-setup.sh checks today
-    (`infer_models_ok`), plus the file lines', plus a new one: at most
-    one model is the default, and it's a generalist. Today nothing on
-    the host checks that; `vm-setup.sh` silently takes the first. No
-    default is only a warning, since you may be between models.
+  list and the files in `MODELS_DIR`. Every command first runs `init`
+  if there's no list yet.
+  * `init`: copy `initial-models.yaml` to `models.local.yaml`, with its
+    own opening paragraph. It also does the one-time migration (below).
+  * `add NAME URL` (a generalist) and `add NAME --sd-args ARGS` (a
+    specialist): one entry, with its file lines. `--default` makes a
+    new generalist the default. It downloads every file before it
+    changes the list. A file another model lists is shared, not
+    downloaded again, and keeps the line it has.
+  * `remove NAME`: delete NAME's entry, for any model, including the
+    initial ones. Removing the default or the last model asks first,
+    since afterward `vm-setup.sh` stops until you set a default, or
+    `install-models.sh` has nothing to install. Without a terminal to
+    ask on, it refuses unless you add `--yes`. The files stay until you
+    prune them.
+  * `default`: print the default model's name, for me on the host. VMs
+    can't run this; each learns the default from the engine.
+    `default NAME` makes NAME, a generalist, the default: the model
+    `nopi` uses unless you give `--model`. The default is the one entry
+    with `metadata.default: true`, so this sets that on NAME and removes
+    it from the rest. Each VM learns the default when `vm-setup.sh`
+    runs: it asks the engine for its models through the tunnel
+    (`/v1/models`, whose listing includes each model's metadata) and
+    writes the default into `nopi`. So after changing it, rerun
+    `vm-setup.sh` on each VM.
+  * `check`: the list's rules (`infer_models_ok`), and that `MODELS_DIR`
+    has each file it names, in that version. The rules now include the
+    file lines, and that at most one model is the default, and it's a
+    generalist (before, nothing on the host checked that, and
+    `vm-setup.sh` silently took the first). No default is only a
+    warning, since you may be between models.
   * `sync`: make `MODELS_DIR` match the list: download each missing
     file, and each file whose line's SHA-256 differs from the one
     `SHA256SUMS` records for it (to `FILE.partial`, replacing the old
-    file only once the new one passes every check). Then regenerate
-    `SHA256SUMS`. A file that `SHA256SUMS` doesn't list (e.g., one
-    copied in by hand) is hashed once, and downloaded only if it doesn't
-    match. It doesn't rehash files whose SHA-256 hasn't changed,
-    so a run with nothing to do is quick; `shasum -a 256 -c SHA256SUMS`
-    still checks them all when you want that.
-  * `outdated`: list the files whose publishers have changed them
-    (today's `--check`).
-  * `update FILE [--force]`: write FILE's new SHA-256 into the list
-    (still waiting `INFER_COOLING_DAYS` unless `--force`), then `sync`.
-    The search for which config file holds the line goes away.
+    file only once the new one passes every check), in order of their
+    paths. Then rewrite `SHA256SUMS`. A file that `SHA256SUMS` doesn't
+    list (e.g., one copied in by hand) is hashed, and downloaded only if
+    it doesn't match. It doesn't rehash files whose SHA-256 hasn't
+    changed, so a run with nothing to do is quick; `shasum -a 256 -c
+    SHA256SUMS` still checks them all when you want that.
+  * `outdated`: list the files whose publishers have changed them.
+  * `update FILE [--force]`: download FILE's new version (still waiting
+    `INFER_COOLING_DAYS` unless `--force`), and only then write its new
+    SHA-256 into each of its lines in the list.
   * `prune [--delete]`: list the files in `MODELS_DIR` that no entry
     names; delete them only with `--delete`, so a typo in the list
-    can't cost a 40 GB download. This replaces `--remove`'s "does
-    another model use this file?" logic.
+    can't cost a 40 GB download.
 
-  After a change, it says to run `./install-models.sh`, and offers to.
+  It refuses a `MODELS_DIR` that isn't a plain absolute path below `/`
+  (e.g., an empty one in `config.local.sh`), since `prune --delete`
+  deletes files under it. After a change, it says to run
+  `./install-models.sh`, and offers to.
 * `install-models.sh [--no-restart]` (sudo, with your password): check
-  the list (as `check` does), refuse if a file it names is missing or
-  unverified (it never downloads; that's `sync`'s job), render the
-  llama-swap config, install it root-owned and readable only by
-  `_infer`, and restart the engine if the config changed. It takes
-  the binaries' paths from the targets of host-setup.sh's
-  `/opt/.../current` links, so an engine upgrade still changes the
-  config. `--no-restart` installs only, for host-setup.sh. `stage()`
-  moves from `host-setup.sh` into a file both source.
-* `host-setup.sh` installs the engine (`_infer`, binaries, sandbox
-  profile, plist, sudoers), then runs `manage-models.sh init` (if
-  there's no list), `manage-models.sh sync`, and
-  `install-models.sh --no-restart`. It restarts the engine once, if
-  anything either script installed changed. It sets the `current`
-  links before calling `install-models.sh`; today it sets them after
-  staging.
+  the list, refuse if a file it names is missing or unverified (it
+  never downloads; that's `sync`'s job), render llama-swap's config, have
+  llama-swap check it, install it root-owned and readable only by
+  `_infer`, and restart the engine (with the existing
+  `launchctl kickstart` rule) if the config changed. It takes the
+  binaries' paths from the targets of host-setup.sh's
+  `/opt/.../current` links, so the config names the installed release.
+  `--no-restart` installs without restarting, so the engine uses it
+  from its next restart.
+* `host-install.sh` holds what `host-setup.sh` and `install-models.sh`
+  share: where the engine's files go, `stage()` (moved from
+  `host-setup.sh`), `check_config`, and `render_engine_config`.
+  `manage-models.sh` doesn't source it.
+* `host-setup.sh` runs `manage-models.sh sync` (which starts the list
+  the first time), then installs the engine, rendering the config with
+  `render_engine_config` and staging it with the engine's other files
+  as before, so it still restarts the engine at most once. This differs
+  from the plan, which had it run `install-models.sh --no-restart`:
+  calling the shared function directly keeps all four files checked
+  before any is put in place, and needs no way to report back whether
+  the config changed.
 
 **Removed code.** Merging the repo's list with the local one
 (`with_infer_models`, the rule against reusing a repo model's name, and
 `--remove`'s refusal of repo models), host-setup.sh's download loop
 (now `sync`), the `MODEL_DOWNLOADS` edits, `remove_model_records`, and
-the per-file checks in `--remove`. I expect `manage-models.sh` to end
-up smaller than `add-model.sh`, even with `sync` and `prune`; most of
-what remains is the Hugging Face lookups and checks, unchanged.
+`--remove`'s per-file bookkeeping.
 
-**Migration.** It never deletes, moves, or re-downloads a model you
-have. The Mac's files are already where the new list says (the layout
-doesn't change: one file directly in `MODELS_DIR`, or a model's files
-in its subdirectory), and their SHA-256s match `SHA256SUMS`, so the
-first `sync` downloads nothing. The Mac now has `infer-models.local.yaml` (only the
-models it added) and download lines in `config.local.sh`. If
+**Migration.** It never deletes, moves, or downloads again a model you
+have. The Mac's files are already where the new list says, and their
+SHA-256s match `SHA256SUMS`, so the first `sync` downloads nothing.
+The Mac has `infer-models.local.yaml` (only the models it added) and
+add-model.sh's download lines in `config.local.sh`. If
 `models.local.yaml` doesn't exist, `init` writes it from
-`initial-models.yaml` plus those added entries, with file lines taken
-from `config.local.sh`, then renames the old file to
-`infer-models.local.yaml.old` and removes the download lines (keeping
-a copy as `config.local.sh.old`, and showing what it moved). The new name means no host can mistake an old file of
-additions for a whole list. Once the Mac has migrated, we delete the
-migration code. If anything goes wrong, the old files are still
-there: put `infer-models.local.yaml.old` back, restore
-`config.local.sh` from its backup, and rerun the old scripts.
+`initial-models.yaml` plus those added entries, each with file lines
+from `MODELS_DIR`'s `SHA256SUMS` and `SOURCES.tsv`. Then it renames the
+old file to `infer-models.local.yaml.old` and removes add-model.sh's
+download lines (keeping a copy as `config.local.sh.old`). The new name
+means no host can mistake an old file of additions for a whole list.
+Once the Mac has migrated, we delete the migration code. If anything
+goes wrong, the old files are still there: put
+`infer-models.local.yaml.old` back, restore `config.local.sh` from its
+copy, and check out the commit before this change.
 
-**Testing.** `tests/test_add_model.sh` becomes
-`tests/test_manage_models.sh`, covering `init` (including a
-migration that downloads nothing), `add`, `remove`, `check`, `sync` (including a changed
-SHA-256), `update`, and `prune`. The rendering is already tested in
-ci.sh. The installing (sudo, `/opt`, launchd) can only be tested on
-the Mac; CI runs shellcheck on it.
+**Testing.** `tests/test_manage_models.sh` covers `init`, a migration
+that downloads nothing, `add` (including a shared file), `default`,
+`remove`, `check`, `sync`, `outdated`, `update`, `prune`, refusing a bad
+`MODELS_DIR`, and 20 bad requests that must each fail and change
+nothing. Seven deliberate bugs in `manage-models.sh` each made it fail.
+ci.sh checks `render_engine_config` and the new rules. The installing
+(sudo, `/opt`, launchd) can only be tested on the Mac; CI runs
+shellcheck on it.
 
 **Open question.** `models.local.yaml` lives in the checkout, like
 `config.local.sh`, so a second checkout on the same Mac would have its
@@ -1007,7 +1019,7 @@ own list. I think that's fine for one checkout per host.
 * Written 2026-10-19, not yet run: the trial, moved into the repo.
   * `host-setup.sh` installs llama.cpp and llama-swap (see "Releases"
     and "Locations" under "Inference engine"); generates the API key
-    (if missing) and llama-swap's config (now from `infer-models.yaml`); renders
+    (if missing) and llama-swap's config (then from `infer-models.yaml`, now from `models.local.yaml`); renders
     `infer.template.sb` and `infer.template.plist`; and installs them,
     root-owned, as `/usr/local/etc/infer/llama-swap.yaml` (readable
     only by `_infer`), `/usr/local/etc/infer/infer.sb`, and
@@ -1182,8 +1194,12 @@ Next (2026-10-22): flux runs beside the chat model on the Mac (see
 "Image generation"). Still to check: a forced sleep with both loaded,
 which should unload both (see step 8).
 
-After that: the host owns its list of models (see "Managing models on
-the host"), with `manage-models.sh` and `install-models.sh`.
+Then: run the new model management on the Mac (see "Managing models
+on the host"). `git pull`, then `./manage-models.sh sync`, which
+migrates and should download nothing; check `models.local.yaml` and
+`./manage-models.sh prune` (which should list only the unused
+UD-Q4_K_M file); then `./install-models.sh` (the config should be
+unchanged except for the `# file:` comments) and `./host-setup.sh`.
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
    2026-10-19): on the

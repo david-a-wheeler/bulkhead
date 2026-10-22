@@ -7,7 +7,8 @@
 # file only you can read, and reaches pi only through its environment.
 # vm-setup.sh renders and installs this, and generates the models pi
 # knows (~/.pi/agent/models.json) from the engine's list of models (see
-# infer-models.yaml). The default is the one marked "default: true".
+# models.local.yaml on the Mac). The default is the one marked
+# "default: true" (see ./manage-models.sh default there).
 #
 # Usage: nopi [pi arguments...], e.g., nopi --print "Say hello"
 # or nopi --model qwen3-0.6b (a later --model overrides the default).

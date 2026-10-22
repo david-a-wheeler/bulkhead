@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "${tmp:?}"' EXIT
 
 fail=0
 step() {
@@ -20,7 +20,7 @@ step() {
 }
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-setup.sh infer-check.sh add-model.sh vm-setup.sh host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh manage-models.sh install-models.sh vm-setup.sh host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -93,27 +93,16 @@ for f in infer.plist infer-tunnel.plist infer-watch.plist; do
   fi
 done
 
-step "local AI models (infer-models.yaml)"
+step "local AI models (initial-models.yaml)"
 . "$SCRIPT_DIR/host-models.sh"
-if ! infer_models_ok infer-models.yaml; then
-  echo "FAILED: infer-models.yaml breaks its own rules" >&2
-  fail=1
-fi
-# Each file a model's cmd names is one MODEL_DOWNLOADS puts there.
-printf '%s\n' "$MODEL_DOWNLOADS" | while read -r url _ _ subdir; do
-  model_file "$url" "$subdir"
-done > "$tmp/downloaded"
-missing="$(grep -o '\${models-dir}/[^ ]*' infer-models.yaml |
-  sed 's/^\${models-dir}\///' | grep -vxF -f "$tmp/downloaded")" || true
-if [ -n "$missing" ]; then
-  echo "FAILED: infer-models.yaml uses files MODEL_DOWNLOADS doesn't download:" >&2
-  printf '%s\n' "$missing" >&2
+if ! infer_models_ok initial-models.yaml; then
+  echo "FAILED: initial-models.yaml breaks its own rules" >&2
   fail=1
 fi
 # llama-swap isn't here to check the config, so check what pi and nopi
 # need from it: each model's context matches its --ctx-size, max_tokens
 # fits in it, and exactly one model is the default.
-infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 infer-models.yaml > "$tmp/llama-swap.yaml"
+infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 initial-models.yaml > "$tmp/llama-swap.yaml"
 if ! python3 -I - "$tmp/llama-swap.yaml" <<'EOF'
 import re, sys, yaml
 cfg = yaml.safe_load(open(sys.argv[1]))
@@ -156,9 +145,25 @@ assert "--port 8999 " in macros["llama-server"] and macros["proxy"] == "http://1
 assert macros["sd-server"].endswith("--listen-port 8998") and macros["specialist-proxy"] == "http://127.0.0.1:8998"
 EOF
 then
-  echo "FAILED: the models in infer-models.yaml (above)" >&2
+  echo "FAILED: the models in initial-models.yaml (above)" >&2
   fail=1
 fi
+# with_files: copies a models file, adding a well-formed "# file:" line
+# after each cmd for each file it names, so a test entry breaks only the
+# rule it's meant to.
+with_files() {
+  awk '{ print }
+    /^    cmd:/ {
+      rest = $0
+      while (match(rest, /\$\{models-dir\}\/[^ "]+/)) {
+        f = substr(rest, RSTART + 14, RLENGTH - 14)
+        leaf = f
+        sub(/.*\//, "", leaf)
+        printf "    # file: %s %064d apache-2.0 https://example.com/%s\n", f, 0, leaf
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+    }'
+}
 # Entries infer_models_ok must refuse, each after a good one.
 good='  m:
     cmd: ${llama-server} --model ${models-dir}/m.gguf --ctx-size 4096
@@ -252,8 +257,26 @@ for bad in 'apiKeys:
   'models:
   n:
     cmd: ${llama-server} --model ${models-dir}/n.gguf
-    proxy: ${proxy}'; do
-  printf 'models:\n%s\n%s\n' "$good" "$bad" > "$tmp/bad-models.yaml"
+    proxy: ${proxy}' \
+  '  n:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
+    proxy: ${specialist-proxy}
+    ttl: 600
+    capabilities:
+      out: [image]
+    metadata:
+      default: true' \
+  '  n:
+    cmd: ${llama-server} --model ${models-dir}/n.gguf
+    proxy: ${proxy}
+    metadata:
+      default: true
+  o:
+    cmd: ${llama-server} --model ${models-dir}/o.gguf
+    proxy: ${proxy}
+    metadata:
+      default: true'; do
+  printf 'models:\n%s\n%s\n' "$good" "$bad" | with_files > "$tmp/bad-models.yaml"
   if infer_models_ok "$tmp/bad-models.yaml" 2>/dev/null; then
     echo "FAILED: infer_models_ok accepted:" >&2
     cat "$tmp/bad-models.yaml" >&2
@@ -273,29 +296,85 @@ good_sd='  m-img:
     capabilities:
       in: [text, image]
       out: [text]'
-printf 'models:\n%s\n%s\n' "$good" "$good_sd" > "$tmp/good-models.yaml"
+printf 'models:\n%s\n%s\n' "$good" "$good_sd" | with_files > "$tmp/good-models.yaml"
 infer_models_ok "$tmp/good-models.yaml" ||
   { echo "FAILED: infer_models_ok rejected a good entry" >&2; fail=1; }
 got="$(infer_model_roles "$tmp/good-models.yaml" | tr '\n' ' ')"
 [ "$got" = "m generalist m-img specialist m-vision generalist " ] ||
   { echo "FAILED: infer_model_roles gave '$got'" >&2; fail=1; }
-# infer-models.local.yaml adds to infer-models.yaml, without reusing its
-# names, and the combined config has both files' models.
-infer_models_ok infer-models.yaml "$tmp/good-models.yaml" ||
-  { echo "FAILED: infer_models_ok rejected a good local file" >&2; fail=1; }
-if infer_models_ok infer-models.yaml infer-models.yaml 2>/dev/null; then
-  echo "FAILED: infer_models_ok accepted a model defined twice" >&2
+[ -z "$(infer_models_default "$tmp/good-models.yaml")" ] ||
+  { echo "FAILED: infer_models_default found a default where there's none" >&2; fail=1; }
+# "# file:" lines infer_models_ok must refuse: each replaces the good
+# entry's line. Then a file listed by two models, in two ways, and a
+# model whose files and cmd don't match.
+z64="$(printf '%064d' 0)"
+for bad in "m.gguf $z64 apache-2.0" \
+  "m.gguf $z64 apache-2.0 http://example.com/m.gguf" \
+  "m.gguf $z64 apache-2.0 https://example.com/other.gguf" \
+  "m.gguf ${z64}0 apache-2.0 https://example.com/m.gguf" \
+  "m.gguf $(printf '%064d' 0 | tr 0 A) apache-2.0 https://example.com/m.gguf" \
+  "m.gguf $z64 apache\"2 https://example.com/m.gguf" \
+  "m.gguf $z64 apache-2.0 https://example.com/m.gguf?x=\$y" \
+  "m.bin $z64 apache-2.0 https://example.com/m.bin" \
+  "../m.gguf $z64 apache-2.0 https://example.com/m.gguf" \
+  "a/b/m.gguf $z64 apache-2.0 https://example.com/m.gguf" \
+  "m.gguf  $z64 apache-2.0 https://example.com/m.gguf"; do
+  printf 'models:\n%s\n' "$good" | with_files |
+    B="    # file: $bad" awk '/^    # file:/ { $0 = ENVIRON["B"] } { print }' > "$tmp/bad-models.yaml"
+  if infer_models_ok "$tmp/bad-models.yaml" 2>/dev/null; then
+    echo "FAILED: infer_models_ok accepted the file line: $bad" >&2
+    fail=1
+  fi
+done
+printf 'models:\n%s\n' "$good" | with_files > "$tmp/m.yaml"
+for bad in "$(printf '%s\n  n:\n    # file: m.gguf %064d mit https://example.com/m.gguf\n    cmd: ${llama-server} --model ${models-dir}/m.gguf\n    proxy: ${proxy}' "$(sed 1d "$tmp/m.yaml")" 0)" \
+  "$(printf '%s\n    # file: x.gguf %064d mit https://example.com/x.gguf' "$(sed 1d "$tmp/m.yaml")" 0)" \
+  "$(printf '%s\n' "$good")" \
+  "$(printf '    # file: m.gguf %064d mit https://example.com/m.gguf\n%s' 0 "$(sed 1d "$tmp/m.yaml")")"; do
+  printf 'models:\n%s\n' "$bad" > "$tmp/bad-models.yaml"
+  if infer_models_ok "$tmp/bad-models.yaml" 2>/dev/null; then
+    echo "FAILED: infer_models_ok accepted:" >&2
+    cat "$tmp/bad-models.yaml" >&2
+    fail=1
+  fi
+done
+# The same file in two models, listed the same way, is fine.
+printf '%s\n  n:\n%s\n    cmd: ${llama-server} --model ${models-dir}/m.gguf\n    proxy: ${proxy}\n' \
+  "$(cat "$tmp/m.yaml")" "$(grep '# file:' "$tmp/m.yaml")" > "$tmp/shared.yaml"
+infer_models_ok "$tmp/shared.yaml" ||
+  { echo "FAILED: infer_models_ok rejected a file two models share" >&2; fail=1; }
+[ "$(infer_model_files "$tmp/shared.yaml" | wc -l)" -eq 1 ] ||
+  { echo "FAILED: infer_model_files listed a shared file twice" >&2; fail=1; }
+infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 "$tmp/good-models.yaml" > "$tmp/both.yaml"
+got="$(python3 -I -c 'import sys, yaml; print(" ".join(yaml.safe_load(open(sys.argv[1]))["models"]))' "$tmp/both.yaml")"
+if [ "$got" != "m m-img m-vision" ]; then
+  echo "FAILED: the config for a list has models '$got', not 'm m-img m-vision'" >&2
   fail=1
 fi
-infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 infer-models.yaml "$tmp/good-models.yaml" > "$tmp/both.yaml"
-got="$(python3 -I -c 'import sys, yaml; print(" ".join(yaml.safe_load(open(sys.argv[1]))["models"]))' "$tmp/both.yaml")"
-want="$(sed -n 's/^  \([^ #][^:]*\):$/\1/p' infer-models.yaml | tr '\n' ' ')m m-img m-vision"
-if [ "$got" != "$want" ]; then
-  echo "FAILED: combining infer-models.yaml with a local file gave models '$got', not '$want'" >&2
+# render_engine_config (host-install.sh), which host-setup.sh and
+# install-models.sh use: it refuses a list whose files aren't in
+# MODELS_DIR (by SHA256SUMS), and renders one whose files are.
+if ! (
+  . "$SCRIPT_DIR/host-install.sh"
+  MODELS_DIR="$tmp/models" INFER_MODELS="$tmp/good-models.yaml"
+  infer_key=sk-test LLAMA_SERVER=/llama-server SD_SERVER=/sd-server
+  if (render_engine_config "$tmp/r.yaml") 2>/dev/null; then
+    echo "FAILED: render_engine_config accepted a list whose files are missing" >&2
+    exit 1
+  fi
+  mkdir -p "$MODELS_DIR"
+  infer_model_files "$INFER_MODELS" | while read -r f sha256 _; do
+    : > "$MODELS_DIR/$f"
+    printf '%s  %s\n' "$sha256" "$f"
+  done > "$MODELS_DIR/SHA256SUMS"
+  render_engine_config "$tmp/r.yaml" 2>/dev/null
+  infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 "$INFER_MODELS" | cmp -s - "$tmp/r.yaml"
+); then
+  echo "FAILED: render_engine_config (above)" >&2
   fail=1
 fi
 # pi's models.json and nopi's default, from llama-swap v265's real
-# listing for infer-models.yaml (trimmed to the fields we use). A
+# listing for initial-models.yaml (trimmed to the fields we use). A
 # variant (type "alias") repeats its model's metadata, and comes first
 # here, so picking it as the default would show. The image model, added
 # as llama-swap's api.go would list it, must not reach pi.
@@ -324,8 +403,8 @@ for bad in '{"data": [{"id": "a b", "context_length": 1, "meta": {"llamaswap": {
     fail=1
   fi
 done
-# add-model.sh relies on infer_model_ok to reject these before it
-# appends an entry to infer-models.local.yaml.
+# manage-models.sh relies on infer_model_ok to reject these before it
+# appends an entry to models.local.yaml.
 infer_model_ok m-1.5 "A model" sub/M.gguf ||
   { echo "FAILED: infer_model_ok rejected a valid entry" >&2; fail=1; }
 infer_model_ok img "An image model" img/a.gguf img/vae.safetensors ||
@@ -403,7 +482,7 @@ tar("bad-fifo", *good, ("r/p", tarfile.FIFOTYPE, None))
 EOF
 for t in "$tmp"/tars/*.tar.gz; do
   name="$(basename "$t" .tar.gz)"
-  rm -rf "$tmp/unpack"
+  rm -rf "${tmp:?}/unpack"
   mkdir "$tmp/unpack"
   tar xzf "$t" -C "$tmp/unpack"
   if ! tar tzf "$t" | archive_names_ok; then
@@ -434,7 +513,7 @@ if unzip -Z1 "$tmp/up.zip" | archive_names_ok 2>/dev/null; then
   echo "FAILED: archive_names_ok accepted a zip's ../x" >&2
   fail=1
 fi
-rm -rf "$tmp/unpack"
+rm -rf "${tmp:?}/unpack"
 unzip -q "$tmp/link.zip" -d "$tmp/unpack"
 if unpacked_tree_ok "$tmp/unpack" 2>/dev/null; then
   echo "FAILED: unpacked_tree_ok accepted a zip's symlink to /bin/sh" >&2
@@ -457,11 +536,12 @@ if ! shellcheck -x tests/test_infer_watch.sh || ! tests/test_infer_watch.sh; the
   fail=1
 fi
 
-step "add-model.sh (tests/test_add_model.sh)"
-# Adds and removes a generalist and a specialist on a copy of the repo,
-# with a stand-in for Hugging Face, and checks that bad requests change
+step "manage-models.sh (tests/test_manage_models.sh)"
+# Starts and migrates a list, adds and removes a generalist and a
+# specialist, and updates, syncs, and prunes, on a copy of the repo with
+# a stand-in for Hugging Face; and checks that bad requests change
 # nothing.
-if ! shellcheck -x tests/test_add_model.sh || ! tests/test_add_model.sh; then
+if ! shellcheck -x tests/test_manage_models.sh || ! tests/test_manage_models.sh; then
   fail=1
 fi
 

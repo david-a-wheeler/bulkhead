@@ -253,7 +253,7 @@ infer_engine_models() {
 # Prints pi's ~/.pi/agent/models.json for LISTING (from
 # infer_engine_models): one "mac-local" provider, reached through the
 # VM's tunnel on INFER_PORT, with every model and variant the engine
-# serves (see infer-models.yaml on the Mac). pi reads the literal
+# serves (see models.local.yaml on the Mac). pi reads the literal
 # ${INFER_API_KEY} from its environment (nopi sets it). Fails on a model
 # without capabilities.context or metadata.max_tokens, or a name with
 # characters other than letters, digits, '.', '_', ':', and '-'. jq

@@ -4,7 +4,11 @@ __pycache__/
 .DS_Store
 ,*
 config.local.sh
+models.local.yaml
+# Left by manage-models.sh init's migration.
 infer-models.local.yaml
+infer-models.local.yaml.old
+config.local.sh.old
 confirmations/
 .tmp/
 .cache/

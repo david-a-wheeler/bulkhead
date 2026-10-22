@@ -455,7 +455,7 @@ if [ -s "$INFER_KEY_FILE" ]; then
   echo "pi $(jq -r .version "$pi_dir/package.json")"
 
   # pi's models, and nopi's default, from what the engine serves (see
-  # infer-models.yaml on the Mac), through the tunnel. If the engine
+  # models.local.yaml on the Mac), through the tunnel. If the engine
   # doesn't answer, keep what's installed. Anything on this VM could
   # answer on INFER_PORT while the tunnel is down, so treat the answer as
   # untrusted: jq writes models.json, and the default model's name must
@@ -469,7 +469,7 @@ if [ -s "$INFER_KEY_FILE" ]; then
     rm -f "$TMPDIR/engine-models.json"
     case "$INFER_DEFAULT_MODEL" in
       "" | *[!A-Za-z0-9._:-]*)
-        die "the engine names no usable default model (metadata.default in infer-models.yaml on the Mac)."
+        die "the engine names no usable default model (see ./manage-models.sh default on the Mac)."
         ;;
     esac
     if [ -f "$HOME/.pi/agent/models.json" ] &&

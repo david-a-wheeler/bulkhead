@@ -17,8 +17,13 @@ serves two roles of model, and runs at most one of each at a time:
   its own `ttl`, at most an hour).
 
 Requesting another generalist swaps out the current one, and likewise
-for specialists. A model's role follows from its `cmd` in
-`infer-models.yaml`.
+for specialists. A model's role follows from its `cmd`.
+
+Each host has its own list of models, `models.local.yaml` (gitignored).
+It starts as a copy of the repo's `initial-models.yaml`, and from then
+on it's yours: `./manage-models.sh` adds, removes, and updates models
+(including the initial ones) and sets the default, and
+`./install-models.sh` has the engine serve the result.
 
 ## Usage
 
@@ -103,21 +108,28 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   named after what they do rather than how. Today there's exactly one
   implementation of each (macOS Keychain, UTM's `utmctl`); see
   architecture.md's "Currently supported" note.
-- `host-models.sh`: downloads and checks local AI models (only GGUF and
-  safetensors, matching their published SHA-256) into `MODELS_DIR`.
-  `host-setup.sh` and `add-model.sh` source it.
+- `host-models.sh`: the rules for the list of models, and turning it
+  into llama-swap's config. `manage-models.sh`, `install-models.sh`, and
+  `host-setup.sh` source it.
+- `host-install.sh`: where the engine's files go, and installing them
+  root-owned, each checked before it replaces the running engine's.
+  `host-setup.sh` and `install-models.sh` source it.
 - `host-setup.sh`: host setup (macOS today).
-- `add-model.sh`: adds a local AI model (given its Hugging Face link)
-  to `config.local.sh` and downloads it, and with `--serve NAME` serves
-  it: a generalist from one GGUF file, or with `--sd-args` a specialist
-  from the sd-server arguments you'd use, each model file written as its
-  link. `--check` and `--update` find and install publishers' updates,
-  and `--remove` takes out a model you added. All of it changes only
-  gitignored files and `MODELS_DIR`, so you can add and remove models
-  without touching the repo.
-- `infer-models.yaml`: the models the local AI engine serves, with
-  their sampling defaults, in llama-swap's format. List more in
-  `infer-models.local.yaml` (gitignored); `host-setup.sh` serves both.
+- `manage-models.sh`: manages the host's models, without sudo: `add` a
+  generalist from its GGUF file's Hugging Face link, or a specialist
+  from the sd-server arguments you'd use (`--sd-args`, each model file
+  written as its link); `remove` any model; `default` to show or set the
+  default; `sync` to download what the list names (only GGUF and
+  safetensors, matching their published SHA-256); `outdated` and
+  `update` to find and install publishers' updates; and `prune` to find
+  (and with `--delete`, delete) files no model uses. It changes only
+  `models.local.yaml` and `MODELS_DIR`, never the repo.
+- `install-models.sh`: has the engine serve `models.local.yaml`: checks
+  it, installs llama-swap's config from it (with sudo, asking for your
+  password), and restarts the engine (unless `--no-restart`).
+- `initial-models.yaml`: the models a new host starts with, with their
+  sampling defaults and files, in llama-swap's format. Its opening
+  comment has the rules for `models.local.yaml`.
 - `infer-check.sh`: run on the Mac to check that the engine really
   serves each model (a few tokens, or one image to look at), showing
   why when one fails.

@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 . "$SCRIPT_DIR/host-backend.sh"
 . "$SCRIPT_DIR/host-models.sh"
+. "$SCRIPT_DIR/host-install.sh"
 
 # This script is macOS-only for now. Real incident: this got run on an
 # Ubuntu VM by mistake, and its Mac-specific checks further down produced
@@ -231,16 +232,10 @@ echo "== Configuring git niceties =="
 configure_git_niceties
 
 echo "== Downloading local AI models into $MODELS_DIR (if missing) =="
-# Near the end, since a download can take a while. See host-models.sh
-# for the checks. A here-document, not a pipe, so the loop runs in this
-# shell and set -e can stop the script.
-prepare_models_dir
-while read -r url sha256 license subdir; do
-  [ -n "$url" ] || continue
-  download_model "$url" "$sha256" "$license" "$subdir"
-done <<EOF
-$MODEL_DOWNLOADS
-EOF
+# Near the end, since a download can take a while. The first time, this
+# starts models.local.yaml from initial-models.yaml; see
+# manage-models.sh.
+"$SCRIPT_DIR/manage-models.sh" sync
 
 echo "== Installing the local AI engine (llama.cpp and llama-swap) =="
 # See local-ai-plan.md. llama-swap, which starts llama-server on demand,
@@ -255,20 +250,8 @@ echo "== Installing the local AI engine (llama.cpp and llama-swap) =="
 # and restarts the engine. A "current" symlink in each records what's
 # installed, and the commands are linked through it into /usr/local/bin
 # for your own use. config.sh's INFER_COOLING_DAYS, *_MIN, and *_PIN
-# settings choose the releases.
-INFER_ETC=/usr/local/etc/infer
-INFER_PROFILE="$INFER_ETC/infer.sb"
-INFER_CONFIG="$INFER_ETC/llama-swap.yaml"
-INFER_PLIST="/Library/LaunchDaemons/$INFER_LABEL.plist"
-INFER_SUDOERS=/etc/sudoers.d/infer
-# The backends listen here: the generalist (a llama-server) on one port
-# and the specialist (an sd-server) on the other, at most one of each at
-# a time (see infer_llama_swap_yaml in host-models.sh).
-INFER_GENERALIST_PORT=8999
-INFER_SPECIALIST_PORT=8998
-LLAMA_OPT=/opt/llama.cpp
-SWAP_OPT=/opt/llama-swap
-SD_OPT=/opt/stable-diffusion.cpp
+# settings choose the releases. Where everything goes is in
+# host-install.sh.
 infer_tmp="$SCRIPT_DIR/.tmp/infer"
 rm -rf "${infer_tmp:?}"
 mkdir -p "$infer_tmp"
@@ -495,11 +478,6 @@ if [ ! -d "$SD_OPT/$sd_tag" ]; then
   install_release leejet/stable-diffusion.cpp "$sd_tag" "$sd_zip" "$SD_OPT/$sd_tag"
 fi
 [ -x "$SD_SERVER" ] || die "stable-diffusion.cpp $sd_tag has no sd-server."
-# Every run of the engine's programs is as _infer, never as you or
-# root, from a directory it can enter.
-as_infer() {
-  (cd /var/empty && sudo -u "$MACOS_INFER_USER" "$@")
-}
 # runs_as_infer PROGRAM VERSION-OPTION: PROGRAM at least starts as
 # _infer, so a bad signature, a missing library, or the wrong
 # architecture shows up here, not at the engine's first request.
@@ -529,18 +507,10 @@ case "$metal_cache" in
   *) die "unexpected cache directory for $MACOS_INFER_USER: $metal_cache" ;;
 esac
 
-# The models the engine serves (see infer-models.yaml), behind our
-# settings. check_config, below, has llama-swap check the result.
-if [ -f "$SCRIPT_DIR/infer-models.local.yaml" ]; then
-  echo "Serving the models in infer-models.yaml and infer-models.local.yaml"
-else
-  echo "Serving the models in infer-models.yaml"
-fi
-with_infer_models infer_models_ok ||
-  die "the models break the rules in infer-models.yaml's opening comment. infer-models.local.yaml now holds only the models you add, not a copy of infer-models.yaml."
-with_infer_models infer_llama_swap_yaml "$infer_key" "$LLAMA_SERVER" "$INFER_GENERALIST_PORT" \
-  "$SD_SERVER" "$INFER_SPECIALIST_PORT" \
-  > "$infer_tmp/llama-swap.yaml"
+# The models the engine serves (models.local.yaml), behind our
+# settings, as install-models.sh does. check_config has llama-swap
+# check the result.
+render_engine_config "$infer_tmp/llama-swap.yaml"
 render_template "$SCRIPT_DIR/infer.template.sb" "$infer_tmp/infer.sb" \
   INFER_GENERALIST_PORT INFER_SPECIALIST_PORT METAL_CACHE MODELS_DIR
 render_template "$SCRIPT_DIR/infer.template.plist" "$infer_tmp/infer.plist" \
@@ -559,12 +529,9 @@ me="$(id -un)"
   done
 } > "$infer_tmp/sudoers"
 
-# Each file's check, run on every run, so a change elsewhere (e.g., a
-# macOS update that loosens the sandbox) is caught too.
-# check_config FILE: llama-swap accepts FILE.
-check_config() {
-  as_infer "$SWAP_BIN" -config "$1" -validate
-}
+# Each file's check (see stage in host-install.sh), run on every run,
+# so a change elsewhere (e.g., a macOS update that loosens the sandbox)
+# is caught too.
 # check_profile FILE: a few checks that the sandbox profile FILE blocks
 # what matters most. Run as you, with no listener needed. (The trial in
 # local-ai-plan.md's "Test results" checked more.)
@@ -594,37 +561,7 @@ sandbox_denies() {
   fi
 }
 
-# Stage each file, check it, and only then put them all in place, so a
-# failed check leaves the running engine as it was, and the next run
-# tries again. A file is checked where it will live (e.g., _infer must
-# be able to read the config), as DEST.new: sudo ignores sudoers.d
-# files whose names contain a dot, so a broken rule can't lock you out
-# of sudo.
-# stage SRC DEST GROUP MODE CHECK...: install SRC root-owned as DEST.new
-# and run CHECK... DEST.new, stopping if it fails; then, if it's the
-# same as DEST, discard it.
-staged=""
-stage() {
-  src="$1"
-  dest="$2"
-  group="$3"
-  mode="$4"
-  shift 4
-  sudo install -o root -g "$group" -m "$mode" "$src" "$dest.new"
-  if ! "$@" "$dest.new"; then
-    for f in $staged "$dest"; do
-      sudo rm -f "$f.new"
-    done
-    die "$dest.new failed its check ($1); left $dest as it was."
-  fi
-  if sudo cmp -s "$dest.new" "$dest"; then
-    sudo rm -f "$dest.new"
-  else
-    staged="$staged $dest"
-  fi
-}
-# The config holds the API key, so only _infer can read it.
-stage "$infer_tmp/llama-swap.yaml" "$INFER_CONFIG" "$MACOS_INFER_USER" 640 check_config
+stage_config "$infer_tmp/llama-swap.yaml"
 stage "$infer_tmp/infer.sb" "$INFER_PROFILE" wheel 644 check_profile
 stage "$infer_tmp/infer.plist" "$INFER_PLIST" wheel 644 plutil -lint
 stage "$infer_tmp/sudoers" "$INFER_SUDOERS" wheel 440 sudo /usr/sbin/visudo -cf
@@ -690,12 +627,6 @@ daemon_unloaded() {
 stop_daemon() {
   sudo launchctl bootout "system/$1" 2>/dev/null || true
   retry 30 daemon_unloaded "$1" || die "$1 is still loaded after 30 seconds."
-}
-wait_for_engine() {
-  if ! retry 30 infer_engine_answers "$infer_key"; then
-    echo "To see why, run it by hand: sudo -u $MACOS_INFER_USER /usr/bin/sandbox-exec -f $INFER_PROFILE $SWAP_BIN -config $INFER_CONFIG -listen 127.0.0.1:$INFER_PORT" >&2
-    die "llama-swap didn't start (its output goes to /dev/null)."
-  fi
 }
 
 # Cleanup from the trial (,infer-test/trial.sh), which used the same port.

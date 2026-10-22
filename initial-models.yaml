@@ -1,17 +1,27 @@
-# infer-models.yaml: the models the local AI engine serves, in
+# initial-models.yaml: the models a new host starts with, in
 # llama-swap's own config format (its "models:" section; see
 # https://github.com/mostlygeek/llama-swap/blob/main/docs/config.example.yaml).
-# To serve more models without changing this file, list them in
-# infer-models.local.yaml (gitignored), in this same format, starting
-# with its own "models:" line; host-setup.sh serves the models in both.
-# ./add-model.sh --serve adds to it, and --remove takes a model out. Its
-# models can't reuse a name from this file; to change one of these
-# models, add your version under another name.
+# It's used only at the start: when a host has no models.local.yaml,
+# ./manage-models.sh init copies this file there, and from then on
+# models.local.yaml (gitignored) is that host's whole list. Changing
+# this file changes no host's models. ./manage-models.sh changes the
+# list (add, remove, default, update), or you can edit it by hand;
+# ./manage-models.sh check then checks the rules below, and
+# ./install-models.sh has the engine serve the result.
 #
-# host-setup.sh puts its own settings in front of these files, including
-# the API key, so neither file ever holds a secret, and each may have
+# install-models.sh puts its own settings in front of the list,
+# including the API key, so the list never holds a secret, and may have
 # only the "models:" section. Indent each model's name by two spaces,
 # alone on its line, and its settings by four.
+#
+# Each model lists the files its cmd uses, one per line, as a comment
+# right after its name, so llama-swap never sees it:
+#   # file: PATH SHA256 LICENSE URL
+# PATH is where it goes in MODELS_DIR (the URL's file name, maybe in one
+# subdirectory), SHA256 the publisher's SHA-256, which pins the file,
+# and URL where to download it. ./manage-models.sh sync downloads each
+# file that's missing or whose SHA-256 changed. A file two models share
+# is listed in both, the same way.
 #
 # Each model has a role, which follows from its cmd. A generalist (a
 # ${llama-server} model) can chat; one usually stays loaded, for up to a
@@ -34,8 +44,8 @@
 #   ${specialist-proxy}  the same for a specialist; each one needs
 #                        "proxy: ${specialist-proxy}"
 # Don't give a model its own "macros:" (they'd override these).
-# host-setup.sh checks these rules, and that llama-swap accepts the
-# result.
+# manage-models.sh and install-models.sh check these rules, and
+# install-models.sh checks that llama-swap accepts the result.
 #
 # Each text model also needs capabilities.context (its context window,
 # which must match --ctx-size) and metadata.max_tokens (the most tokens
@@ -43,7 +53,8 @@
 # A specialist instead needs capabilities.out: [image], which keeps it
 # out of pi's list, and a ttl (seconds without a request before it
 # unloads) of at most 3600.
-# One model has metadata.default: true; it's nopi's default.
+# One generalist has metadata.default: true; it's nopi's default
+# (./manage-models.sh default NAME changes it).
 #
 # Sampling: llama-server uses the sampling settings a GGUF file
 # recommends (its general.sampling.* metadata) when it has them. Our
@@ -57,6 +68,7 @@
 # setParamsByID, not setParams.
 models:
   qwen3.8-27b:
+    # file: Qwen3.8-27B-Q8_0.gguf a680f44a06920e5d689774823782006aa3acc8db95750323373b24139b67e348 apache-2.0 https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-Q8_0.gguf
     name: "Qwen3.8-27B Q8_0"
     # --reasoning-budget caps thinking at 8192 tokens (pi's "medium"),
     # then makes the model answer, unless a request sets its own budget
@@ -95,6 +107,9 @@ models:
           chat_template_kwargs:
             enable_thinking: false
   flux2-klein-4b:
+    # file: flux2-klein-4b/flux-2-klein-4b-Q8_0.gguf 0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28 apache-2.0 https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf
+    # file: flux2-klein-4b/Qwen3-4B-Q8_0.gguf eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d apache-2.0 https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf
+    # file: flux2-klein-4b/diffusion_pytorch_model.safetensors ca70d2202afe6415bdbcb8793ba8cd99fd159cfe6192381504d6c4d3036e0f04 apache-2.0 https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffusion_pytorch_model.safetensors
     name: "FLUX.2-klein 4B Q8_0 (images)"
     # For /v1/images/generations and /sdapi/v1/txt2img. --cfg-scale 1.0
     # --steps 4 are what stable-diffusion.cpp's docs/flux2.md uses for it.
@@ -112,6 +127,7 @@ models:
       in: [text]
       out: [image]
   qwen3-0.6b:
+    # file: Qwen3-0.6B-Q4_0.gguf da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4 apache-2.0 https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_0.gguf
     name: "Qwen3-0.6B Q4_0 (tests)"
     cmd: ${llama-server} --model ${models-dir}/Qwen3-0.6B-Q4_0.gguf --ctx-size 32768
     proxy: ${proxy}

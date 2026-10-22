@@ -1,133 +1,24 @@
 # shellcheck shell=sh
-# host-models.sh: downloading local AI models into MODELS_DIR, and the
-# list of models the engine serves (infer-models.yaml). Shared by
-# host-setup.sh and add-model.sh, so the checks that keep a bad file out
-# of MODELS_DIR, and a bad entry out of llama-swap's config, exist only
-# once.
+# host-models.sh: the list of models the engine serves (models.local.yaml,
+# which starts as a copy of initial-models.yaml): its rules, and turning
+# it into llama-swap's config. Shared by manage-models.sh, which changes
+# the list, and install-models.sh and host-setup.sh, which install the
+# config, so the checks that keep a bad entry out of llama-swap's config
+# exist only once.
 #
-# Nothing here is macOS-specific except keeping MODELS_DIR out of Time
-# Machine, which it skips elsewhere. Source this after
-# config.sh/common.sh (it needs SCRIPT_DIR, the repo's top directory):
+# Nothing here is macOS-specific. Source this after config.sh/common.sh
+# (it needs SCRIPT_DIR, the repo's top directory):
 #   . "$(dirname "$0")/host-models.sh"
 
-SOURCES_HEADER="$(printf 'file\tsource_url\tlicense\tadded\tcommit')"
-
-# Usage: prepare_models_dir
-# Creates MODELS_DIR (readable by everyone, so by MACOS_INFER_USER, but
-# writable only by you), keeps it out of Time Machine on macOS, and
-# starts SOURCES.tsv, or adds the commit column to an older one.
-prepare_models_dir() {
-  mkdir -p "$MODELS_DIR"
-  chmod 755 "$MODELS_DIR"
-  if command -v tmutil >/dev/null 2>&1; then
-    tmutil addexclusion "$MODELS_DIR"
-  fi
-  if [ ! -f "$MODELS_DIR/SOURCES.tsv" ]; then
-    printf '%s\n' "$SOURCES_HEADER" > "$MODELS_DIR/SOURCES.tsv"
-  elif [ "$(head -n 1 "$MODELS_DIR/SOURCES.tsv")" = "$(printf 'file\tsource_url\tlicense\tadded')" ]; then
-    { printf '%s\n' "$SOURCES_HEADER"; tail -n +2 "$MODELS_DIR/SOURCES.tsv"; } > "$MODELS_DIR/SOURCES.tsv.new"
-    mv "$MODELS_DIR/SOURCES.tsv.new" "$MODELS_DIR/SOURCES.tsv"
-  fi
-}
-
-# Usage: model_file <url> [<subdir>]
-# Prints the model's path relative to MODELS_DIR: the URL's last part,
-# without any query (e.g., "?download=true"). A multi-file model (e.g.,
-# an image model) names a subdirectory.
-model_file() {
-  printf '%s\n' "${2:+$2/}$(basename "${1%%\?*}")"
-}
-
-# Usage: download_model <url> <sha256> <license> [<subdir>]
-# Downloads one model file into MODELS_DIR unless it's already there.
-download_model() {
-  [ -f "$MODELS_DIR/$(model_file "$1" "${4:-}")" ] ||
-    fetch_model "$1" "$2" "$3" "${4:-}"
-}
-
-# Usage: fetch_model <url> <sha256> <license> [<subdir>]
-# Downloads one model file into MODELS_DIR, replacing any older copy only
-# once the new one passes every check. It goes to FILE.partial first
-# (rerunning resumes it), so an unfinished or wrong download never looks
-# like a model. A checksum mismatch removes it and stops. Files are
-# read-only; SHA256SUMS and SOURCES.tsv record each one's checksum,
-# source, and (from Hugging Face) the repository's commit when downloaded.
-#
-# Only formats that can't run code when loaded are allowed: GGUF and
-# safetensors, both just a header plus raw numbers. Pickle-based formats
-# (PyTorch's .bin, .pt, .pth, and .ckpt, and plain .pkl) can run
-# arbitrary code when loaded, so a URL with one of those extensions is
-# refused before downloading, and every download's first bytes must show
-# GGUF (the bytes "GGUF") or safetensors (an 8-byte header length, then
-# the JSON header's "{"); anything else is removed and stops the script.
-fetch_model() {
-  fm_file="$(model_file "$1" "${4:-}")"
-  case "$fm_file" in
-    *.bin | *.pt | *.pth | *.ckpt | *.pkl | *.pickle)
-      die "$fm_file is a pickle-based format, which can run code when loaded; refusing to download it."
-      ;;
-  esac
-  if [ -n "${4:-}" ]; then
-    mkdir -p "$MODELS_DIR/$4"
-    chmod 755 "$MODELS_DIR/$4"
-  fi
-  echo "Downloading $fm_file"
-  curl -fL -C - -D "$MODELS_DIR/$fm_file.headers" -o "$MODELS_DIR/$fm_file.partial" "$1"
-  # Hugging Face names the commit it served; keep it only if it looks
-  # like one.
-  fm_commit="$(tr -d '\r' < "$MODELS_DIR/$fm_file.headers" |
-    sed -n 's/^[Xx]-[Rr]epo-[Cc]ommit: *\([0-9a-f]\{40\}\)$/\1/p' | tail -n 1)"
-  rm -f "$MODELS_DIR/$fm_file.headers"
-  if [ "$(shasum -a 256 "$MODELS_DIR/$fm_file.partial" | cut -d ' ' -f 1)" != "$2" ]; then
-    rm -f "$MODELS_DIR/$fm_file.partial"
-    die "$fm_file doesn't match its SHA-256; removed it."
-  fi
-  # The first 9 bytes as hex: 18 digits.
-  case "$(head -c 9 "$MODELS_DIR/$fm_file.partial" | od -An -tx1 | tr -d ' \n')" in
-    47475546*) ;;          # GGUF
-    ????????????????7b) ;; # safetensors
-    *)
-      rm -f "$MODELS_DIR/$fm_file.partial"
-      die "$fm_file is neither GGUF nor safetensors; removed it."
-      ;;
-  esac
-  chmod 444 "$MODELS_DIR/$fm_file.partial"
-  mv -f "$MODELS_DIR/$fm_file.partial" "$MODELS_DIR/$fm_file"
-  remove_model_records "$fm_file"
-  printf '%s  %s\n' "$2" "$fm_file" >> "$MODELS_DIR/SHA256SUMS"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$fm_file" "$1" "$3" "$(date +%Y-%m-%d)" "$fm_commit" >> "$MODELS_DIR/SOURCES.tsv"
-}
-
-# Usage: remove_model_records FILE
-# Removes the lines for FILE (relative to MODELS_DIR) from SHA256SUMS and
-# SOURCES.tsv. File names have no spaces or tabs.
-remove_model_records() {
-  touch "$MODELS_DIR/SHA256SUMS"
-  awk -v f="$1" '$2 != f' "$MODELS_DIR/SHA256SUMS" > "$MODELS_DIR/SHA256SUMS.new"
-  mv "$MODELS_DIR/SHA256SUMS.new" "$MODELS_DIR/SHA256SUMS"
-  if [ -f "$MODELS_DIR/SOURCES.tsv" ]; then
-    awk -F '\t' -v f="$1" '$1 != f' "$MODELS_DIR/SOURCES.tsv" > "$MODELS_DIR/SOURCES.tsv.new"
-    mv "$MODELS_DIR/SOURCES.tsv.new" "$MODELS_DIR/SOURCES.tsv"
-  fi
-}
-
-# Usage: with_infer_models COMMAND [ARG...]
-# Runs COMMAND ARG... followed by the files listing the models the
-# engine serves: the repo's infer-models.yaml, then your
-# infer-models.local.yaml (the models you've added) if it exists.
-with_infer_models() {
-  if [ -f "$SCRIPT_DIR/infer-models.local.yaml" ]; then
-    "$@" "$SCRIPT_DIR/infer-models.yaml" "$SCRIPT_DIR/infer-models.local.yaml"
-  else
-    "$@" "$SCRIPT_DIR/infer-models.yaml"
-  fi
-}
+# The host's list, and the one a new host starts with.
+INFER_MODELS="$SCRIPT_DIR/models.local.yaml"
+INFER_INITIAL_MODELS="$SCRIPT_DIR/initial-models.yaml"
 
 # Usage: infer_models_ok FILE...
-# Checks the rules in infer-models.yaml's opening comment that keep each
-# model behind the flags in ${llama-server} or ${sd-server}: each FILE
-# has only a "models:" section; each model's name is alone on its line,
-# indented two spaces, and no other FILE uses it; and each model has
+# Checks the rules in initial-models.yaml's opening comment that keep
+# each model behind the flags in ${llama-server} or ${sd-server}: each
+# FILE has only a "models:" section; each model's name is alone on its
+# line, indented two spaces, and no other FILE uses it; and each model has
 # exactly one cmd and one proxy, indented four spaces, where the cmd
 # starts with ${llama-server} (and doesn't change --host, --port,
 # --cors-origins, or --api-key) or with ${sd-server} (and doesn't change
@@ -138,13 +29,16 @@ with_infer_models() {
 # specialist's proxy is ${specialist-proxy}, its capabilities.out is
 # [image], and it sets a ttl of at most an hour, so it unloads soon after
 # use. A model may not set its own macros, since llama-swap lets those
-# override ours.
+# override ours. Each "# file:" line is well formed, a file listed twice
+# is listed the same way, and each model lists exactly the files its cmd
+# uses (as ${models-dir}/PATH). At most one model is the default
+# (metadata.default: true), and it's a generalist.
 # Being this strict about layout means YAML's other ways of writing a cmd
 # (e.g., a flow mapping like "{cmd: ...}") can't slip past it. It catches
 # mistakes, such as a pasted --host 0.0.0.0, not a deliberate attacker:
-# anyone who can write these files can change host-setup.sh too. Reports
+# anyone who can write these files can change our scripts too. Reports
 # each problem and fails if there's any. llama-swap checks the rest when
-# host-setup.sh validates the config.
+# install-models.sh validates the config.
 infer_models_ok() {
   awk '
     function bad(msg) {
@@ -155,8 +49,23 @@ infer_models_ok() {
       printf "%s: %s: %s\n", where, model, msg > "/dev/stderr"
       failed = 1
     }
+    # path_ok(P): P is a model file in MODELS_DIR or one subdirectory.
+    function path_ok(p) {
+      return p ~ /^([A-Za-z0-9._-]+\/)?[A-Za-z0-9._-]+\.(gguf|safetensors)$/ &&
+        ("/" p) !~ /\/\.\.?(\/|$)/
+    }
     # Checks the model that just ended, if any.
-    function end_model() {
+    function end_model(   i, n, f) {
+      n = split(cmd_files, f, " ")
+      for (i = 1; i <= n; i++)
+        if (!((model SUBSEP f[i]) in listed))
+          model_bad("its cmd uses " f[i] ", but it has no \"# file:\" line for it")
+      n = split(file_lines, f, " ")
+      for (i = 1; i <= n; i++)
+        if (!((model SUBSEP f[i]) in used))
+          model_bad("its \"# file:\" line names " f[i] ", which its cmd never uses")
+      if (is_default && backend != "llama-server")
+        model_bad("only a generalist (a ${llama-server} model) can be the default")
       if (model != "" && (cmds != 1 || proxies != 1)) {
         model_bad("needs exactly one cmd and one proxy, each indented four spaces")
       } else if (backend == "llama-server") {
@@ -172,10 +81,35 @@ infer_models_ok() {
         if (ttl == "" || ttl > 3600)
           model_bad("a specialist (an ${sd-server} model) needs a ttl of at most 3600 seconds")
       }
-      model = backend = proxy = out = ttl = section = ""
-      cmds = proxies = 0
+      model = backend = proxy = out = ttl = section = cmd_files = file_lines = ""
+      cmds = proxies = is_default = 0
     }
     FNR == 1 { end_model(); started = 0 }
+    /^    # file:/ {
+      if (model == "") {
+        bad("a \"# file:\" line must be inside a model")
+        next
+      }
+      if ($0 !~ /^    # file: [^ ]+ [^ ]+ [^ ]+ [^ ]+$/ || !path_ok($3) ||
+          length($4) != 64 || $4 ~ /[^0-9a-f]/ || $5 !~ /^[A-Za-z0-9._+-]+$/ ||
+          $6 !~ /^https:\/\/[A-Za-z0-9._~:\/%+=-]+$/) {
+        bad("must be \"# file: PATH SHA256 LICENSE URL\": a .gguf or .safetensors file in MODELS_DIR or one subdirectory of it, its SHA-256 (64 lowercase hex digits), a license ID, and an https URL")
+        next
+      }
+      name = $6
+      sub(/.*\//, "", name)
+      leaf = $3
+      sub(/.*\//, "", leaf)
+      if (leaf != name) bad($3 " must have the same file name as its URL")
+      if (!($3 in info)) {
+        info[$3] = $4 " " $5 " " $6
+        info_at[$3] = FILENAME ":" FNR
+      } else if (info[$3] != $4 " " $5 " " $6)
+        bad($3 " is listed differently at " info_at[$3])
+      listed[model SUBSEP $3] = 1
+      file_lines = file_lines " " $3
+      next
+    }
     /^[ \t]*(#|$)/ { next }
     /\t/ { bad("has a tab; indent with spaces"); next }
     /^[^ ]/ {
@@ -215,6 +149,13 @@ infer_models_ok() {
           bad("cmd must not set -l, --listen-ip, or --listen-port")
       } else
         bad("cmd must start with ${llama-server} or ${sd-server}")
+      rest = $0
+      while (match(rest, /\$\{models-dir\}\/[^ "]+/)) {
+        f = substr(rest, RSTART + 14, RLENGTH - 14)
+        used[model SUBSEP f] = 1
+        cmd_files = cmd_files " " f
+        rest = substr(rest, RSTART + RLENGTH)
+      }
     }
     /^    proxy:/ {
       proxies++
@@ -225,6 +166,10 @@ infer_models_ok() {
     /^    ttl:/ {
       if ($0 ~ /^    ttl: [1-9][0-9]*$/) ttl = $2 + 0
       else bad("ttl must be a whole number of seconds, more than 0")
+    }
+    section == "metadata" && /^      default: true *$/ {
+      is_default = 1
+      if (++defaults > 1) bad("only one model can be the default (metadata.default: true)")
     }
     section == "capabilities" && /^      out:/ {
       out = $0
@@ -250,9 +195,53 @@ infer_model_roles() {
     /^    cmd: \$\{sd-server\} / { print model, "specialist" }' "$@"
 }
 
-# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <generalist-port> <sd-server-path> <specialist-port> <models-file>...
-# Prints llama-swap's config: our settings, then the models in each
-# <models-file> (see infer-models.yaml), as one "models:" section, then
+# Usage: infer_model_files FILE...
+# Prints each file the models in the FILEs (which infer_models_ok
+# accepts) use, once each and sorted by path, from their "# file:" lines:
+# "PATH SHA256 LICENSE URL".
+infer_model_files() {
+  sed -n 's/^    # file: //p' "$@" | LC_ALL=C sort -u
+}
+
+# Usage: recorded_sha256 PATH
+# Prints the SHA-256 that MODELS_DIR's SHA256SUMS records for PATH (in
+# MODELS_DIR), or nothing.
+recorded_sha256() {
+  [ -f "$MODELS_DIR/SHA256SUMS" ] || return 0
+  awk -v f="$1" '$2 == f { s = $1 } END { print s }' "$MODELS_DIR/SHA256SUMS"
+}
+
+# Usage: infer_models_synced FILE
+# True if MODELS_DIR has each file the models in FILE use, in the
+# version FILE names (by SHA256SUMS, which manage-models.sh sync writes
+# once each file passes its checks). Reports each one that doesn't.
+infer_models_synced() {
+  ims_ok=0
+  while read -r ims_path ims_sha256 _; do
+    [ -n "$ims_path" ] || continue
+    if [ ! -f "$MODELS_DIR/$ims_path" ] || [ "$(recorded_sha256 "$ims_path")" != "$ims_sha256" ]; then
+      echo "$MODELS_DIR/$ims_path is missing, or isn't the version $(basename "$1") names." >&2
+      ims_ok=1
+    fi
+  done <<EOF
+$(infer_model_files "$1")
+EOF
+  return "$ims_ok"
+}
+
+# Usage: infer_models_default FILE
+# Prints the name of the default model in FILE (the one with
+# metadata.default: true), or nothing if there's none.
+infer_models_default() {
+  awk '
+    /^  [^ #]/ { model = $0; gsub(/^  "?|"?:$/, "", model) }
+    /^    [^ #]/ { section = $1; sub(/:.*/, "", section) }
+    section == "metadata" && /^      default: true *$/ { print model }' "$1"
+}
+
+# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <generalist-port> <sd-server-path> <specialist-port> <models-file>
+# Prints llama-swap's config: our settings, then the models in
+# <models-file> (see initial-models.yaml), then
 # a group for each role (see infer_model_roles). Each group runs at most
 # one of its models (swap: true), and loading it leaves the other group
 # alone (exclusive: false), so a specialist can run beside the
@@ -311,13 +300,8 @@ macros:
   proxy: "http://127.0.0.1:$3"
   specialist-proxy: "http://127.0.0.1:$5"
 EOF
-  shift 5
-  roles="$(infer_model_roles "$@")"
-  cat "$1"
-  shift
-  for f in "$@"; do
-    sed '/^models:$/d' "$f"
-  done
+  roles="$(infer_model_roles "$6")"
+  cat "$6"
   cat <<EOF
 routing:
   router:
@@ -337,8 +321,8 @@ EOF
 }
 
 # Usage: infer_model_ok <name> <description> <file>...
-# True if these fields of a new model (from add-model.sh) are safe to put
-# in infer-models.local.yaml: a plain name, a description with no
+# True if these fields of a new model (from manage-models.sh) are safe
+# to put in models.local.yaml: a plain name, a description with no
 # quotes, backslashes, "$" (llama-swap's macros start with it), or
 # control characters (e.g., a newline would start another line), and at
 # least one file, each a relative path inside MODELS_DIR.
