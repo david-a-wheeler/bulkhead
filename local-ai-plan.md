@@ -296,7 +296,7 @@ be malicious and try to send my sensitive data out. So:
   needs no Python and runs as `_infer` under the same sandbox. Its
   macOS zip (checked 2026-10-21) is flat and includes `sd-server`,
   `sd-cli`, and `libstable-diffusion.dylib`.
-* Written 2026-10-21, not yet run on the Mac: `host-setup.sh` installs
+* Written 2026-10-21, working on the Mac 2026-10-22: `host-setup.sh` installs
   it under `/opt/stable-diffusion.cpp` like the other engines (the
   newest `master-N-HASH` release older than the cooling period, or
   `SD_CPP_PIN`), and `infer-models.yaml` serves FLUX.2-klein 4B through
@@ -305,12 +305,15 @@ be malicious and try to send my sensitive data out. So:
   (sd-server loads its model before it listens, so that answers only
   once it's ready), and its `capabilities.out: [image]` keeps it out of
   pi's list. `host-setup.sh` runs each program's `--version` as
-  `_infer`, so a binary that can't start stops it. Still to check on
-  the Mac: whether sd-server accepts klein's diffusers VAE (below), and
-  whether it runs in the sandbox. `infer-check.sh` checks both: it asks
-  each model for a little output, and on a failure shows the model's
-  log and the sandbox denials (tested here 2026-10-22 against llama-swap
-  v265 with stand-in backends).
+  `_infer`, so a binary that can't start stops it. `infer-check.sh`
+  asks each model for a little output, and on a failure shows the
+  model's log and the sandbox denials. On 2026-10-22 it passed on the
+  Mac for all four models: sd-server ran in the sandbox, accepted
+  klein's diffusers VAE, and made a good image of the prompt (a red
+  apple on a table, at 512x512). The only sandbox denials were
+  sd-server and llama-server reading `/private/etc/passwd`, which the
+  profile denies on purpose; both worked anyway. `qwen3.8-27b` and its
+  `:instruct` variant ran in one llama-server, as intended.
 * sd-server has no API key and allows any CORS origin, so while it's
   loaded, any process or web page on the Mac can use it directly on the
   backend port, bypassing llama-swap's key (checked in
@@ -361,8 +364,8 @@ be malicious and try to send my sensitive data out. So:
   that's less certain than it looks: klein's `vae/config.json` says
   `AutoencoderKLFlux2`, a FLUX.2-specific variant of the diffusers VAE,
   while that converter is the generic Stable Diffusion one, so it may
-  not map FLUX.2-specific parts. If it doesn't load, fall back to
-  `ae.safetensors`.
+  not map FLUX.2-specific parts. It did load, and gave a good image
+  (2026-10-22), so klein's own VAE is enough.
 * Other candidates, checked 2026-10-18 (all open-weight; sizes at
   Q8_0 including the text encoder and VAE): FLUX.3 Image Klein (about
   11 GB; FLUX Kommunity license; vendor claims lead open-weight models,
@@ -1009,10 +1012,9 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-Now (2026-10-22): on the Mac, run `./host-setup.sh` (it installs
-stable-diffusion.cpp and downloads FLUX.2-klein 4B), then
-`./infer-check.sh`, and look at the image it saves. Once that works,
-let flux run alongside the chat model (see "Image generation").
+Next (2026-10-22): image generation works on the Mac (see "Image
+generation"), so let flux run alongside the chat model, as decided
+there.
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
    2026-10-19): on the
