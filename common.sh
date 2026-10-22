@@ -199,6 +199,39 @@ cooling_cutoff() {
     date -u -d "$INFER_COOLING_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ
 }
 
+# Usage: archive_names_ok < NAMES
+# Fails, naming each one, if any archive member name on stdin (e.g.,
+# from "tar tzf") is absolute or has a ".." component, so it could unpack
+# outside its directory. tar and unzip strip or refuse such names
+# themselves; this keeps us from depending on which tar or unzip it is.
+archive_names_ok() {
+  awk '/^\// || /(^|\/)\.\.(\/|$)/ {
+      print "  unsafe name: " $0 > "/dev/stderr"
+      bad = 1
+    }
+    END { exit bad }'
+}
+
+# Usage: unpacked_tree_ok DIR
+# Fails, naming each one, unless everything in DIR (an unpacked release)
+# is a directory, a regular file with one link, or a symlink to a name
+# in its own directory (e.g., llama.cpp's "libllama.dylib ->
+# libllama.0.dylib"). So no link in DIR reaches outside it, and copying
+# DIR into a root-owned place with "cp -R" (which copies symlinks as
+# they are) can't leave a link to a file you could change.
+unpacked_tree_ok() {
+  bad="$(
+    find "$1" \( -type f -links +1 \) -print -o \( ! -type f ! -type d ! -type l \) -print &&
+      find "$1" -type l -exec sh -c '
+        for l do
+          case "$(readlink "$l")" in "" | . | .. | */*) echo "$l" ;; esac
+        done' sh {} +
+  )" || return 1
+  [ -z "$bad" ] && return 0
+  printf '%s\n' "$bad" | sed 's/^/  unsafe file: /' >&2
+  return 1
+}
+
 # Usage: infer_engine_answers <api-key>
 # True if the local AI engine (llama-swap) answers on INFER_PORT with
 # <api-key>. On a VM, that's through its tunnel.

@@ -240,6 +240,64 @@ if infer_model_ok m M.gguf 4096 512 "$(printf 'two\nlines')"; then
   fail=1
 fi
 
+step "release archive checks (archive_names_ok, unpacked_tree_ok)"
+# install_release in host-setup.sh lists each release's archive with
+# "tar tzf" and checks the names, then unpacks it and checks the tree.
+if ! printf '%s\n' llama-b1/ llama-b1/libllama.dylib ./x a..b/c..d | archive_names_ok; then
+  echo "FAILED: archive_names_ok refused good names" >&2
+  fail=1
+fi
+for bad in /etc/x ../x a/../../x a/.. ..; do
+  if printf '%s\n' good "$bad" | archive_names_ok 2>/dev/null; then
+    echo "FAILED: archive_names_ok accepted $bad" >&2
+    fail=1
+  fi
+done
+# Tarballs: one like llama.cpp's (a directory, a file, and a version
+# symlink beside it), then one per thing unpacked_tree_ok must refuse.
+python3 -I - "$tmp/tars" <<'EOF'
+import io, os, sys, tarfile
+out = sys.argv[1]
+os.mkdir(out)
+def tar(name, *members):
+    with tarfile.open(os.path.join(out, name + ".tar.gz"), "w:gz") as t:
+        for path, kind, target in members:
+            m = tarfile.TarInfo(path)
+            m.type = kind
+            if kind == tarfile.DIRTYPE:
+                m.mode = 0o755
+            elif kind == tarfile.REGTYPE:
+                m.size = len(b"x")
+            elif target is not None:
+                m.linkname = target
+            t.addfile(m, io.BytesIO(b"x") if kind == tarfile.REGTYPE else None)
+good = [("r/", tarfile.DIRTYPE, None), ("r/lib.0.dylib", tarfile.REGTYPE, None),
+        ("r/lib.dylib", tarfile.SYMTYPE, "lib.0.dylib")]
+tar("good", *good)
+tar("bad-abs-link", *good, ("r/sd-server", tarfile.SYMTYPE, "/bin/sh"))
+tar("bad-up-link", *good, ("r/up", tarfile.SYMTYPE, "../outside"))
+tar("bad-dotdot-link", *good, ("r/up", tarfile.SYMTYPE, ".."))
+tar("bad-subdir-link", *good, ("r/s", tarfile.SYMTYPE, "sub/x"))
+tar("bad-hard-link", *good, ("r/h", tarfile.LNKTYPE, "r/lib.0.dylib"))
+tar("bad-fifo", *good, ("r/p", tarfile.FIFOTYPE, None))
+EOF
+for t in "$tmp"/tars/*.tar.gz; do
+  name="$(basename "$t" .tar.gz)"
+  rm -rf "$tmp/unpack"
+  mkdir "$tmp/unpack"
+  tar xzf "$t" -C "$tmp/unpack"
+  if ! tar tzf "$t" | archive_names_ok; then
+    echo "FAILED: archive_names_ok refused $name's names" >&2
+    fail=1
+  fi
+  case "$name" in
+    good) unpacked_tree_ok "$tmp/unpack" ||
+      { echo "FAILED: unpacked_tree_ok refused $name" >&2; fail=1; } ;;
+    *) ! unpacked_tree_ok "$tmp/unpack" 2>/dev/null ||
+      { echo "FAILED: unpacked_tree_ok accepted $name" >&2; fail=1; } ;;
+  esac
+done
+
 step "python unit tests (tests/)"
 # tests/render_helper.py renders a template in memory and imports it as a
 # real module, so these exercise the actual logic (not a reimplementation

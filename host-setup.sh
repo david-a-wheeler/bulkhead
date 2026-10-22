@@ -430,18 +430,26 @@ SWAP_BIN="$SWAP_OPT/$swap_version/llama-swap"
 # install_release REPO TAG NAME DEST [SUBDIR]: unless DEST exists,
 # download release TAG's tarball NAME (see fetch_asset) and unpack it (or
 # just its SUBDIR) into DEST, root-owned. It's unpacked as you, then
-# copied, so the tarball's own file owners don't matter.
+# copied, so the tarball's own file owners don't matter. It refuses a
+# tarball with a name that could unpack outside its directory, or that
+# unpacks to anything that could reach outside it (see archive_names_ok
+# and unpacked_tree_ok in common.sh).
 install_release() {
   [ -d "$4" ] && return 0
   fetch_asset "$1" "$2" "$3" || exit 1
+  tar tzf "$infer_tmp/$3" > "$infer_tmp/names"
+  archive_names_ok < "$infer_tmp/names" ||
+    die "$3 from $1 $2 has names that could unpack outside its directory; not installing it."
   mkdir "$infer_tmp/unpack"
   tar xzf "$infer_tmp/$3" -C "$infer_tmp/unpack"
+  unpacked_tree_ok "$infer_tmp/unpack" ||
+    die "$3 from $1 $2 has links or special files that could reach outside it; not installing it."
   sudo rm -rf "${4:?}.partial"
   sudo cp -R "$infer_tmp/unpack${5:+/$5}" "$4.partial"
   sudo chown -R root:wheel "$4.partial"
   sudo chmod -R go-w "$4.partial"
   sudo mv "$4.partial" "$4"
-  rm -rf "${infer_tmp:?}/unpack" "${infer_tmp:?}/${3:?}"
+  rm -rf "${infer_tmp:?}/unpack" "${infer_tmp:?}/names" "${infer_tmp:?}/${3:?}"
 }
 install_release ggml-org/llama.cpp "$llama_build" "llama-$llama_build-bin-macos-arm64.tar.gz" \
   "$LLAMA_OPT/$llama_build" "llama-$llama_build"
