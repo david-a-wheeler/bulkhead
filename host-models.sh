@@ -205,9 +205,14 @@ infer_models_ok() {
 # agent it barely helps, since the slot's own KV cache is reused as each
 # turn extends the last. We may raise it later (or use more slots) to
 # speed up several agents taking turns, since each switch otherwise
-# reprocesses the whole context. performance is disabled because
-# otherwise llama-swap runs ioreg every 5 seconds for GPU statistics we
-# don't use, and the sandbox denies each run's read of /etc/passwd.
+# reprocesses the whole context. captureBuffer 0 turns off llama-swap's
+# captures (by default 5 MB of recent requests and replies, i.e., prompts
+# and answers, for its web UI's Activity view). They'd be in llama-swap's
+# ordinary, swappable memory, and would outlive unloading the model, so
+# they'd reach the sleep image; turn them on only while debugging.
+# performance is disabled because otherwise llama-swap runs ioreg every 5
+# seconds for GPU statistics we don't use, and the sandbox denies each
+# run's read of /etc/passwd.
 # includeAliasesInList lists each model's variants (setParamsByID), so
 # vm-setup.sh can tell pi about them. See local-ai-plan.md for the other
 # flags.
@@ -215,6 +220,7 @@ infer_llama_swap_yaml() {
   cat <<EOF
 healthCheckTimeout: 500
 logLevel: info
+captureBuffer: 0
 performance:
   disabled: true
 globalTTL: 1800

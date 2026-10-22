@@ -107,6 +107,7 @@ if ! python3 -I - "$tmp/llama-swap.yaml" <<'EOF'
 import re, sys, yaml
 cfg = yaml.safe_load(open(sys.argv[1]))
 assert cfg["apiKeys"] == ["sk-test"], "the API key isn't ours alone"
+assert cfg["captureBuffer"] == 0, "llama-swap must not keep prompts and replies"
 defaults = []
 for name, m in cfg["models"].items():
     ctx = (m.get("capabilities") or {}).get("context")

@@ -602,7 +602,9 @@ The strict profile, if built:
   (freeing the model, its KV cache, and its prompt cache), waits for
   that to finish, then calls `IOAllowPowerChange` (macOS waits up to
   about 30 seconds). llama-swap itself keeps running, holding no
-  conversation data, only its in-memory log (metadata). AppKit's sleep
+  conversation data, only its in-memory log (metadata), since its
+  captures of requests and replies are off (`captureBuffer: 0`; by
+  default it keeps 5 MB of them, found 2026-10-21). AppKit's sleep
   notification doesn't delay sleep, so it would race with the sleep
   image. Built (2026-10-19) as `infer-watch.c`, a C program of about
   200 lines that only runs a shell hook (`infer-watch-hook`) and waits
