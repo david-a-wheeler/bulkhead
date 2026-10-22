@@ -399,6 +399,8 @@ be malicious and try to send my sensitive data out. So:
   and flux's `ttl` unloaded flux alone. On the Mac (2026-10-22),
   `infer-check.sh` passed for all four models and ended with flux and
   `qwen3.8-27b` both loaded, so the two-port sandbox rule works too.
+  The only sandbox denials were the `/private/etc/passwd` reads we deny
+  on purpose.
   Memory allows the pair (Q8_0
   at 27 GB, plus its KV cache, plus an image model, within the roughly
   107 GB Metal can use). To make room for a larger specialist, request
