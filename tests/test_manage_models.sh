@@ -100,6 +100,16 @@ esac
 EOF
 chmod +x "$work/bin/curl"
 : > "$work/curl.log"
+# A shasum that logs each file it hashes to hash.log, so the test can
+# check that a file already recorded isn't hashed again.
+cat > "$work/bin/shasum" <<EOF
+#!/bin/sh
+for a in "\$@"; do f="\$a"; done
+echo "\$f" >> "$work/hash.log"
+exec "$(command -v shasum)" "\$@"
+EOF
+chmod +x "$work/bin/shasum"
+: > "$work/hash.log"
 
 HF=https://huggingface.co
 # new_repo DIR: a copy of the scripts in DIR, with MODELS_DIR inside it,
@@ -237,12 +247,17 @@ grep -qxF '    cmd: ${llama-server} --model ${models-dir}/x2/y.gguf --mmproj ${m
 for m in x1 x2; do
   mm "$T" remove "$m" || { cat "$work/out" >&2; failed "removing $m"; }
 done
+mm "$T" sync || { cat "$work/out" >&2; failed "sync after removing x1 and x2"; }
 n="$(downloads)"
+: > "$work/hash.log"
 mm "$T" add x3 --no-mmproj "$HF/o/vis/resolve/main/x.gguf" || { cat "$work/out" >&2; failed "adding x3"; }
 # shellcheck disable=SC2016 # a literal cmd line
 grep -qxF '    cmd: ${llama-server} --model ${models-dir}/x1/x.gguf --ctx-size 8192' "$L" ||
   failed "x3 didn't reuse x1/x.gguf, or used a projector despite --no-mmproj"
 [ "$(downloads)" = "$n" ] || failed "x3 downloaded x.gguf again"
+grep -q 'x1/x\.gguf$' "$work/hash.log" && failed "x3 hashed x1/x.gguf again, though SHA256SUMS records it"
+grep -q '  x1/mmproj-F16\.gguf$' "$T/models/SHA256SUMS" ||
+  failed "SHA256SUMS forgot x1/mmproj-F16.gguf, which no model uses but is still there"
 mm "$T" check || { cat "$work/out" >&2; failed "check after adding x3"; }
 mm "$T" remove x3 || { cat "$work/out" >&2; failed "removing x3"; }
 
@@ -341,6 +356,7 @@ grep -q 'g.gguf' "$work/out" && failed "prune listed g.gguf, which g2 still uses
 mm "$T" prune --delete g.gguf && failed "prune --delete deleted g.gguf, which g2 uses"
 mm "$T" prune --delete s1/v.safetensors || { cat "$work/out" >&2; failed "prune --delete FILE"; }
 [ ! -e "$T/models/s1/v.safetensors" ] || failed "prune --delete FILE didn't delete it"
+grep -q '  s1/v\.safetensors$' "$T/models/SHA256SUMS" && failed "SHA256SUMS still records s1/v.safetensors after prune deleted it"
 [ -f "$T/models/s1/d.gguf" ] || failed "prune --delete FILE deleted another file"
 mm "$T" prune --delete || { cat "$work/out" >&2; failed "prune --delete"; }
 [ ! -e "$T/models/s1" ] || failed "prune --delete left s1's directory"

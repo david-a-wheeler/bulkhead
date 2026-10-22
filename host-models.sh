@@ -213,8 +213,8 @@ recorded_sha256() {
 
 # Usage: infer_models_synced FILE
 # True if MODELS_DIR has each file the models in FILE use, in the
-# version FILE names (by SHA256SUMS, which manage-models.sh sync writes
-# once each file passes its checks). Reports each one that doesn't.
+# version FILE names (by SHA256SUMS, where manage-models.sh records each
+# file once it passes its checks). Reports each one that doesn't.
 infer_models_synced() {
   ims_ok=0
   while read -r ims_path ims_sha256 _; do

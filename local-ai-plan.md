@@ -727,8 +727,8 @@ The strict profile, if built:
 * `manage-models.sh sync` (run by `host-setup.sh`) downloads each file
   that's missing or whose SHA-256 changed: to `FILE.partial` first,
   deleting it and stopping on a SHA-256 mismatch. `SHA256SUMS` (check
-  with `shasum -a 256 -c SHA256SUMS`) lists the files the list names,
-  and `SOURCES.tsv` logs each download (source URL, license, date, and
+  with `shasum -a 256 -c SHA256SUMS`) records every checked file in
+  `MODELS_DIR`, and `SOURCES.tsv` logs each download (source URL, license, date, and
   the Hugging Face commit it came from).
 * `manage-models.sh add` (first as `add-model.sh`, 2026-10-20) adds a
   model from its Hugging Face link: it gets the SHA-256, license, and
@@ -841,8 +841,16 @@ Implemented and tested in CI on 2026-10-22; not yet run on the Mac.
   keys of our own. A file that two models share is listed in both
   entries, and the lines must agree. Each entry must list exactly the
   files its `cmd` uses. Removing a model means deleting its entry.
-* In `MODELS_DIR`, `SHA256SUMS` is rewritten from the list by each
-  `sync`, not edited one line at a time. `SOURCES.tsv` is a log,
+* In `MODELS_DIR`, `SHA256SUMS` records the SHA-256 of every file
+  that's been checked, whether or not a model uses it, so each file is
+  hashed once: when it's downloaded, or first found without a record.
+  A line changes only when its file is replaced or deleted. (At first,
+  each `sync` rewrote it from the list, which dropped the records of
+  unused files, so reusing one meant hashing it again, twice; changed
+  2026-10-22.) I kept one `SHA256SUMS` rather than a `FILE.sha256`
+  beside each file: it's the convention for a directory of files (e.g.,
+  Debian's), one `shasum -c` checks everything, and the Mac's already
+  has every record. `SOURCES.tsv` is a log,
   appended to at each download and never edited, so it also records
   models you've since removed.
 
@@ -888,9 +896,9 @@ runs.
     file, and each file whose line's SHA-256 differs from the one
     `SHA256SUMS` records for it (to `FILE.partial`, replacing the old
     file only once the new one passes every check), in order of their
-    paths. Then rewrite `SHA256SUMS`. A file that `SHA256SUMS` doesn't
-    list (e.g., one copied in by hand) is hashed, and downloaded only if
-    it doesn't match. It doesn't rehash files whose SHA-256 hasn't
+    paths. A file that `SHA256SUMS` doesn't list (e.g., one copied in
+    by hand) is hashed (and recorded), and downloaded only if it doesn't
+    match. It forgets the records of files that are gone. It doesn't rehash files whose SHA-256 hasn't
     changed, so a run with nothing to do is quick; `shasum -a 256 -c
     SHA256SUMS` still checks them all when you want that.
   * `outdated`: list the files whose publishers have changed them.

@@ -81,8 +81,9 @@
 # sync downloads each file the list names that's missing, or whose
 # SHA-256 differs from the one SHA256SUMS records, to FILE.partial
 # first, replacing the old file only once the new one passes every
-# check (see fetch_model); then it rewrites SHA256SUMS from the list. It
-# rehashes a file only when SHA256SUMS doesn't already say it matches.
+# check (see fetch_model). SHA256SUMS records each file in MODELS_DIR
+# that's been checked, used or not, so each file is hashed once: when
+# it's downloaded, or first found without a record (see have_file).
 #
 # URLs stay on the branch you gave (normally main). The SHA-256 in the
 # list is what pins each file, and SOURCES.tsv logs where each download
@@ -303,17 +304,36 @@ fetch_model() {
   esac
   chmod 444 "$MODELS_DIR/$fm_file.partial"
   mv -f "$MODELS_DIR/$fm_file.partial" "$MODELS_DIR/$fm_file"
+  record_sha256 "$fm_file" "$2"
   printf '%s\t%s\t%s\t%s\t%s\n' "$fm_file" "$1" "$3" "$(date +%Y-%m-%d)" "$fm_commit" >> "$MODELS_DIR/SOURCES.tsv"
 }
 
 # sync_list FILE: make MODELS_DIR match the list FILE (see sync, above),
-# then rewrite SHA256SUMS from it.
+# and forget the records of files that are gone.
+# record_sha256 PATH [SHA256]: records in MODELS_DIR's SHA256SUMS that
+# its PATH has that SHA-256, or without one, that it's gone. SHA256SUMS
+# records every file here that's been checked, whether or not a model
+# uses it, so each file is hashed once: when it's downloaded, or first
+# found without a record.
+record_sha256() {
+  {
+    [ ! -f "$MODELS_DIR/SHA256SUMS" ] || awk -v f="$1" '$2 != f' "$MODELS_DIR/SHA256SUMS"
+    [ -z "${2:-}" ] || printf '%s  %s\n' "$2" "$1"
+  } | LC_ALL=C sort -k 2 > "$MODELS_DIR/SHA256SUMS.new"
+  mv "$MODELS_DIR/SHA256SUMS.new" "$MODELS_DIR/SHA256SUMS"
+}
+
 # have_file PATH SHA256: true if MODELS_DIR has PATH with that SHA-256,
-# by SHA256SUMS or, if that doesn't say so, by hashing it.
+# by SHA256SUMS or, if it has no record of PATH, by hashing it (and
+# recording that).
 have_file() {
-  [ -f "$MODELS_DIR/$1" ] &&
-    { [ "$(recorded_sha256 "$1")" = "$2" ] ||
-      [ "$(shasum -a 256 "$MODELS_DIR/$1" | cut -d ' ' -f 1)" = "$2" ]; }
+  [ -f "$MODELS_DIR/$1" ] || return 1
+  hf_recorded="$(recorded_sha256 "$1")"
+  if [ -z "$hf_recorded" ]; then
+    hf_recorded="$(shasum -a 256 "$MODELS_DIR/$1" | cut -d ' ' -f 1)"
+    record_sha256 "$1" "$hf_recorded"
+  fi
+  [ "$hf_recorded" = "$2" ]
 }
 
 # reusable_file PATH SHA256: prints where MODELS_DIR already has the
@@ -348,8 +368,13 @@ sync_list() {
   done <<EOF
 $(infer_model_files "$1")
 EOF
-  infer_model_files "$1" | awk '{ print $2 "  " $1 }' > "$MODELS_DIR/SHA256SUMS.new"
-  mv "$MODELS_DIR/SHA256SUMS.new" "$MODELS_DIR/SHA256SUMS"
+  # Forget files that are gone (e.g., deleted by hand).
+  if [ -f "$MODELS_DIR/SHA256SUMS" ]; then
+    while read -r s_sha256 s_path; do
+      [ ! -f "$MODELS_DIR/$s_path" ] || printf '%s  %s\n' "$s_sha256" "$s_path"
+    done < "$MODELS_DIR/SHA256SUMS" > "$MODELS_DIR/SHA256SUMS.new"
+    mv "$MODELS_DIR/SHA256SUMS.new" "$MODELS_DIR/SHA256SUMS"
+  fi
 }
 
 # unused_files: prints each file in MODELS_DIR that no model in the
@@ -734,6 +759,7 @@ EOF
     fi
     printf '%s\n' "$unused" | while IFS= read -r f; do
       rm -f "${MODELS_DIR:?}/${f:?}"
+      record_sha256 "$f"
       # A model's directory, once it's empty.
       case "$f" in */*) rmdir "${MODELS_DIR:?}/${f%/*}" 2>/dev/null || true ;; esac
       echo "Deleted $f."
