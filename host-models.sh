@@ -131,8 +131,14 @@ with_infer_models() {
 # exactly one cmd and one proxy, indented four spaces, where the cmd
 # starts with ${llama-server} (and doesn't change --host, --port,
 # --cors-origins, or --api-key) or with ${sd-server} (and doesn't change
-# -l, --listen-ip, or --listen-port), and the proxy is ${proxy}. A model
-# may not set its own macros, since llama-swap lets those override ours.
+# -l, --listen-ip, or --listen-port). A model's role (see
+# infer_model_roles) follows from that cmd, and each role has its own
+# backend port: a generalist's proxy is ${proxy}, and its
+# capabilities.out (if any) includes text, so pi lists it; a
+# specialist's proxy is ${specialist-proxy}, its capabilities.out is
+# [image], and it sets a ttl of at most an hour, so it unloads soon after
+# use. A model may not set its own macros, since llama-swap lets those
+# override ours.
 # Being this strict about layout means YAML's other ways of writing a cmd
 # (e.g., a flow mapping like "{cmd: ...}") can't slip past it. It catches
 # mistakes, such as a pasted --host 0.0.0.0, not a deliberate attacker:
@@ -145,13 +151,28 @@ infer_models_ok() {
       printf "%s:%d: %s\n", FILENAME, FNR, msg > "/dev/stderr"
       failed = 1
     }
+    function model_bad(msg) {
+      printf "%s: %s: %s\n", where, model, msg > "/dev/stderr"
+      failed = 1
+    }
     # Checks the model that just ended, if any.
     function end_model() {
       if (model != "" && (cmds != 1 || proxies != 1)) {
-        printf "%s: %s needs exactly one cmd and one proxy, each indented four spaces\n", where, model > "/dev/stderr"
-        failed = 1
+        model_bad("needs exactly one cmd and one proxy, each indented four spaces")
+      } else if (backend == "llama-server") {
+        if (proxy != "${proxy}")
+          model_bad("a generalist (a ${llama-server} model) needs proxy: ${proxy}")
+        if (out != "" && out !~ /^\[(.*, *)?text *(,.*)?\]$/)
+          model_bad("a generalist (a ${llama-server} model) outputs text, so capabilities.out must include text")
+      } else if (backend == "sd-server") {
+        if (proxy != "${specialist-proxy}")
+          model_bad("a specialist (an ${sd-server} model) needs proxy: ${specialist-proxy}")
+        if (out != "[image]")
+          model_bad("a specialist (an ${sd-server} model) needs capabilities.out: [image]")
+        if (ttl == "" || ttl > 3600)
+          model_bad("a specialist (an ${sd-server} model) needs a ttl of at most 3600 seconds")
       }
-      model = ""
+      model = backend = proxy = out = ttl = section = ""
       cmds = proxies = 0
     }
     FNR == 1 { end_model(); started = 0 }
@@ -179,13 +200,17 @@ infer_models_ok() {
     }
     /^( |   )[^ ]/ { bad("indent by two spaces per level"); next }
     model == "" { bad("must be inside a model"); next }
+    # The setting this line is in, e.g., "capabilities".
+    /^    [^ ]/ { section = $1; sub(/:.*/, "", section) }
     /^    macros:/ { bad("a model must not set its own macros") }
     /^    cmd:/ {
       cmds++
       if ($0 ~ /^    cmd: \$\{llama-server\} /) {
+        backend = "llama-server"
         if ($0 ~ /--(host|port|cors-origins|api-key)([ =]|$)/)
           bad("cmd must not set --host, --port, --cors-origins, or --api-key")
       } else if ($0 ~ /^    cmd: \$\{sd-server\} /) {
+        backend = "sd-server"
         if ($0 ~ / (-l|--listen-ip|--listen-port)([ =]|$)/)
           bad("cmd must not set -l, --listen-ip, or --listen-port")
       } else
@@ -193,7 +218,17 @@ infer_models_ok() {
     }
     /^    proxy:/ {
       proxies++
-      if ($0 !~ /^    proxy: "?\$\{proxy\}"?$/) bad("proxy must be ${proxy}")
+      proxy = $0
+      sub(/^    proxy: */, "", proxy)
+      gsub(/"/, "", proxy)
+    }
+    /^    ttl:/ {
+      if ($0 ~ /^    ttl: [1-9][0-9]*$/) ttl = $2 + 0
+      else bad("ttl must be a whole number of seconds, more than 0")
+    }
+    section == "capabilities" && /^      out:/ {
+      out = $0
+      sub(/^      out: */, "", out)
     }
     END {
       end_model()
@@ -202,12 +237,31 @@ infer_models_ok() {
     }' "$@"
 }
 
-# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <backend-port> <sd-server-path> <models-file>...
+# Usage: infer_model_roles FILE...
+# Prints each model in the models FILEs (which infer_models_ok accepts)
+# and its role, one per line: "NAME generalist" for a ${llama-server}
+# model, which can chat, and "NAME specialist" for an ${sd-server}
+# model, which makes images. Usually the generalist stays loaded, and a
+# specialist loads beside it only when needed.
+infer_model_roles() {
+  awk '
+    /^  [^ #]/ { model = $0; gsub(/^  "?|"?:$/, "", model) }
+    /^    cmd: \$\{llama-server\} / { print model, "generalist" }
+    /^    cmd: \$\{sd-server\} / { print model, "specialist" }' "$@"
+}
+
+# Usage: infer_llama_swap_yaml <api-key> <llama-server-path> <generalist-port> <sd-server-path> <specialist-port> <models-file>...
 # Prints llama-swap's config: our settings, then the models in each
-# <models-file> (see infer-models.yaml), as one "models:" section. The macros hold the flags every model needs. Every
-# model uses the same fixed backend port, since llama-swap runs only one
-# at a time and the sandbox allows connecting to just that port. The
-# backend has no API key of its own, so --cors-origins names an origin no
+# <models-file> (see infer-models.yaml), as one "models:" section, then
+# a group for each role (see infer_model_roles). Each group runs at most
+# one of its models (swap: true), and loading it leaves the other group
+# alone (exclusive: false), so a specialist can run beside the
+# generalist, but loading another generalist swaps out the current one.
+# Every model must be in a group, or llama-swap puts it in a default
+# group that evicts both. The macros hold the flags every model needs.
+# Each role has its own fixed backend port, since at most one of its
+# models runs at a time, and the sandbox allows connecting to just
+# those two ports. The backend has no API key of its own, so --cors-origins names an origin no
 # web page can have (.invalid is reserved): otherwise any page open in a
 # browser on the Mac could query it directly and read the replies.
 # sd-server has neither an API key nor such a flag (it allows any
@@ -252,15 +306,33 @@ apiKeys:
   - "$1"
 macros:
   llama-server: "$2 --host 127.0.0.1 --port $3 -ngl 99 -fa on --parallel 1 --no-slots --cache-ram 0 --cors-origins http://cors.invalid"
-  sd-server: "$4 --listen-ip 127.0.0.1 --listen-port $3"
+  sd-server: "$4 --listen-ip 127.0.0.1 --listen-port $5"
   models-dir: "$MODELS_DIR"
   proxy: "http://127.0.0.1:$3"
+  specialist-proxy: "http://127.0.0.1:$5"
 EOF
-  shift 4
+  shift 5
+  roles="$(infer_model_roles "$@")"
   cat "$1"
   shift
   for f in "$@"; do
     sed '/^models:$/d' "$f"
+  done
+  cat <<EOF
+routing:
+  router:
+    use: group
+    settings:
+      groups:
+EOF
+  for role in generalist specialist; do
+    cat <<EOF
+        ${role}s:
+          swap: true
+          exclusive: false
+          members:
+EOF
+    printf '%s\n' "$roles" | awk -v role="$role" '$2 == role { print "            - \"" $1 "\"" }'
   done
 }
 

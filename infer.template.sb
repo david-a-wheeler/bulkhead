@@ -1,15 +1,17 @@
 (version 1)
 ; Sandbox profile for the local AI engine (llama-swap and the backend
-; it starts, a llama-server or an sd-server; children inherit it),
+; it starts, a llama-server, an sd-server, or both; children inherit it),
 ; rendered and installed root-owned by host-setup.sh. See
 ; local-ai-plan.md's "Host sandbox": this is the Phase B1 profile plus
 ; three allowances. Allow everything except what's denied below. Later
 ; rules take precedence over earlier ones.
 (allow default)
 
-; No outbound IP network, except llama-swap to its backend.
+; No outbound IP network, except llama-swap to its two backends' ports.
 (deny network-outbound (remote ip "*:*"))
-(allow network-outbound (remote ip "localhost:@@INFER_BACKEND_PORT@@"))
+(allow network-outbound
+  (remote ip "localhost:@@INFER_GENERALIST_PORT@@")
+  (remote ip "localhost:@@INFER_SPECIALIST_PORT@@"))
 
 ; No file writes, except _infer's Metal shader cache (compiled GPU code,
 ; not prompt data) and two devices.

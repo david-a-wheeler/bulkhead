@@ -4,7 +4,7 @@
 # host-setup.sh; see local-ai-plan.md, "Kill on sleep" and "Power and
 # cooling". Its output goes to ~/Library/Logs/infer-watch.log.
 #
-#   infer-watch-hook sleep   # close the tunnels, then unload the model
+#   infer-watch-hook sleep   # close the tunnels, then unload the models
 #   infer-watch-hook wake    # reopen the tunnels infer-access.sh set up
 #   infer-watch-hook power   # Low Power Mode while the battery is low
 set -u
@@ -38,12 +38,14 @@ wait_until() {
 no_tunnels() {
   ! pgrep -f "ssh .*-R *[^ ]*$PORT:127\.0\.0\.1:$PORT" >/dev/null
 }
+# no_model: no backend runs (llama-server for a generalist, or sd-server
+# for a specialist).
 no_model() {
-  ! pgrep -x llama-server >/dev/null
+  ! pgrep -x llama-server >/dev/null && ! pgrep -x sd-server >/dev/null
 }
 
-# Before sleep: the model's weights and KV cache are in wired memory,
-# which goes into the sleep image, so stop llama-server, which frees
+# Before sleep: the models' weights and KV caches are in wired memory,
+# which goes into the sleep image, so stop the backends, which frees
 # them. First close the tunnels (leaving infer-access.sh's plists for
 # "wake"), so no VM can load a model again before the Mac sleeps.
 # infer-watch gives this 25 seconds.
@@ -61,17 +63,17 @@ on_sleep() {
   curl -sS -m 5 -o /dev/null -X POST -H "Authorization: Bearer $(cat "$KEY_FILE")" \
     "http://127.0.0.1:$PORT/api/models/unload" || log "Sleep: the unload request failed."
   if wait_until 80 no_model; then
-    log "Sleep: unloaded the model."
+    log "Sleep: unloaded the models."
     return 0
   fi
-  # Restarting the engine stops llama-server too.
-  log "Sleep: the model is still loaded; restarting the engine."
+  # Restarting the engine stops the backends too.
+  log "Sleep: a model is still loaded; restarting the engine."
   sudo -n /bin/launchctl kickstart -k "system/$ENGINE_LABEL" >/dev/null
   if wait_until 50 no_model; then
-    log "Sleep: restarted the engine, which unloaded the model."
+    log "Sleep: restarted the engine, which unloaded the models."
     return 0
   fi
-  log "Sleep: ERROR: llama-server is still running, so the model may go into the sleep image."
+  log "Sleep: ERROR: a backend is still running, so a model may go into the sleep image."
   return 1
 }
 

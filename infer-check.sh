@@ -101,4 +101,7 @@ for model do
     fi
   fi
 done
+# A specialist runs beside the generalist, so after the checks the last
+# generalist and (until its ttl runs out) the last specialist are loaded.
+echo "Loaded now: $(curl -s -m 10 -H "$auth" "$url/running" | jq -c '[.running[].model]')"
 exit "$failed"

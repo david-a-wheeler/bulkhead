@@ -113,7 +113,7 @@ fi
 # llama-swap isn't here to check the config, so check what pi and nopi
 # need from it: each model's context matches its --ctx-size, max_tokens
 # fits in it, and exactly one model is the default.
-infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server infer-models.yaml > "$tmp/llama-swap.yaml"
+infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 infer-models.yaml > "$tmp/llama-swap.yaml"
 if ! python3 -I - "$tmp/llama-swap.yaml" <<'EOF'
 import re, sys, yaml
 cfg = yaml.safe_load(open(sys.argv[1]))
@@ -126,7 +126,11 @@ for name, m in cfg["models"].items():
     max_tokens = (m.get("metadata") or {}).get("max_tokens")
     if m["cmd"].startswith("${sd-server} "):
         assert m["capabilities"]["out"] == ["image"], f"{name}: needs capabilities.out: [image]"
+        assert m["proxy"] == "${specialist-proxy}", f"{name}: a specialist needs its own port"
+        assert 0 < m["ttl"] <= 3600, f"{name}: a specialist must unload within an hour"
         continue
+    assert m["proxy"] == "${proxy}", f"{name}: a generalist needs the generalist port"
+    assert "ttl" not in m, f"{name}: a generalist should stay loaded (globalTTL)"
     size = re.search(r"--ctx-size (\d+)", m["cmd"])
     assert isinstance(ctx, int) and size and int(size.group(1)) == ctx, \
         f"{name}: capabilities.context must match --ctx-size"
@@ -135,6 +139,21 @@ for name, m in cfg["models"].items():
     if (m.get("metadata") or {}).get("default") is True:
         defaults.append(name)
 assert len(defaults) == 1, f"exactly one model needs metadata.default: true, not {defaults}"
+# One group per role, which swaps within itself and leaves the other
+# alone, and every model in one; otherwise llama-swap's default group
+# would evict both.
+groups = cfg["routing"]["router"]["settings"]["groups"]
+assert cfg["routing"]["router"]["use"] == "group" and set(groups) == {"generalists", "specialists"}
+for g in groups.values():
+    assert g["swap"] is True and g["exclusive"] is False, "each role must swap only within itself"
+roles = {n: "specialists" if m["cmd"].startswith("${sd-server} ") else "generalists"
+         for n, m in cfg["models"].items()}
+for gname, g in groups.items():
+    assert sorted(g["members"] or []) == sorted(n for n, r in roles.items() if r == gname), \
+        f"{gname}: members {g['members']} don't match the models' roles"
+macros = cfg["macros"]
+assert "--port 8999 " in macros["llama-server"] and macros["proxy"] == "http://127.0.0.1:8999"
+assert macros["sd-server"].endswith("--listen-port 8998") and macros["specialist-proxy"] == "http://127.0.0.1:8998"
 EOF
 then
   echo "FAILED: the models in infer-models.yaml (above)" >&2
@@ -174,12 +193,59 @@ for bad in 'apiKeys:
     proxy: ${proxy}' \
   '  n:
     cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf -l 0.0.0.0
-    proxy: ${proxy}' \
+    proxy: ${specialist-proxy}
+    ttl: 600
+    capabilities:
+      out: [image]' \
   '  n:
     macros:
       sd-server: /bin/sh -c evil
     cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
-    proxy: ${proxy}' \
+    proxy: ${specialist-proxy}
+    ttl: 600
+    capabilities:
+      out: [image]' \
+  '  n:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
+    proxy: ${proxy}
+    ttl: 600
+    capabilities:
+      out: [image]' \
+  '  n:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
+    proxy: ${specialist-proxy}
+    capabilities:
+      out: [image]' \
+  '  n:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
+    proxy: ${specialist-proxy}
+    ttl: 7200
+    capabilities:
+      out: [image]' \
+  '  n:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
+    proxy: ${specialist-proxy}
+    ttl: 0
+    capabilities:
+      out: [image]' \
+  '  n:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
+    proxy: ${specialist-proxy}
+    ttl: 600' \
+  '  n:
+    cmd: ${sd-server} --diffusion-model ${models-dir}/n.gguf
+    proxy: ${specialist-proxy}
+    ttl: 600
+    metadata:
+      out: [image]' \
+  '  n:
+    cmd: ${llama-server} --model ${models-dir}/n.gguf
+    proxy: ${specialist-proxy}' \
+  '  n:
+    cmd: ${llama-server} --model ${models-dir}/n.gguf
+    proxy: ${proxy}
+    capabilities:
+      out: [image]' \
   '  n:
     cmd: ${other} --model ${models-dir}/n.gguf
     proxy: ${proxy}' \
@@ -196,10 +262,23 @@ for bad in 'apiKeys:
 done
 good_sd='  m-img:
     cmd: ${sd-server} --diffusion-model ${models-dir}/m.gguf --vae ${models-dir}/vae.gguf
-    proxy: ${proxy}'
+    proxy: "${specialist-proxy}"
+    ttl: 300
+    capabilities:
+      in: [text]
+      out: [image]
+  m-vision:
+    cmd: ${llama-server} --model ${models-dir}/v.gguf
+    proxy: ${proxy}
+    capabilities:
+      in: [text, image]
+      out: [text]'
 printf 'models:\n%s\n%s\n' "$good" "$good_sd" > "$tmp/good-models.yaml"
 infer_models_ok "$tmp/good-models.yaml" ||
   { echo "FAILED: infer_models_ok rejected a good entry" >&2; fail=1; }
+got="$(infer_model_roles "$tmp/good-models.yaml" | tr '\n' ' ')"
+[ "$got" = "m generalist m-img specialist m-vision generalist " ] ||
+  { echo "FAILED: infer_model_roles gave '$got'" >&2; fail=1; }
 # infer-models.local.yaml adds to infer-models.yaml, without reusing its
 # names, and the combined config has both files' models.
 infer_models_ok infer-models.yaml "$tmp/good-models.yaml" ||
@@ -208,9 +287,9 @@ if infer_models_ok infer-models.yaml infer-models.yaml 2>/dev/null; then
   echo "FAILED: infer_models_ok accepted a model defined twice" >&2
   fail=1
 fi
-infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server infer-models.yaml "$tmp/good-models.yaml" > "$tmp/both.yaml"
+infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 infer-models.yaml "$tmp/good-models.yaml" > "$tmp/both.yaml"
 got="$(python3 -I -c 'import sys, yaml; print(" ".join(yaml.safe_load(open(sys.argv[1]))["models"]))' "$tmp/both.yaml")"
-want="$(sed -n 's/^  \([^ #][^:]*\):$/\1/p' infer-models.yaml | tr '\n' ' ')m m-img"
+want="$(sed -n 's/^  \([^ #][^:]*\):$/\1/p' infer-models.yaml | tr '\n' ' ')m m-img m-vision"
 if [ "$got" != "$want" ]; then
   echo "FAILED: combining infer-models.yaml with a local file gave models '$got', not '$want'" >&2
   fail=1

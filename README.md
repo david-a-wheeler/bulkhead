@@ -4,6 +4,22 @@ Setup for a host + guest VM setup for running AI coding agents safely.
 Currently supported: macOS host, Ubuntu Linux guest (via UTM). See
 [architecture.md](architecture.md) for the why.
 
+The host can also run a local AI engine (llama-swap, sandboxed) that VMs
+reach through SSH tunnels; see [local-ai-plan.md](local-ai-plan.md). It
+serves two roles of model, and runs at most one of each at a time:
+
+- A **generalist** can chat (a llama-server model, e.g., Qwen3.8-27B).
+  You'd normally keep one loaded; it unloads only after a day without
+  requests, since reloading it means reprocessing your conversation.
+- A **specialist** does something a generalist can't, such as making
+  images (an sd-server model, e.g., FLUX.2-klein). It loads beside the
+  generalist only when you ask for it, and unloads soon after (each sets
+  its own `ttl`, at most an hour).
+
+Requesting another generalist swaps out the current one, and likewise
+for specialists. A model's role follows from its `cmd` in
+`infer-models.yaml`.
+
 ## Usage
 
 This repo is meant to be a git checkout on the host and on every VM. To

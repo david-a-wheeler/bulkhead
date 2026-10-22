@@ -127,9 +127,9 @@ be malicious and try to send my sensitive data out. So:
   day an overnight break doesn't cost that; the cost is that the
   weights and KV cache (about 43 GB, wired) stay allocated while idle.
   llama-swap listens on 127.0.0.1 on the tunneled port; each
-  backend `llama-server` listens on one fixed localhost port (hard-coded
-  in each model's command and its `proxy` URL, instead of llama-swap's
-  default dynamic `${PORT}`; verify this works). Turn on its API key.
+  backend listens on its role's fixed localhost port (8999 for a
+  generalist, 8998 for a specialist; see "Image generation"), set by
+  our macros instead of llama-swap's default dynamic `${PORT}`. Turn on its API key.
   See "Alternatives considered" for why not llama-server's own router
   mode.
 * Releases (decided 2026-10-19): rather than pinning llama.cpp and
@@ -380,23 +380,30 @@ be malicious and try to send my sensitive data out. So:
   (FLUX.2-dev's encoder is large; I believe it's a roughly
   24B-parameter language model, so the whole model needs more than the
   19-27 GB of its quantized image part, but still fits on its own.)
-* By default llama-swap swaps: requesting an image model unloads the
-  LLM, and the next text request reloads it, losing its cache, so a long
-  conversation is processed again (a minute or more). That's fine for
-  typing a description and getting an image. If an LLM starts driving
-  image generation (writing prompts, or making images mid-conversation),
-  use llama-swap's `matrix` to keep both loaded; memory allows it (Q8_0
-  at 27 GB plus an image model, within the roughly 107 GB Metal can use),
-  but each concurrent backend needs its own port and sandbox allowance.
-  Decided 2026-10-22: I want to be *able* to load flux without
-  unloading the chat model, though usually I won't. So only that pair
-  may run together, flux gets a much shorter `ttl` than the chat
-  model's day (it's also reachable without the key while loaded), and
-  every other model still swaps. That's the next step once the image
-  model works at all on the Mac.
-* Every backend, text or image, uses the same fixed localhost port,
-  since only one runs at a time, so the sandbox needs only one outbound
-  allowance.
+* By default llama-swap swaps: requesting an image model would unload
+  the LLM, and the next text request would reload it, losing its
+  cache, so a long conversation would be processed again (minutes for
+  a long one). Decided 2026-10-22: each model has one of two roles,
+  derived from its `cmd`, so the model files need nothing that isn't
+  llama-swap's own. A **generalist** (a `${llama-server}` model) can
+  chat; usually one stays loaded, for up to a day without requests. A
+  **specialist** (an `${sd-server}` model, e.g., flux) loads beside it
+  only when needed, and sets its own short `ttl` (at most an hour;
+  flux's is 10 minutes), since it also uses memory and is reachable
+  without the key while loaded. At most one of each runs at a time.
+  `infer_llama_swap_yaml` writes one llama-swap group per role, each
+  with `swap: true` (it runs one of its models at a time) and
+  `exclusive: false` (it leaves the other group alone). I confirmed
+  that in llama-swap v265's source and with stand-in backends: flux ran
+  beside `qwen3.8-27b`, `qwen3-0.6b` swapped out only `qwen3.8-27b`,
+  and flux's `ttl` unloaded flux alone. Memory allows the pair (Q8_0
+  at 27 GB, plus its KV cache, plus an image model, within the roughly
+  107 GB Metal can use). To make room for a larger specialist, request
+  a small generalist or unload the generalist
+  (`POST /api/models/unload/MODEL`); either loses its KV cache.
+* Each role's backend uses its own fixed localhost port, since at most
+  one of each runs at a time, so the sandbox needs two outbound
+  allowances.
 * Image clients: goose and pi are text agents, so call the image
   endpoint through the tunnel with a client in the secure VM, from
   `curl` up to a web UI. An A1111-style client (`/sdapi`) can't use
@@ -503,7 +510,7 @@ provides, so the host gets no extra software.
 profile (allow by default; deny outbound IP network, writes outside
 allowed directories, and reads under `/Users` except the model and
 engine directories) plus the three allowances below (the Metal shader
-cache, `/dev/dtracehelper`, and outbound to the backend port only), as
+cache, `/dev/dtracehelper`, and outbound to the two backend ports only), as
 the trial does. It covers the main goals (no outbound network, no
 reading my files, no writes outside allowed places) in about 35 lines
 I understand. It also limits what a compromised engine can learn about
@@ -551,10 +558,10 @@ The strict profile, if built:
     denial log with noise), plus `/dev/null`;
   * listening on 127.0.0.1 on the two ports (llama-swap's and the
     backend's);
-  * outbound only to 127.0.0.1 on the backend's port, for llama-swap.
+  * outbound only to 127.0.0.1 on the two backend ports, for llama-swap.
 
-  Child processes (the backend `llama-server`) inherit it, so the
-  backend could also connect to that one port, i.e., itself, but
+  Child processes (the backends) inherit it, so a backend could also
+  connect to those two ports, i.e., itself or the other backend, but
   nothing else. Rules later in a profile override earlier ones
   (confirmed in Phase B1). `sandbox-exec` is deprecated and SBPL is
   undocumented, but it still works and is widely used (Chrome, Bazel,
@@ -568,8 +575,8 @@ The strict profile, if built:
   doesn't use it).
 * SBPL can allow localhost to one port or to all ports, not a range, and
   allowing all would let the engine reach every localhost service (e.g.,
-  CUPS on 631, maybe the secrets server). That's why the backend uses
-  one fixed port.
+  CUPS on 631, maybe the secrets server). That's why each role's
+  backend uses one fixed port.
 * launchd plist keys: `UserName`/`GroupName`; `WorkingDirectory`,
   `HOME`, and `TMPDIR` of `/var/empty` (not writable);
   `StandardOutPath` and `StandardErrorPath` of `/dev/null`; `Umask` 077;
@@ -683,7 +690,9 @@ The strict profile, if built:
   * first closes the tunnels (`launchctl bootout`, keeping
     `infer-access.sh`'s plists), so no VM can load the model again
     between the unload and the sleep;
-  * unloads the model and waits until no `llama-server` runs;
+  * unloads the models and waits until no `llama-server` or
+    `sd-server` runs (before 2026-10-22 it checked only `llama-server`,
+    so a loaded sd-server could have gone unnoticed);
   * if it's still running after 8 seconds, restarts the engine with the
     existing `kickstart` sudoers rule.
 
@@ -1012,9 +1021,10 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
 here.
 
-Next (2026-10-22): image generation works on the Mac (see "Image
-generation"), so let flux run alongside the chat model, as decided
-there.
+Next (2026-10-22): on the Mac, run `./host-setup.sh` and
+`./infer-check.sh` again, to check that flux runs beside the chat
+model (generalists and specialists; see "Image generation"), and a
+forced sleep with both loaded (see step 8).
 
 1. **Run and check the moved trial** (sudo; see "Implemented"; done
    2026-10-19): on the

@@ -51,9 +51,11 @@ show() {
         "http://127.0.0.1:$INFER_PORT/v1/chat/completions"
     fi
     show pgrep -lx llama-server
+    show pgrep -lx sd-server
   else
     show tail -n 20 "$HOME/Library/Logs/infer-watch.log"
     show pgrep -lx llama-server
+    show pgrep -lx sd-server
     show "$SCRIPT_DIR/infer-access.sh" status
     # pmset's log has the event type in its 4th field; other fields can
     # contain "Wake" (e.g., Chrome's "Video Wake Lock"), and "Wake

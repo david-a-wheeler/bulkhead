@@ -11,17 +11,28 @@
 # host-setup.sh puts its own settings in front of these files, including
 # the API key, so neither file ever holds a secret, and each may have
 # only the "models:" section. Indent each model's name by two spaces,
-# alone on its line, and its settings by four. Its macros, which hold the flags
-# every model needs (listening only on 127.0.0.1, on the one port the
-# sandbox allows, with no prompt cache), are:
-#   ${llama-server}  llama-server and those flags; start every cmd with it,
-#                    and don't add --host, --port, --cors-origins, or
-#                    --api-key after it
-#   ${sd-server}     the same for image models' sd-server; don't add -l,
-#                    --listen-ip, or --listen-port after it
-#   ${models-dir}    MODELS_DIR
-#   ${proxy}         where llama-swap reaches the server; every model
-#                    needs "proxy: ${proxy}"
+# alone on its line, and its settings by four.
+#
+# Each model has a role, which follows from its cmd. A generalist (a
+# ${llama-server} model) can chat; one usually stays loaded, for up to a
+# day without requests. A specialist (an ${sd-server} model) makes
+# images; it loads beside the generalist only when needed, and unloads
+# soon after. At most one of each runs at a time: requesting another
+# generalist swaps out the current one, and likewise for specialists.
+#
+# The macros hold the flags every model needs (listening only on
+# 127.0.0.1, on its role's port, the only ones the sandbox allows, with
+# no prompt cache):
+#   ${llama-server}      llama-server and those flags; start a
+#                        generalist's cmd with it, and don't add --host,
+#                        --port, --cors-origins, or --api-key after it
+#   ${sd-server}         the same for a specialist's sd-server; don't add
+#                        -l, --listen-ip, or --listen-port after it
+#   ${models-dir}        MODELS_DIR
+#   ${proxy}             where llama-swap reaches a generalist; each one
+#                        needs "proxy: ${proxy}"
+#   ${specialist-proxy}  the same for a specialist; each one needs
+#                        "proxy: ${specialist-proxy}"
 # Don't give a model its own "macros:" (they'd override these).
 # host-setup.sh checks these rules, and that llama-swap accepts the
 # result.
@@ -29,8 +40,9 @@
 # Each text model also needs capabilities.context (its context window,
 # which must match --ctx-size) and metadata.max_tokens (the most tokens
 # one reply may use); vm-setup.sh reads both from the engine to tell pi.
-# An image model instead needs capabilities.out: [image], which keeps it
-# out of pi's list.
+# A specialist instead needs capabilities.out: [image], which keeps it
+# out of pi's list, and a ttl (seconds without a request before it
+# unloads) of at most 3600.
 # One model has metadata.default: true; it's nopi's default.
 #
 # Sampling: llama-server uses the sampling settings a GGUF file
@@ -90,7 +102,11 @@ models:
     # loads the model before it listens, so /v1/models answers only once
     # the model is ready.
     cmd: ${sd-server} --diffusion-model ${models-dir}/flux2-klein-4b/flux-2-klein-4b-Q8_0.gguf --vae ${models-dir}/flux2-klein-4b/diffusion_pytorch_model.safetensors --llm ${models-dir}/flux2-klein-4b/Qwen3-4B-Q8_0.gguf --cfg-scale 1.0 --steps 4
-    proxy: ${proxy}
+    proxy: ${specialist-proxy}
+    # Unload after 10 minutes without a request: long enough to look at an
+    # image and ask for another, and it frees its memory (and closes its
+    # unauthenticated port) soon after.
+    ttl: 600
     checkEndpoint: /v1/models
     capabilities:
       in: [text]

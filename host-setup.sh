@@ -261,8 +261,11 @@ INFER_PROFILE="$INFER_ETC/infer.sb"
 INFER_CONFIG="$INFER_ETC/llama-swap.yaml"
 INFER_PLIST="/Library/LaunchDaemons/$INFER_LABEL.plist"
 INFER_SUDOERS=/etc/sudoers.d/infer
-# Each backend llama-server listens here, one at a time.
-INFER_BACKEND_PORT=8999
+# The backends listen here: the generalist (a llama-server) on one port
+# and the specialist (an sd-server) on the other, at most one of each at
+# a time (see infer_llama_swap_yaml in host-models.sh).
+INFER_GENERALIST_PORT=8999
+INFER_SPECIALIST_PORT=8998
 LLAMA_OPT=/opt/llama.cpp
 SWAP_OPT=/opt/llama-swap
 SD_OPT=/opt/stable-diffusion.cpp
@@ -535,10 +538,11 @@ else
 fi
 with_infer_models infer_models_ok ||
   die "the models break the rules in infer-models.yaml's opening comment. infer-models.local.yaml now holds only the models you add, not a copy of infer-models.yaml."
-with_infer_models infer_llama_swap_yaml "$infer_key" "$LLAMA_SERVER" "$INFER_BACKEND_PORT" "$SD_SERVER" \
+with_infer_models infer_llama_swap_yaml "$infer_key" "$LLAMA_SERVER" "$INFER_GENERALIST_PORT" \
+  "$SD_SERVER" "$INFER_SPECIALIST_PORT" \
   > "$infer_tmp/llama-swap.yaml"
 render_template "$SCRIPT_DIR/infer.template.sb" "$infer_tmp/infer.sb" \
-  INFER_BACKEND_PORT METAL_CACHE MODELS_DIR
+  INFER_GENERALIST_PORT INFER_SPECIALIST_PORT METAL_CACHE MODELS_DIR
 render_template "$SCRIPT_DIR/infer.template.plist" "$infer_tmp/infer.plist" \
   INFER_LABEL MACOS_INFER_USER INFER_PROFILE SWAP_BIN INFER_CONFIG INFER_PORT
 # Only you may restart the engine without a password, and only this way.
