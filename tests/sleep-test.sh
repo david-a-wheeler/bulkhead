@@ -5,7 +5,7 @@
 # so run "before" only once its log says it's watching.
 #
 #   tests/sleep-test.sh before   # load the model, then close the lid
-#                                # within 30 minutes (llama-swap's ttl)
+#                                # within a day (llama-swap's ttl)
 #   (close the lid for at least a minute, then open it and log in)
 #   tests/sleep-test.sh after    # see what happened
 #

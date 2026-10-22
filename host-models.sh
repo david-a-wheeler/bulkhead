@@ -229,6 +229,10 @@ infer_models_ok() {
 # and answers, for its web UI's Activity view). They'd be in llama-swap's
 # ordinary, swappable memory, and would outlive unloading the model, so
 # they'd reach the sleep image; turn them on only while debugging.
+# globalTTL unloads a model only after a day without requests, since
+# unloading discards its KV cache, and then the next turn reprocesses the
+# whole conversation (minutes for a long one). Sleep, a mode switch, and
+# a request for another model still unload it sooner.
 # performance is disabled because otherwise llama-swap runs ioreg every 5
 # seconds for GPU statistics we don't use, and the sandbox denies each
 # run's read of /etc/passwd.
@@ -242,7 +246,7 @@ logLevel: info
 captureBuffer: 0
 performance:
   disabled: true
-globalTTL: 1800
+globalTTL: 86400
 includeAliasesInList: true
 apiKeys:
   - "$1"

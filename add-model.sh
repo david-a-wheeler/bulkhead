@@ -242,7 +242,7 @@ EOF
       *" config.sh "*) echo "Changed its SHA-256 in config.sh; commit that." ;;
     esac
     echo "A model that's loaded keeps using the old file until llama-swap unloads it"
-    echo "(after 30 idle minutes)."
+    echo "(after a day without requests)."
     if command -v launchctl >/dev/null 2>&1; then
       echo "To switch now: sudo launchctl kickstart -k system/$INFER_LABEL"
     fi

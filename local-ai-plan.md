@@ -120,7 +120,13 @@ be malicious and try to send my sensitive data out. So:
   model's `llama-server` command line (with per-model settings), so
   harnesses see a stable list of model names on one port. It loads
   the requested model on demand, one at a time, and can unload it after
-  a timeout. llama-swap listens on 127.0.0.1 on the tunneled port; each
+  a timeout. I set that to 24 hours (decided 2026-10-22): unloading
+  discards the KV cache, so the next turn reprocesses the whole
+  conversation, at roughly 400-600 tokens/s on the 27B model, i.e.,
+  minutes for a long agent session. The Mac rarely sleeps, so with a
+  day an overnight break doesn't cost that; the cost is that the
+  weights and KV cache (about 43 GB, wired) stay allocated while idle.
+  llama-swap listens on 127.0.0.1 on the tunneled port; each
   backend `llama-server` listens on one fixed localhost port (hard-coded
   in each model's command and its `proxy` URL, instead of llama-swap's
   default dynamic `${PORT}`; verify this works). Turn on its API key.

@@ -119,6 +119,7 @@ import re, sys, yaml
 cfg = yaml.safe_load(open(sys.argv[1]))
 assert cfg["apiKeys"] == ["sk-test"], "the API key isn't ours alone"
 assert cfg["captureBuffer"] == 0, "llama-swap must not keep prompts and replies"
+assert cfg["globalTTL"] == 86400, "llama-swap should keep an idle model loaded for a day"
 defaults = []
 for name, m in cfg["models"].items():
     ctx = (m.get("capabilities") or {}).get("context")
