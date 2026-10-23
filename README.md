@@ -23,7 +23,10 @@ Each host has its own list of models, `models.local.yaml` (gitignored).
 It starts as a copy of the repo's `initial-models.yaml`, and from then
 on it's yours: `./manage-models.sh` adds, removes, and updates models
 (including the initial ones) and sets the default, and
-`./install-models.sh` has the engine serve the result.
+`./install-models.sh` has the engine serve the result. On a VM, `nopi
+--list-models` shows the generalists the engine serves now (specialists
+don't appear, since pi can only chat), and `nopi --model FOO` runs pi
+against the model named FOO instead of the default.
 
 ## Usage
 
@@ -230,8 +233,11 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `nopi`: runs pi like `noclaude` runs Claude Code, against the Mac's
   models. Each time, it turns `infer-models`' answer into pi's
   `models.json` with `pi-models.jq`, and starts pi with the default
-  model. A wrapper for another client (e.g., goose) would do the same,
-  with its own small jq file.
+  model. `nopi --list-models` lists the models it would serve (the
+  generalists, by their ID in `models.local.yaml`), and
+  `nopi --model FOO` runs pi against the model named FOO for that
+  session, instead of the default. A wrapper for another client (e.g.,
+  goose) would do the same, with its own small jq file.
 - `my-gen-image`: makes an image from a prompt, or edits images, with
   the Mac's image models (e.g., flux), from any client with a shell.
 - `agents/`: `vm-setup.sh` copies it into `~/.agents`, where Agent
