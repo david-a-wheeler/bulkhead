@@ -776,30 +776,21 @@ The strict profile, if built:
   names with that SHA-256 (e.g., two quantizations from one repo share
   a projector), or one with the same name elsewhere in `MODELS_DIR`
   (e.g., the unused UD-Q4_K_M file). Not yet tried on the Mac.
-* pi makes images (2026-10-22) through its `codemode` tool, which runs
-  image models (`models.generateImages`) and shows each result to the
-  chat model (`image()`, which also saves it to a file). `models.json`
-  can't declare image models, so `infer-images.js`, a pi extension of
-  about 70 lines, registers each model `infer-models` lists as
-  outputting images (flux today) under a provider of its own,
-  `mac-local-images`, and sends each request to llama-swap's
-  `/v1/images/generations` with the API key pi resolves from
-  `INFER_API_KEY`. `nopi` passes it `infer-models`' answer in
-  `INFER_MODELS`, loads it with `--extension`, and adds
-  `--tools +codemode`. A request with input images (e.g., from
-  `tools.read()` or an earlier result) goes to `/v1/images/edits`
-  instead, as a form with each image as `image[]` (sd-server's field;
-  checked in its master's `api.md`, not in the Mac's release), where
-  FLUX.2-klein uses them as references. It uses the model's own size
-  (1024x1024 for klein), or for an edit, the first image's. Plain JavaScript, not
-  TypeScript, so Ubuntu's Node.js (which can't strip types) can run
-  its test. Tested in CI with node and stand-ins for pi and the engine,
-  and with the real pi (offline, with a throwaway extension calling
-  pi's registry the way `codemode` does) against a stand-in engine.
-  Real pi also passed an input image through to the edit endpoint. Not
-  yet run under `nopi`'s sandbox nor against flux. Since
-  `--tools +codemode` adds to pi's default tools, a plain `--tools`
-  list given to `nopi` can't be combined with it.
+* Making images from a client (2026-10-22): I tried a pi extension
+  (`infer-images.js`, in 771d5dd) that registered the image models for
+  pi's `codemode` tool, but the chat model then had to write JavaScript
+  for each image, and it only worked for pi. I removed it in favor of a
+  CLI any client with a shell can run, `my-gen-image`, with an Agent
+  Skills skill (`agents/skills/my-gen-image/SKILL.md`) that tells the
+  model how to use it. `vm-setup.sh` installs the CLI in
+  `/usr/local/bin` and copies `agents/` into `~/.agents`, and nono's
+  default profile lets every sandboxed client read `~/.agents`. It sends a prompt to llama-swap's
+  `/v1/images/generations`, or with input images, a form to
+  `/v1/images/edits` with each image as `image[]` (sd-server's field;
+  checked in its master's `api.md`, not in the Mac's release). It reads
+  the engine's URL and image models from `INFER_MODELS` and the key from
+  `INFER_API_KEY`, which `nopi` exports. pi, and I believe Codex, find
+  skills in `~/.agents/skills`.
 * Safety against malicious models:
   * GGUF or safetensors only, never pickle formats (`.bin`, `.pt`,
     `.ckpt`), which run code on load. `host-setup.sh` enforces this: it
@@ -1290,8 +1281,7 @@ unchanged except for the `# file:` comments) and `./host-setup.sh`.
 
 Then: vision and images (see "Models"). The Mac has its projector (a
 one-time script added it, 2026-10-22). On each VM, `./vm-setup.sh`
-once (it installs `infer-models`, `infer-images.js`, and the new
-`nopi`; see "Clients learn the models from the engine"), then ask
+once (it installs `infer-models`, `my-gen-image`, and the new `nopi`; see "Clients learn the models from the engine"), then ask
 `nopi` to describe an image file, and to make an image with
 flux2-klein-4b and say what's in it. Check the sandbox log for
 denials. After that, changing models on the Mac should need nothing

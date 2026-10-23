@@ -230,13 +230,17 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `nopi`: runs pi like `noclaude` runs Claude Code, against the Mac's
   models. Each time, it turns `infer-models`' answer into pi's
   `models.json` with `pi-models.jq`, and starts pi with the default
-  model. It loads `infer-images.js`, a pi extension that lets pi's
-  `codemode` tool make and edit images with the Mac's image models
-  (e.g., flux). A wrapper for another client (e.g., goose) would do
-  the same, with its own small jq file.
+  model. A wrapper for another client (e.g., goose) would do the same,
+  with its own small jq file.
+- `my-gen-image`: makes an image from a prompt, or edits images, with
+  the Mac's image models (e.g., flux), from any client with a shell.
+- `agents/`: `vm-setup.sh` copies it into `~/.agents`, where Agent
+  Skills clients (e.g., pi) find skills, e.g.,
+  `agents/skills/my-gen-image/SKILL.md`, which tells the model how to
+  use `my-gen-image`.
 - `nono-default-profile.json`: filesystem access every nono-sandboxed
   harness should have beyond what its own pack grants: `~/.rbenv`,
-  `~/.gitconfig`, program and header directories nono lacks (e.g.,
+  `~/.gitconfig`, `~/.agents` (e.g., skills), program and header directories nono lacks (e.g.,
   `/usr/libexec` and `/usr/include`, so gcc works), the dpkg database,
   small read-only `/etc` files that programs read at startup, the
   generated spelling dictionaries (so aspell works) and Ghostscript font

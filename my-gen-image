@@ -1,0 +1,119 @@
+#!/bin/sh
+# my-gen-image: generate or edit images with the local Mac image engine
+# (llama-swap's OpenAI-compatible /v1/images endpoints).
+#
+# Works from any client with a shell (pi, goose, claude, or you at a
+# terminal); it needs only curl, jq, and the INFER_MODELS and
+# INFER_API_KEY environment variables (nopi sets both). vm-setup.sh
+# installs it in /usr/local/bin, and copies its skill
+# (agents/skills/my-gen-image) into ~/.agents, where Agent Skills
+# clients (e.g., pi) find it.
+#
+# Each returned image is saved to a PNG and its path printed to
+# stdout, one per line. Errors go to stderr; the exit code is nonzero.
+#
+# Usage: my-gen-image [--model ID] [--size WxH] [--out PATH] [--] PROMPT [IMAGE ...]
+#   --model   model ID; default is the first image-outputting model in
+#             INFER_MODELS (currently flux2-klein-4b)
+#   --size    e.g. 1024x1024; the model's own size if omitted
+#   --out     output path; default my-gen-image-<timestamp>.png in the
+#             current directory. If the engine returns several images,
+#             -1, -2, ... are inserted before the .png.
+#   --        end of options
+#   PROMPT    text prompt, required, as one quoted argument
+#   IMAGE...  optional existing images to edit or use as references;
+#             with any, the request goes to /images/edits
+#
+# Note: the INFER_MODELS listing currently says flux2-klein-4b takes no
+# image input, which I suspect is a bug in the host's model metadata; my-gen-image
+# trusts the caller: give it images and it uses /images/edits.
+set -u
+
+die() { echo "my-gen-image: $*" >&2; exit 1; }
+
+[ -n "${INFER_MODELS:-}" ] || die "INFER_MODELS is not set"
+[ -n "${INFER_API_KEY:-}" ] || die "INFER_API_KEY is not set"
+
+url=$(printf '%s' "$INFER_MODELS" | jq -er .url) || die "INFER_MODELS has no .url"
+# Default model: the first in the listing whose output includes image.
+model=$(printf '%s' "$INFER_MODELS" | jq -er '
+  [ .models[] | select((.output // []) | index("image")) ] | first | .id // empty' 2>/dev/null)
+[ -n "$model" ] || die "INFER_MODELS lists no image model"
+
+size=""
+out=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --model) model=${2:?--model needs a value}; shift 2 ;;
+    --size)  size=${2:?--size needs a value}; shift 2 ;;
+    --out)   out=${2:?--out needs a value}; shift 2 ;;
+    --)      shift; break ;;
+    -*)      die "unknown option $1" ;;
+    *)       break ;; # first positional: the prompt
+  esac
+done
+[ $# -gt 0 ] || die "no prompt; usage: my-gen-image [--model ID] [--size WxH] [--out PATH] [--] PROMPT [IMAGE ...]"
+prompt=$1
+shift
+# The remaining arguments, if any, are images to edit.
+
+[ -n "$out" ] || out=my-gen-image-$(date +%Y%m%d-%H%M%S).png
+reply=$(mktemp) || die "mktemp failed"
+trap 'rm -f "$reply"' EXIT
+# The key reaches curl on its stdin, not its command line, which any
+# process here can read.
+auth() { printf 'Authorization: Bearer %s\n' "$INFER_API_KEY"; }
+
+if [ $# -gt 0 ]; then
+  # Edit: a form to /images/edits, one image[] per file. The -F
+  # arguments are kept in the positional parameters so that file
+  # names with spaces are safe.
+  path=$url/images/edits
+  # Validate each image and remember "image;mime" pairs, one per line;
+  # none of our parameters contain newlines.
+  imglist=""
+  for image; do
+    [ -f "$image" ] || die "can't read image file $image"
+    mime=$(file -b --mime-type "$image")
+    case $mime in image/*) ;; *) die "$image is not an image file";; esac
+    imglist="$imglist
+$image;$mime"
+  done
+  # Build the -F arguments into the positional parameters so that
+  # file names with spaces stay one argument.
+  set -- -F model="$model" -F prompt="$prompt"
+  oldIFS=$IFS
+  IFS='
+'
+  for line in $imglist; do
+    [ -n "$line" ] || continue
+    set -- "$@" -F "image[]=@${line%%;*};type=${line#*;}"
+  done
+  IFS=$oldIFS
+  status=$(auth | curl -sS -m 1200 -H @- "$@" -o "$reply" -w '%{http_code}' "$path") \
+    || die "couldn't reach the engine at $url"
+else
+  path=$url/images/generations
+  [ -n "$size" ] || size="null" # null: leave the key out of the JSON
+  body=$(jq -cn --arg m "$model" --arg p "$prompt" --arg s "$size" \
+    '{model:$m, prompt:$p} + (if $s == "null" then {} else {size:$s} end)')
+  status=$(auth | curl -sS -m 1200 -H @- -H 'Content-Type: application/json' \
+    -d "$body" -o "$reply" -w '%{http_code}' "$path") \
+    || die "couldn't reach the engine at $url"
+fi
+
+[ "$status" = 200 ] || die "HTTP $status from $path: $(head -c 500 "$reply")"
+
+n=$(jq -r '.data | length' "$reply") || die "unexpected engine reply"
+[ "$n" -gt 0 ] || die "the engine returned no image"
+# The engine answers with .data, a list of images: usually one, but it can
+# be more, so save each to its own file and print each path.
+i=0
+while [ "$i" -lt "$n" ]; do
+  b64=$(jq -r ".data[$i].b64_json // empty" "$reply")
+  [ -n "$b64" ] || die "no b64_json for image $((i + 1))"
+  if [ "$n" -gt 1 ]; then path_out=${out%.png}-$((i + 1)).png; else path_out=$out; fi
+  printf '%s' "$b64" | base64 -d > "$path_out" || die "couldn't write $path_out"
+  echo "$path_out"
+  i=$((i + 1))
+done

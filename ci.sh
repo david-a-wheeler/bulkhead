@@ -20,7 +20,7 @@ step() {
 }
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh manage-models.sh install-models.sh vm-setup.sh nopi host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh manage-models.sh install-models.sh vm-setup.sh nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -558,13 +558,6 @@ step "manage-models.sh (tests/test_manage_models.sh)"
 # a stand-in for Hugging Face; and checks that bad requests change
 # nothing.
 if ! shellcheck -x tests/test_manage_models.sh || ! tests/test_manage_models.sh; then
-  fail=1
-fi
-
-step "infer-images.js (tests/test_infer_images.sh)"
-# The pi extension for image models, with node, a stand-in for pi, and a
-# stand-in engine.
-if ! shellcheck -x tests/test_infer_images.sh || ! tests/test_infer_images.sh; then
   fail=1
 fi
 

@@ -6,6 +6,7 @@
     "read": [
       "$HOME/.rbenv",
       "$HOME/.gitconfig",
+      "$HOME/.agents",
       "/usr/local/sbin",
       "/usr/games",
       "/usr/local/games",
