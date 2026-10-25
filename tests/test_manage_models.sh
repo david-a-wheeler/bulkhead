@@ -47,56 +47,15 @@ sha() {
   sha256sum "$1" | cut -d ' ' -f 1
 }
 
-# The stand-in curl: paths-info gives a file's SHA-256, size, and date;
-# a repository's info says it's not gated, and its license and context
-# length; a download link writes the file and headers. It serves
-# NAME.served instead of NAME, if that exists, to fake a bad download,
-# and logs each download to curl.log.
+# The stand-in curl (stand-in-curl.sh): paths-info gives a file's
+# SHA-256, size, and date; a repository's info says it's not gated, and
+# its license and context length; a download link writes the file and
+# headers. It serves NAME.served instead of NAME, if that exists, to
+# fake a bad download, and logs each download to curl.log.
 mkdir "$work/bin"
 cat > "$work/bin/curl" <<EOF
 #!/bin/sh
-F="$F"
-LOG="$work/curl.log"
-EOF
-cat >> "$work/bin/curl" <<'EOF'
-out="" headers="" path="" url=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -o) out="$2"; shift ;;
-    -D) headers="$2"; shift ;;
-    --data-urlencode) path="${2#paths=}"; shift ;;
-    -C | -d) shift ;;
-    -*) ;;
-    *) url="$1" ;;
-  esac
-  shift
-done
-case "$url" in
-  */paths-info/*)
-    f="$F/$(basename "$path")"
-    if [ -f "$f" ]; then
-      printf '[{"lfs": {"oid": "%s"}, "size": %s, "lastCommit": {"date": "2020-01-01T00:00:00.000Z"}}]\n' \
-        "$(sha256sum "$f" | cut -d ' ' -f 1)" "$(wc -c < "$f")"
-    else
-      echo '[]'
-    fi
-    ;;
-  */api/models/o/vis\?*)
-    echo '{"gated": false, "cardData": {"license": "apache-2.0"}, "gguf": {"context_length": 8192}, "siblings": [{"rfilename": "README.md"}, {"rfilename": "mmproj-BF16.gguf"}, {"rfilename": "x.gguf"}, {"rfilename": "mmproj-F16.gguf"}, {"rfilename": "y.gguf"}]}'
-    ;;
-  */api/models/*)
-    echo '{"gated": false, "cardData": {"license": "apache-2.0"}, "gguf": {"context_length": 8192}}'
-    ;;
-  */resolve/*)
-    echo "$url" >> "$LOG"
-    f="$F/$(basename "$url")"
-    [ -f "$f.served" ] && f="$f.served"
-    [ -f "$f" ] || exit 22
-    printf 'HTTP/2 200\r\nx-repo-commit: %s\r\n' 0123456789abcdef0123456789abcdef01234567 > "$headers"
-    cat "$f" > "$out"
-    ;;
-  *) exit 22 ;;
-esac
+F="$F" LOG="$work/curl.log" exec "$TESTS/stand-in-curl.sh" "\$@"
 EOF
 chmod +x "$work/bin/curl"
 : > "$work/curl.log"
