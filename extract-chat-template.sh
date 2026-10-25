@@ -13,6 +13,8 @@
 # came from when an entry points at it with --chat-template.
 #
 # Read-only on the GGUF; refuses to overwrite an existing output file.
+# At the end it prints the steps for putting the template to use in
+# models.local.yaml (assuming it went into MODELS_DIR, as by default).
 
 set -euo pipefail
 
@@ -89,3 +91,10 @@ if not template.strip():
 open(dst, "w").write(template)
 print(f"wrote {dst} ({len(template)} chars)")
 PY
+
+TPL="$(basename "$DST")"
+echo
+echo "To use it in the model BAR's entry in models.local.yaml (BAR being the model whose cmd should use this template):"
+echo "  1. add --jinja --chat-template \${models-dir}/$TPL to its cmd"
+echo "  2. list the file as \"# generated: $TPL\": each model lists the files its cmd uses, and a \"# generated:\" file is checked, but manage-models.sh never downloads it"
+echo "Then run ./manage-models.sh check, and ./install-models.sh to serve the change."
