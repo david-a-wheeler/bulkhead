@@ -4,9 +4,7 @@
 # MODELS_DIR, a small initial-models.yaml, and a stand-in curl that
 # answers like Hugging Face's API and serves small local files. One copy
 # starts as a new host: it syncs, adds, updates, removes, and prunes,
-# and checks that bad requests change nothing. Another starts as a host
-# set up by the old add-model.sh, and checks that migrating it
-# downloads nothing. Run by ci.sh; SHOW=1 also shows each bad request's
+# and checks that bad requests change nothing. Run by ci.sh; SHOW=1 also shows each bad request's
 # error.
 set -eu
 
@@ -350,62 +348,5 @@ for bad in "" / "$T/models/" "$T/models/../models" "$T//models" models; do
   grep -q '^ERROR: MODELS_DIR' "$work/out" || failed "MODELS_DIR=\"$bad\" wasn't refused for itself"
 done
 mv "$T/config.local.sh.good" "$T/config.local.sh"
-
-# A host set up by add-model.sh: the repo's list (i1), plus old1 in
-# infer-models.local.yaml, whose file is in config.local.sh's
-# MODEL_DOWNLOADS; and u.gguf, which no model used. Migrating it keeps
-# everything and downloads nothing.
-T="$work/old"
-L="$T/models.local.yaml"
-new_repo "$T"
-mkdir "$T/models"
-for f in i.gguf o.gguf u.gguf; do
-  cp "$F/$f" "$T/models/"
-  printf '%s  %s\n' "$(sha "$F/$f")" "$f" >> "$T/models/SHA256SUMS"
-done
-{
-  printf 'file\tsource_url\tlicense\tadded\tcommit\n'
-  for f in i.gguf o.gguf u.gguf; do
-    printf '%s\t%s\tapache-2.0\t2026-10-21\t\n' "$f" "$HF/o/x/resolve/main/$f"
-  done
-} > "$T/models/SOURCES.tsv"
-cat > "$T/infer-models.local.yaml" <<'EOF'
-# infer-models.local.yaml: the models you've added.
-models:
-  old1:
-    name: "Old"
-    cmd: ${llama-server} --model ${models-dir}/o.gguf --ctx-size 4096
-    proxy: ${proxy}
-    capabilities:
-      context: 4096
-    metadata:
-      max_tokens: 1024
-EOF
-config="MODELS_DIR=\"$T/models\""
-{
-  echo "$config"
-  echo
-  echo '# Added by add-model.sh on 2026-10-21.'
-  # shellcheck disable=SC2016 # the line add-model.sh wrote
-  echo 'MODEL_DOWNLOADS="${MODEL_DOWNLOADS:+$MODEL_DOWNLOADS'
-  echo "}$HF/o/x/resolve/main/o.gguf $(sha "$F/o.gguf") apache-2.0\""
-} > "$T/config.local.sh"
-n="$(downloads)"
-mm "$T" sync || { cat "$work/out" >&2; failed "migrating"; }
-[ "$(downloads)" = "$n" ] || failed "migrating downloaded something"
-if ! grep -q '^  i1:$' "$L" || ! grep -q '^  old1:$' "$L"; then
-  failed "the migrated list doesn't have i1 and old1"
-fi
-grep -qx "    # file: o.gguf $(sha "$F/o.gguf") apache-2.0 $HF/o/x/resolve/main/o.gguf" "$L" ||
-  failed "the migrated old1 has no file line"
-[ "$(cat "$T/config.local.sh")" = "$config" ] || failed "migrating left config.local.sh as: $(cat "$T/config.local.sh")"
-[ -f "$T/config.local.sh.old" ] && [ -f "$T/infer-models.local.yaml.old" ] && [ ! -e "$T/infer-models.local.yaml" ] ||
-  failed "migrating didn't keep the old files as .old"
-grep -q '^1 files there' "$work/out" || failed "sync didn't mention u.gguf, which no model uses"
-in_repo "$T" infer_models_ok || failed "the migrated list breaks the rules"
-mm "$T" check || { cat "$work/out" >&2; failed "check after migrating"; }
-for f in i.gguf o.gguf u.gguf; do
-  [ -f "$T/models/$f" ] || failed "migrating removed $f"
-done
 
 exit "$fail"

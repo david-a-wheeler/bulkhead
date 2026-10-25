@@ -411,28 +411,9 @@ explain_unused() {
   esac
 }
 
-# file_record FILE: prints FILE's "# file:" fields (FILE SHA256 LICENSE
-# URL), from MODELS_DIR's SHA256SUMS and SOURCES.tsv, for the migration
-# below.
-file_record() {
-  fr_sha256="$(recorded_sha256 "$1")"
-  fr_source="$(awk -F '\t' -v f="$1" '$1 == f { s = $3 " " $2 } END { print s }' "$MODELS_DIR/SOURCES.tsv" 2>/dev/null)"
-  [ -n "$fr_sha256" ] && [ -n "$fr_source" ] || return 1
-  printf '%s %s %s\n' "$1" "$fr_sha256" "$fr_source"
-}
-
 # init_list: start models.local.yaml from initial-models.yaml, if
 # there's no list yet. Its opening comment's first paragraph, which is
 # about initial-models.yaml, becomes one about this list.
-#
-# The migration: until 2026-10-22, the engine served the repo's list
-# plus infer-models.local.yaml (the models add-model.sh added), whose
-# files were in config.local.sh's MODEL_DOWNLOADS. Those models join the
-# new list, with their "# file:" lines from MODELS_DIR's records, so
-# nothing is downloaded again. The old file becomes
-# infer-models.local.yaml.old, and the MODEL_DOWNLOADS lines leave
-# config.local.sh (keeping a copy as config.local.sh.old). Remove this
-# once the Mac has migrated.
 init_list() {
   [ ! -f "$INFER_MODELS" ] || return 0
   new="$INFER_MODELS.new"
@@ -450,49 +431,10 @@ EOM
       strip && /^#/ { next }
       { strip = 0; print }' "$INFER_INITIAL_MODELS"
   } > "$new"
-  old="$SCRIPT_DIR/infer-models.local.yaml"
-  migrated=""
-  if [ -f "$old" ]; then
-    for m in $(infer_model_roles "$old" | cut -d ' ' -f 1); do
-      # shellcheck disable=SC2016
-      m_files="$(model_lines in "$m" "$old" | sed -n '/^    cmd:/p' |
-        grep -o '\${models-dir}/[^ "]*' | sed 's/^\${models-dir}\///' | sort -u)" || true
-      m_lines=""
-      for f in $m_files; do
-        rec="$(file_record "$f")" ||
-          die "can't find $f's SHA-256 and source in $MODELS_DIR's SHA256SUMS and SOURCES.tsv, to move $m into models.local.yaml; add $m to $new by hand, then move it to models.local.yaml."
-        m_lines="$m_lines    # file: $rec
-"
-      done
-      model_lines in "$m" "$old" | L="$m_lines" awk 'NR == 1 { print; printf "%s", ENVIRON["L"]; next } { print }' >> "$new"
-      migrated="$migrated $m"
-    done
-  fi
   infer_models_ok "$new" ||
     die "the new models.local.yaml (left in $new) breaks the rules (above)."
-  local_config="$SCRIPT_DIR/config.local.sh"
-  if [ -f "$local_config" ] && grep -q '^# Added by add-model\.sh on ' "$local_config"; then
-    cp "$local_config" "$local_config.old"
-    # Each one add-model.sh added was a blank line, this comment, and a
-    # two-line MODEL_DOWNLOADS assignment.
-    awk '
-      skip { skip--; next }
-      /^# Added by add-model\.sh on / { blank = 0; skip = 2; next }
-      blank { print ""; blank = 0 }
-      /^$/ { blank = 1; next }
-      { print }
-      END { if (blank) print "" }' "$local_config.old" > "$local_config"
-    echo "Removed add-model.sh's MODEL_DOWNLOADS lines from config.local.sh (the old one is config.local.sh.old)."
-  fi
-  if [ -f "$local_config" ] && grep -q MODEL_DOWNLOADS "$local_config"; then
-    echo "WARNING: config.local.sh still sets MODEL_DOWNLOADS, which nothing uses now; list those files in models.local.yaml instead." >&2
-  fi
   mv "$new" "$INFER_MODELS"
   echo "Started models.local.yaml from initial-models.yaml."
-  if [ -f "$old" ]; then
-    mv "$old" "$old.old"
-    echo "Moved in the models from infer-models.local.yaml (now infer-models.local.yaml.old):$migrated"
-  fi
 }
 
 # confirm MESSAGE: say MESSAGE, and continue only if you agree (or gave

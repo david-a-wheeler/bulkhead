@@ -874,7 +874,8 @@ runs.
   list and the files in `MODELS_DIR`. Every command first runs `init`
   if there's no list yet.
   * `init`: copy `initial-models.yaml` to `models.local.yaml`, with its
-    own opening paragraph. It also does the one-time migration (below).
+    own opening paragraph. It once also did a one-time migration
+    (below).
   * `list`: print each model's name and role, marking the default.
   * `add NAME URL` (a generalist) and `add NAME --sd-args ARGS` (a
     specialist): one entry, with its file lines. `--default` makes a
@@ -966,16 +967,14 @@ from `MODELS_DIR`'s `SHA256SUMS` and `SOURCES.tsv`. Then it renames the
 old file to `infer-models.local.yaml.old` and removes add-model.sh's
 download lines (keeping a copy as `config.local.sh.old`). The new name
 means no host can mistake an old file of additions for a whole list.
-Once the Mac has migrated, we delete the migration code. If anything
-goes wrong, the old files are still there: put
-`infer-models.local.yaml.old` back, restore `config.local.sh` from its
-copy, and check out the commit before this change.
+The Mac has migrated, so we deleted the migration code on 2026-10-25.
+If you need it again, it's in git history before that.
 
-**Testing.** `tests/test_manage_models.sh` covers `init`, a migration
-that downloads nothing, `list`, `add` (including a shared file), `default`,
-`remove`, `check`, `sync`, `outdated`, `update`, `prune`, refusing a bad
-`MODELS_DIR`, and 27 bad requests that must each fail and change
-nothing. Seven deliberate bugs in `manage-models.sh` each made it fail.
+**Testing.** `tests/test_manage_models.sh` covers `init`, `list`,
+`add` (including a shared file), `default`, `remove`, `check`, `sync`,
+`outdated`, `update`, `prune`, refusing a bad `MODELS_DIR`, and 27 bad
+requests that must each fail and change nothing. Seven deliberate bugs
+in `manage-models.sh` each made it fail.
 ci.sh checks `render_engine_config` and the new rules. The installing
 (sudo, `/opt`, launchd) can only be tested on the Mac; CI runs
 shellcheck on it.

@@ -132,22 +132,14 @@ mkdir -p "$HOME/bin"
 render_template "$SCRIPT_DIR/secrets-server.template.py" "$HOME/bin/secrets-server.py" \
   SECRETS_SERVER_PORT KEYCHAIN_PREFIX UTMCTL
 chmod +x "$HOME/bin/secrets-server.py"
-# Cleanup from pre-rename layouts (git_host_proxy.py, then
-# secrets_server.py); harmless if these were never present.
-rm -f "$HOME/bin/git_host_proxy.py" "$HOME/bin/secrets_server.py"
 
 echo "== Installing the secrets-server LaunchAgent =="
 mkdir -p "$HOME/Library/LaunchAgents"
 render_template "$SCRIPT_DIR/com.user.secretsserver.template.plist" \
   "$HOME/Library/LaunchAgents/com.user.secretsserver.plist" HOME
 uid="$(id -u)"
-# Bootout the pre-rename label too, in case it's still loaded from before
-# this change; otherwise it'd sit there running the now-orphaned copy of
-# git_host_proxy.py above forever.
-launchctl bootout "gui/$uid/com.user.githostproxy" 2>/dev/null || true
 launchctl bootout "gui/$uid/com.user.secretsserver" 2>/dev/null || true
 launchctl bootstrap "gui/$uid" "$HOME/Library/LaunchAgents/com.user.secretsserver.plist"
-rm -f "$HOME/Library/LaunchAgents/com.user.githostproxy.plist"
 
 echo "== Generating an SSH key for host->VM access (if missing) =="
 # Plain ed25519, no hardware key: this is just for host-initiated
@@ -627,13 +619,6 @@ stop_daemon() {
   sudo launchctl bootout "system/$1" 2>/dev/null || true
   retry 30 daemon_unloaded "$1" || die "$1 is still loaded after 30 seconds."
 }
-
-# Cleanup from the trial (,infer-test/trial.sh), which used the same port.
-if [ -f /Library/LaunchDaemons/local.infer-trial.plist ]; then
-  stop_daemon local.infer-trial
-  sudo rm -f /Library/LaunchDaemons/local.infer-trial.plist
-  echo "Removed the trial daemon. You can delete /Users/Shared/infer-test and /Users/Shared/trial.sh."
-fi
 
 infer_restarted=false
 if [ "$infer_changed" = true ] || ! daemon_loaded "$INFER_LABEL"; then

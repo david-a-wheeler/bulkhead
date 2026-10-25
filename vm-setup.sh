@@ -223,8 +223,6 @@ echo "== Installing nono agent profiles (config.sh's NONO_AGENT_PROFILES) =="
 # exists, so upgrading stays a deliberate, on-request choice per VM.
 outdated_notices=""
 for pack in $NONO_AGENT_PROFILES; do
-  # Cleanup for nono's "always-further" -> "nolabs-ai" namespace move.
-  nono remove "always-further/${pack#*/}" >/dev/null 2>&1 || true
   if nono list --installed --json 2>/dev/null \
       | jq -e --arg p "$pack" '.packages[$p]' >/dev/null 2>&1; then
     outdated_json="$(nono outdated --json 2>/dev/null)" || outdated_json='[]'
@@ -273,43 +271,24 @@ for pair in $GIT_SECRETS; do
   # a git command" instead of ever running our script.
   git_config_set "credential.https://${host}.helper" "/usr/local/bin/vm-git-helper ${secret}"
 done
-# Remove the old single global credential.helper from before this
-# change, but only if it's still exactly what we used to set here:
-# never touch a helper set for some other reason. Left in place, it'd
-# be harmless (git tries it in addition to the per-host ones above and
-# it'd just fail to exec, since the file's gone below), but there's no
-# reason to leave a dangling reference to a deleted script around.
-if [ "$(git config --global --get credential.helper 2>/dev/null)" = "/usr/local/bin/vm-git-helper.py" ]; then
-  git config --global --unset credential.helper
-fi
-sudo rm -f /usr/local/bin/vm-git-helper.py
 
 echo "== Installing secrets-client (generic secrets-server CLI, used by heroku-session/gh-session) =="
 # Installed without a ".py" extension (see secrets-client.template.py):
 # callers shouldn't need to know or care this happens to be Python.
 install_rendered secrets-client.template.py /usr/local/bin/secrets-client 755 SECRETS_SERVER_PORT
-# Cleanup from the pre-rename layout (secrets-client.py); harmless if
-# never present.
-sudo rm -f /usr/local/bin/secrets-client.py
 
 echo "== Installing heroku-session, gh-session, and anon-access (secrets-client wrappers) =="
 # Plain files, no templating needed: install directly rather than via
 # render_template. Any shell can run these (they're just executables on
-# $PATH), unlike the old bash-function versions removed from
-# vm-bash-aliases-block.sh below.
+# $PATH).
 sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-access" /usr/local/bin/
 
 echo "== Installing noclaude (sandboxed Claude Code wrapper) =="
 # Plain file, no templating needed: extra filesystem access beyond
-# --profile nolabs-ai/claude now comes from nono-default-profile.json
-# (installed above), not a side file rendered here. Built fresh every
-# run, same as everything else here. Runs through anon-access above
-# (install order doesn't matter, same reasoning as
-# vm-git-helper/secrets-client: nothing invokes noclaude until well
-# after this script has finished).
+# --profile nolabs-ai/claude comes from nono-default-profile.json
+# (installed above). It runs through anon-access, but install order
+# doesn't matter: nothing runs noclaude until this script has finished.
 sudo install -m 755 "$SCRIPT_DIR/noclaude" /usr/local/bin/
-# Cleanup from the pre-default.json layout; harmless if never present.
-sudo rm -f /usr/local/etc/noclaude-extra-options
 
 echo "== Configuring git niceties =="
 configure_git_niceties
@@ -393,7 +372,6 @@ fi
 echo "== Managing ~/.bash_aliases block (editor, BULKHEAD_AUTH_SESSION) =="
 # Plain file, not rendered: no @@VAR@@ substitution left in it.
 install_managed_block "$SCRIPT_DIR/vm-bash-aliases-block.sh" "$HOME/.bash_aliases"
-rm -f "$TMPDIR/bash-aliases-block.rendered"
 
 echo "== Local AI: pi, nopi, and infer-logs (if this VM has the engine's API key) =="
 # See local-ai-plan.md. Only a VM with the engine's API key can use the
@@ -476,21 +454,9 @@ if [ -s "$INFER_KEY_FILE" ]; then
     echo "it (on the Mac, see ./infer-access.sh)." >&2
   fi
   install_rendered infer-logs.template.sh /usr/local/bin/infer-logs 755 INFER_PORT
-  # nopi's old name.
-  sudo rm -f /usr/local/bin/pi-local
   # A systemd user unit, but root-owned in /etc/systemd/user.
   sudo mkdir -p /etc/systemd/user
   sudo install -m 644 "$SCRIPT_DIR/infer-logs@.service" /etc/systemd/user/
-  # Cleanup from the trial (,infer-test/vm-pi-trial.sh), whose copies in
-  # your home directory would override these. Disable its services
-  # first: their enable links point at its unit file, and would block
-  # enabling this one.
-  if [ -f "$HOME/.config/systemd/user/infer-logs@.service" ]; then
-    systemctl --user disable infer-logs@proxy.service infer-logs@upstream.service || true
-    rm -f "$HOME/.config/systemd/user/infer-logs@.service"
-  fi
-  rm -f "$HOME/.local/bin/pi-local" "$HOME/.local/bin/infer-logs"
-  rm -rf "$HOME/.local/lib/pi"
   systemctl --user daemon-reload
   systemctl --user enable infer-logs@proxy.service infer-logs@upstream.service
   # Restart, not just start, to pick up a new infer-logs.

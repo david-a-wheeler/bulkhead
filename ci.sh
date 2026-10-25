@@ -155,7 +155,7 @@ step "infer-watch.c (tests/test_infer_watch.sh)"
 { shellcheck -x tests/test_infer_watch.sh && tests/test_infer_watch.sh; } || fail=1
 
 step "manage-models.sh (tests/test_manage_models.sh)"
-# Starts and migrates a list, adds and removes a generalist and a
+# Starts a list, adds and removes a generalist and a
 # specialist, and updates, syncs, and prunes, on a copy of the repo with
 # a stand-in for Hugging Face; and checks that bad requests change
 # nothing.
