@@ -138,6 +138,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `initial-models.yaml`: the models a new host starts with, with their
   sampling defaults and files, in llama-swap's format. Its opening
   comment has the rules for `models.local.yaml`.
+- `model-candidates.md`: local models worth considering, mainly for
+  code and math, with their trade-offs and sources.
 - `infer-check.sh`: run on the Mac to check that the engine really
   serves each model (a few tokens, or one image to look at), showing
   why when one fails.
