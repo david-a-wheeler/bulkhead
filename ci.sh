@@ -26,12 +26,16 @@ step() {
 step "awk lint (gawk --posix --lint)"
 # Each .awk program must parse, with no lint warnings, using only POSIX
 # awk (macOS's awk runs them). A problem here stops ci.sh at once, since
-# every later test that runs the program would fail less clearly. -o
-# pretty-prints the program instead of running it.
+# every later test that runs the program would fail less clearly. The
+# --source rules come first, so gawk parses the program but runs none of
+# it: BEGIN's exit skips input and the program's own BEGIN rules, and
+# END's exit stops before the program's own END rules. (Not -o, which
+# also parses without running: before 5.3, gawk crashes on --lint with
+# -o for any program using "+".)
 if command -v gawk > /dev/null; then
   for f in *.awk tests/*.awk; do
     [ -f "$f" ] || continue
-    if ! out="$(gawk --posix --lint -o/dev/null -f "$f" 2>&1)" || [ -n "$out" ]; then
+    if ! out="$(gawk --posix --lint --source 'BEGIN { exit } END { exit }' -f "$f" < /dev/null 2>&1)" || [ -n "$out" ]; then
       printf '%s\n' "$out" >&2
       echo "FAILED: awk lint of $f (above); stopping." >&2
       exit 1
