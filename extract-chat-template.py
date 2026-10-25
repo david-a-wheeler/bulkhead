@@ -96,6 +96,9 @@ def main():
     with open(dst, "x") as f:
         f.write(template)
     print(f"wrote {dst} ({len(template)} chars)")
+    # --chat-template takes the template text itself (or a built-in
+    # name); only --chat-template-file takes a path, so say that one.
+    print(f"point llama-server at it with: --jinja --chat-template-file {dst}")
 
 
 if __name__ == "__main__":
