@@ -273,8 +273,7 @@ for d in /opt "$LLAMA_OPT" "$SWAP_OPT" "$SD_OPT" /usr/local /usr/local/etc "$INF
   esac
 done
 
-cooling_cutoff="$(cooling_cutoff)" ||
-  die "config.sh's INFER_COOLING_DAYS isn't a number of days."
+cooling_cutoff="$(cooling_cutoff)"
 
 # github_api PATH: get PATH under a repository from GitHub's REST API.
 # Unauthenticated, which allows 60 requests an hour; this makes a few.

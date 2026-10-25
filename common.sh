@@ -190,11 +190,14 @@ ask_once() {
 
 # Usage: cooling_cutoff
 # Prints the time INFER_COOLING_DAYS ago (UTC) as YYYY-MM-DDTHH:MM:SSZ,
-# or fails if INFER_COOLING_DAYS isn't a number of days. Releases and
+# or dies if INFER_COOLING_DAYS isn't a number of days. Releases and
 # model updates newer than this are too new to install. Works with
-# macOS's date and GNU date.
+# macOS's date and GNU date. Run it as x="$(cooling_cutoff)" under set
+# -e, so its death stops the caller too.
 cooling_cutoff() {
-  case "$INFER_COOLING_DAYS" in "" | *[!0-9]*) return 1 ;; esac
+  case "$INFER_COOLING_DAYS" in
+    "" | *[!0-9]*) die "config.sh's INFER_COOLING_DAYS isn't a number of days." ;;
+  esac
   date -u -v-"${INFER_COOLING_DAYS}"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null ||
     date -u -d "$INFER_COOLING_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ
 }

@@ -185,6 +185,12 @@ hf_repo_info() {
         elif test("f32\\.gguf$"; "i") then 2 else 3 end) | .[0] // empty')"
 }
 
+# whole_number VALUE OPTION: dies unless VALUE (given as OPTION) is a
+# whole number.
+whole_number() {
+  case "$1" in "" | *[!0-9]*) die "$2 must be a whole number." ;; esac
+}
+
 # too_new DATE: true if DATE (from hf_file_info) is after the cooling
 # cutoff, or unknown.
 too_new() {
@@ -575,8 +581,7 @@ allow() {
     case " $* " in *" $o "*) ;; *) usage ;; esac
   done
 }
-cutoff="$(cooling_cutoff)" ||
-  die "config.sh's INFER_COOLING_DAYS isn't a number of days."
+cutoff="$(cooling_cutoff)"
 trap 'rm -f "${INFER_MODELS:?}.new"' EXIT
 
 case "$command" in
@@ -592,8 +597,7 @@ case "$command" in
   sync)
     allow 0
     init_list
-    infer_models_ok "$INFER_MODELS" ||
-      die "models.local.yaml breaks the rules in initial-models.yaml's opening comment (above)."
+    infer_models_follow_rules
     sync_list "$INFER_MODELS"
     echo "$MODELS_DIR has every file models.local.yaml names."
     n="$(unused_files | wc -l | tr -d ' ')"
@@ -604,8 +608,7 @@ case "$command" in
   check)
     allow 0
     init_list
-    infer_models_ok "$INFER_MODELS" ||
-      die "models.local.yaml breaks the rules in initial-models.yaml's opening comment (above)."
+    infer_models_follow_rules
     [ -n "$(infer_models_default "$INFER_MODELS")" ] ||
       echo "WARNING: no model is the default, so nopi won't pick one; set one with ./manage-models.sh default NAME." >&2
     infer_models_synced "$INFER_MODELS" ||
@@ -763,9 +766,8 @@ serve="$pos1"
 if [ -n "$sd_args" ]; then
   allow 1 --sd-args --dir --ttl --desc
   ttl="${ttl:-600}"
-  case "$ttl" in
-    "" | 0* | *[!0-9]*) die "--ttl must be a whole number of seconds, 1 to 3600." ;;
-  esac
+  whole_number "$ttl" --ttl
+  [ "$ttl" -ge 1 ] || die "--ttl must be at least 1 second."
   [ "$ttl" -le 3600 ] || die "--ttl must be at most 3600 seconds, so a specialist unloads soon after use."
   $make_default && die "only a generalist can be the default."
   subdir="${subdir:-$serve}"
@@ -885,30 +887,24 @@ if [ -n "$sd_args" ]; then
     cmd_args="$cmd_args $a"
   done
   set +f
-  entry_files="$(printf '%s' "$files" | awk '{ print $5 }')"
-  # shellcheck disable=SC2086 # entry_files is checked file names, one per line
-  infer_model_ok "$serve" "$desc" $entry_files ||
-    die "NAME may use only letters, digits, '.', '_', and '-'; and --desc can't have quotes, backslashes, \$, or control characters."
 else
   file="$(printf '%s' "$files" | awk 'NR == 1 { print $5 }')"
   mmproj_file="$(printf '%s' "$files" | awk 'NR == 2 { print $5 }')"
-  case "$ctx" in
-    "") die "Hugging Face doesn't say $file's context length; give --ctx." ;;
-    *[!0-9]*) die "--ctx must be a whole number." ;;
-  esac
+  [ -n "$ctx" ] || die "Hugging Face doesn't say $file's context length; give --ctx."
+  whole_number "$ctx" --ctx
   case "$file" in *.gguf) ;; *) die "llama-server only serves GGUF files." ;; esac
   case "$mmproj_file" in "" | *.gguf) ;; *) die "--mmproj must be a GGUF file." ;; esac
   if [ -z "$max" ]; then
     max=32768
     [ "$max" -le "$ctx" ] || max="$ctx"
   fi
-  case "$max" in *[!0-9]*) die "--max must be a whole number." ;; esac
+  whole_number "$max" --max
   [ "$max" -le "$ctx" ] || die "--max ($max) is more than the context window ($ctx)."
   desc="${desc:-$(basename "$file" .gguf)}"
-  # shellcheck disable=SC2086 # mmproj_file is a checked file name, or empty
-  infer_model_ok "$serve" "$desc" "$file" $mmproj_file ||
-    die "NAME may use only letters, digits, '.', '_', and '-'; and --desc can't have quotes, backslashes, \$, or control characters."
 fi
+# shellcheck disable=SC2046 # the files are checked file names, one per line
+infer_model_ok "$serve" "$desc" $(printf '%s' "$files" | awk '{ print $5 }') ||
+  die "NAME may use only letters, digits, '.', '_', and '-'; and --desc can't have quotes, backslashes, \$, or control characters."
 
 # The new list, checked now so a bad entry stops us before the download,
 # and put in place only after it.

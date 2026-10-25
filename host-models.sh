@@ -48,6 +48,13 @@ infer_models_ok() {
   awk -f "$SCRIPT_DIR/host-models-check.awk" "$@"
 }
 
+# Usage: infer_models_follow_rules
+# Dies unless models.local.yaml follows the rules (infer_models_ok).
+infer_models_follow_rules() {
+  infer_models_ok "$INFER_MODELS" ||
+    die "models.local.yaml breaks the rules in initial-models.yaml's opening comment (above)."
+}
+
 # Usage: infer_model_roles FILE...
 # Prints each model in the models FILEs (which infer_models_ok accepts)
 # and its role, one per line: "NAME generalist" for a ${llama-server}

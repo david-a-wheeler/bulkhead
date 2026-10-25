@@ -30,6 +30,17 @@ linux_only "vm-setup.sh"
 export TMPDIR
 mkdir -p "$TMPDIR"
 
+# install_rendered TEMPLATE DEST MODE VAR...: renders the repo's TEMPLATE
+# with VAR... (see render_template), and installs it root-owned as DEST
+# with MODE.
+install_rendered() {
+  ir_template="$1" ir_dest="$2" ir_mode="$3"
+  shift 3
+  render_template "$SCRIPT_DIR/$ir_template" "$TMPDIR/rendered" "$@"
+  sudo install -m "$ir_mode" "$TMPDIR/rendered" "$ir_dest"
+  rm -f "$TMPDIR/rendered"
+}
+
 echo "== Installing base packages =="
 # openssh/avahi/cups/nftables per architecture.md's discovery+services
 # phase. curl has to land here, before anything else (the gh repo setup
@@ -138,10 +149,8 @@ NFTABLES_ALLOWED_TCP_PORTS_NFT="$nft_ports"
 HOST_GATEWAY_IP="$(ip route | awk '/^default/ { print $3; exit }')"
 [ -n "$HOST_GATEWAY_IP" ] ||
   die "couldn't determine the default gateway; can't scope the secrets-server firewall rule safely."
-render_template "$SCRIPT_DIR/nftables.template.conf" "$TMPDIR/nftables.conf.rendered" \
+install_rendered nftables.template.conf /etc/nftables.conf 755 \
   NFTABLES_ALLOWED_TCP_PORTS_NFT HOST_GATEWAY_IP SECRETS_SERVER_PORT
-sudo cp "$TMPDIR/nftables.conf.rendered" /etc/nftables.conf
-rm -f "$TMPDIR/nftables.conf.rendered"
 sudo nft -f /etc/nftables.conf
 
 echo "== Hardening CUPS (unix socket only, no TCP listener) =="
@@ -245,8 +254,7 @@ echo "== Installing vm-git-helper (git credential helper) =="
 # Plain file, no templating needed: it takes the secret name as an
 # argument rather than having one baked in (see below), so it's
 # installed the same way as heroku-session/gh-session, not rendered.
-sudo cp "$SCRIPT_DIR/vm-git-helper" /usr/local/bin/vm-git-helper
-sudo chmod +x /usr/local/bin/vm-git-helper
+sudo install -m 755 "$SCRIPT_DIR/vm-git-helper" /usr/local/bin/
 
 # One credential.<url>.helper per GIT_SECRETS entry, each with its
 # secret name baked directly into the config line: git resolves which
@@ -279,11 +287,7 @@ sudo rm -f /usr/local/bin/vm-git-helper.py
 echo "== Installing secrets-client (generic secrets-server CLI, used by heroku-session/gh-session) =="
 # Installed without a ".py" extension (see secrets-client.template.py):
 # callers shouldn't need to know or care this happens to be Python.
-render_template "$SCRIPT_DIR/secrets-client.template.py" "$TMPDIR/secrets-client.rendered" \
-  SECRETS_SERVER_PORT
-sudo cp "$TMPDIR/secrets-client.rendered" /usr/local/bin/secrets-client
-sudo chmod +x /usr/local/bin/secrets-client
-rm -f "$TMPDIR/secrets-client.rendered"
+install_rendered secrets-client.template.py /usr/local/bin/secrets-client 755 SECRETS_SERVER_PORT
 # Cleanup from the pre-rename layout (secrets-client.py); harmless if
 # never present.
 sudo rm -f /usr/local/bin/secrets-client.py
@@ -293,8 +297,7 @@ echo "== Installing heroku-session, gh-session, and anon-access (secrets-client 
 # render_template. Any shell can run these (they're just executables on
 # $PATH), unlike the old bash-function versions removed from
 # vm-bash-aliases-block.sh below.
-sudo cp "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-access" /usr/local/bin/
-sudo chmod +x /usr/local/bin/heroku-session /usr/local/bin/gh-session /usr/local/bin/anon-access
+sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-access" /usr/local/bin/
 
 echo "== Installing noclaude (sandboxed Claude Code wrapper) =="
 # Plain file, no templating needed: extra filesystem access beyond
@@ -304,8 +307,7 @@ echo "== Installing noclaude (sandboxed Claude Code wrapper) =="
 # (install order doesn't matter, same reasoning as
 # vm-git-helper/secrets-client: nothing invokes noclaude until well
 # after this script has finished).
-sudo cp "$SCRIPT_DIR/noclaude" /usr/local/bin/noclaude
-sudo chmod +x /usr/local/bin/noclaude
+sudo install -m 755 "$SCRIPT_DIR/noclaude" /usr/local/bin/
 # Cleanup from the pre-default.json layout; harmless if never present.
 sudo rm -f /usr/local/etc/noclaude-extra-options
 
@@ -324,8 +326,7 @@ echo "== Installing commit-msg git hook (check-prose-style --text) =="
 # same after its check. reference-transaction is left out, since a hook
 # there would run on every ref update. A repository that sets its own
 # core.hooksPath (e.g., husky) overrides this one and skips the check.
-sudo cp "$SCRIPT_DIR/check-prose-style.sh" /usr/local/bin/check-prose-style
-sudo chmod +x /usr/local/bin/check-prose-style
+sudo install -m 755 "$SCRIPT_DIR/check-prose-style.sh" /usr/local/bin/check-prose-style
 git_hooks_dir=/usr/local/libexec/bulkhead/git-hooks
 current_hooks_path="$(git config --global --get core.hooksPath || true)"
 if [ -n "$current_hooks_path" ] && [ "$current_hooks_path" != "$git_hooks_dir" ]; then
@@ -333,9 +334,8 @@ if [ -n "$current_hooks_path" ] && [ "$current_hooks_path" != "$git_hooks_dir" ]
   echo "  leaving it alone, so commit messages won't be checked." >&2
 else
   sudo mkdir -p "$git_hooks_dir"
-  sudo cp "$SCRIPT_DIR/git-commit-msg" "$git_hooks_dir/commit-msg"
-  sudo cp "$SCRIPT_DIR/git-hook-passthrough" "$git_hooks_dir/passthrough"
-  sudo chmod +x "$git_hooks_dir/commit-msg" "$git_hooks_dir/passthrough"
+  sudo install -m 755 "$SCRIPT_DIR/git-commit-msg" "$git_hooks_dir/commit-msg"
+  sudo install -m 755 "$SCRIPT_DIR/git-hook-passthrough" "$git_hooks_dir/passthrough"
   for hook in applypatch-msg pre-applypatch post-applypatch pre-commit \
       pre-merge-commit prepare-commit-msg post-commit pre-rebase \
       post-checkout post-merge pre-push post-rewrite pre-auto-gc \
@@ -413,8 +413,7 @@ if [ -s "$INFER_KEY_FILE" ]; then
   # --before limits pi and its dependencies to versions published by
   # then. For the floor or a pin, that's an hour after it was published,
   # since pi's sibling packages (e.g., pi-tui) come out moments after it.
-  pi_before="$(cooling_cutoff)" ||
-    die "config.sh's INFER_COOLING_DAYS isn't a number of days."
+  pi_before="$(cooling_cutoff)"
   pi_spec="$pi_package@latest"
   pi_floor="${PI_PIN:-$PI_MIN}"
   if [ -n "$pi_floor" ]; then
@@ -459,9 +458,8 @@ if [ -s "$INFER_KEY_FILE" ]; then
   # which runs it each time pi starts and writes pi's models.json with
   # pi-models.jq. So changing the models on the Mac needs nothing done
   # here. An old models.json stays until nopi first reaches the engine.
-  render_template "$SCRIPT_DIR/infer-models.template.sh" "$TMPDIR/infer-models" INFER_PORT
-  sudo install -m 755 "$TMPDIR/infer-models" "$SCRIPT_DIR/nopi" /usr/local/bin/
-  rm -f "$TMPDIR/infer-models"
+  install_rendered infer-models.template.sh /usr/local/bin/infer-models 755 INFER_PORT
+  sudo install -m 755 "$SCRIPT_DIR/nopi" /usr/local/bin/
   sudo install -d -m 755 /usr/local/libexec/bulkhead
   sudo install -m 644 "$SCRIPT_DIR/infer-models.jq" "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
   # my-gen-image makes and edits images with the engine's image models,
@@ -477,9 +475,7 @@ if [ -s "$INFER_KEY_FILE" ]; then
     echo "WARNING: the local AI engine didn't answer through the tunnel; nopi needs" >&2
     echo "it (on the Mac, see ./infer-access.sh)." >&2
   fi
-  render_template "$SCRIPT_DIR/infer-logs.template.sh" "$TMPDIR/infer-logs" INFER_PORT
-  sudo install -m 755 "$TMPDIR/infer-logs" /usr/local/bin/
-  rm -f "$TMPDIR/infer-logs"
+  install_rendered infer-logs.template.sh /usr/local/bin/infer-logs 755 INFER_PORT
   # nopi's old name.
   sudo rm -f /usr/local/bin/pi-local
   # A systemd user unit, but root-owned in /etc/systemd/user.

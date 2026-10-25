@@ -41,8 +41,7 @@ check_config() {
 render_engine_config() {
   [ -f "$INFER_MODELS" ] ||
     die "there's no models.local.yaml yet; run ./manage-models.sh init."
-  infer_models_ok "$INFER_MODELS" ||
-    die "models.local.yaml breaks the rules in initial-models.yaml's opening comment (above)."
+  infer_models_follow_rules
   infer_models_synced "$INFER_MODELS" ||
     die "MODELS_DIR doesn't have every file models.local.yaml names (above)."
   [ -n "$(infer_models_default "$INFER_MODELS")" ] ||
