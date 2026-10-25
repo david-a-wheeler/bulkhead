@@ -632,10 +632,21 @@ The strict profile, if built:
     password. The remaining risk is someone with the Mac *and* my
     password reading free space as root before it's TRIMmed or reused,
     which is close to the out-of-scope malicious root. Crypto-erase
-    ("Erase All Content and Settings") removes it for certain. Open
-    question: does macOS on Apple Silicon also encrypt the hibernation
-    image with its own discarded key, as Intel Macs did? Check Apple's
-    Platform Security guide.
+    ("Erase All Content and Settings") removes it for certain. I don't
+    know whether macOS on Apple Silicon also encrypts the hibernation
+    image with its own discarded key, as Intel Macs did. Apple's
+    Platform Security guide (August 2026) doesn't say: it never
+    mentions hibernation or the sleep image. The [CIS macOS
+    benchmark](https://www.tenable.com/audits/items/CIS_Apple_macOS_13.0_Ventura_v1.0.0_L2.audit:e3d006acc8b6949a426988efebc29fb0)
+    says hibernation "writes the keys to disk and requires FileVault to
+    be unlocked prior to the OS being available", which suggests
+    FileVault is what protects it. So we don't rely on the image's
+    encryption: unloading the model before sleep keeps the KV cache out
+    of the image, and FileVault covers anything that leaks in anyway.
+    `pmset`'s `destroyfvkeyonstandby 1` with `hibernatemode 25` would
+    discard FileVault's key at standby, but CIS says it disables Apple
+    Silicon's always-on behavior and Power Nap; I don't think that's
+    worth it here.
 * Swap is acceptable for confidentiality if it's encrypted and a reboot
   makes it unreadable. Apple's Platform Security guide (August 2026,
   "Role of Apple File System") says the VM volume "is unencrypted and is
@@ -1166,7 +1177,8 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
   access. If File Sharing is on, a local process (e.g., a compromised
   engine) could connect as a guest; the sandbox blocks outbound network,
   but I should turn File Sharing off if I don't use it, or at least turn
-  off guest access.
+  off guest access. It turned out to be off (see "Remaining work",
+  step 6).
 * **Sandbox, Phase B1** (`,infer-test/phase-b1.sh`): a permissive
   profile (allow by default; deny outbound IP network, writes outside
   one directory, and reads under `/Users` except the model and test
@@ -1318,7 +1330,15 @@ done on a VM: check that by setting another default and restarting
    it off, a first turn of 2,004 prompt tokens and 55 output tokens
    took 5.6 s (prompt 756 tokens/s, output 18.45 tokens/s), but the
    cache can't help a first turn; check later turns in a long session.
-6. **File Sharing**: turn it off, or at least guest access (my action).
+6. **File Sharing**: done 2026-10-25; it's off, and has never been on.
+   Nothing listens on SMB's port (`netstat -anp tcp | grep '\.445 '`
+   prints nothing), and `sudo launchctl print-disabled system` has no
+   `com.apple.smbd` entry. The `~/Public` share still allows guest
+   access, which matters only if I turn File Sharing on, so turning
+   that off is optional insurance (my action). Also checked:
+   `/Users/Shared/models` is `drwxr-xr-x` and mine, and nothing in it
+   is group- or world-writable or owned by anyone else, so only my
+   account and root can change a model.
 7. **Documentation**: move the lasting parts into `architecture.md` and
    `README.md`.
 8. **More sleep tests** (sudo), put off from step 2. I expect them to
