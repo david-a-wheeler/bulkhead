@@ -30,8 +30,25 @@ The engine serves two roles of model, and runs at most one of each at a time:
 So a generalist's memory is spent for as long as it's loaded, while a
 specialist only needs to fit beside it briefly.
 
-These are my categories, implemented by these tools. My computer has limited RAM;
-these categories simplify loading things.
+These are my categories, implemented by these tools. They follow from
+two limits:
+
+- **The programs that run the models.** llama.cpp (llama-server) reads
+  text and, with a vision projector, images, but it only writes text;
+  it can't make images. stable-diffusion.cpp (sd-server) only makes
+  images (and video). It does run a language model, but only as a text
+  encoder that turns your prompt into input for the image model; you
+  can't chat with it. Most models do only one of these jobs anyway, so
+  even a program that did both wouldn't make, e.g., FLUX.2-klein-4B
+  chat. A few "unified" models (e.g., HiDream-O1-Image) handle both
+  text and images, but neither program uses them for both.
+- **Memory.** My computer has limited RAM, so keeping one generalist
+  loaded and loading a specialist beside it only briefly keeps both
+  within budget. To make room for a big specialist, you can unload the
+  generalist (llama-swap's `POST /api/models/unload/MODEL`), or request
+  a small one, at the cost of its KV cache. Nothing then stops a chat
+  request from loading the generalist again beside it, so the two
+  together could exceed what Metal can use.
 
 ## Sizes and quantization
 
@@ -57,6 +74,12 @@ quants vary the precision by layer, and bartowski's "_L" quants keep
 the embedding and output weights at Q8_0. Sizes here are for the quant
 we'd use.
 
+Each entry also estimates the **RAM** a model uses once loaded: its
+weights, plus, for a generalist, its KV cache at the context size given,
+or, for a specialist, its working memory for a 1024x1024 image. Unless
+an entry says it was measured, these are our estimates from the model's
+published sizes and settings, so they could be off by a few GB.
+
 A model is **dense** or a **mixture of experts (MoE)**. A dense model
 uses every weight for every token. An MoE model has many "experts" and
 uses only a few for each token: e.g., Laguna S 2.1 has 118B parameters
@@ -72,9 +95,12 @@ size but generates at about the speed of a dense model with its active size.
 - Model card: [Qwen/Qwen3.8-27B][qwen38]
 - Checked 2026-10-25. Apache 2.0. Dense, 27B, with a vision encoder.
   Context 262,144 tokens.
-- It's `initial-models.yaml`'s default generalist, at Q8_0 (about
-  43 GB loaded, with its KV cache). Other candidates are measured
-  against it.
+- Size: 27 GiB at Q8_0, plus a 0.9 GB vision projector. RAM: about
+  43 GB at 262,144 tokens of context (measured; see
+  `local-ai-plan.md`). Most of its layers (Gated DeltaNet) keep no KV
+  cache, which keeps that small [qwen38].
+- It's `initial-models.yaml`'s default generalist. Other candidates are
+  measured against it.
 - Pros: the strongest coding and math scores we've found among models
   that fit (Terminal-Bench 2.1 73.0, SWE-Bench Pro 61.7, LiveCodeBench
   v6 90.3 [qwen38]; math average 97.8 in [Aleph Alpha's
@@ -91,7 +117,11 @@ size but generates at about the speed of a dense model with its active size.
 - Checked 2026-10-25. OpenMDW-1.1 (permissive). MoE, 118B total, about
   8B active. Context 256K by default, 1M with YaRN.
 - Size: poolside's Q4_K_M is 68 GB, one file. Q5 quants are 84-88 GB,
-  which leaves no room for anything else.
+  which leaves no room for anything else. RAM: about 75-83 GB at
+  128K-256K tokens of context, since only 12 of its 48 layers keep the
+  whole context (we assumed 128-wide attention heads). If prompt reuse
+  needs `--swa-full` (below), the KV cache grows about four times, which
+  wouldn't fit at 256K.
 - Pros: we'd expect generation about 3-4 times faster than
   Qwen3.8-27B at Q8_0, since only about 8B parameters are read per
   token (an estimate; MLX measured 65-78 tokens/s on an M5 Max
@@ -116,6 +146,8 @@ size but generates at about the speed of a dense model with its active size.
 - Checked 2026-10-25. Apache 2.0. MoE, 35B total, 3B active, with a
   vision encoder. Context 262,144 tokens.
 - Size: roughly 37 GB at Q8_0 (our estimate from its parameter count).
+  RAM: about 42-45 GB at 262,144 tokens, if, like Qwen3.8, only some
+  of its layers keep a KV cache.
 - Pros: very fast for its scores, since only 3B parameters are active;
   reads images; small enough to leave lots of room; SWE-bench Verified
   73.4 [qwen36], about even with Qwen3.8-27B's 72.6 in
@@ -131,7 +163,9 @@ size but generates at about the speed of a dense model with its active size.
 - Checked 2026-10-25. Apache 2.0 (weights and configuration only).
   MoE, 78B total, 3.46B active. Text only. Context 262,144 tokens
   recommended, 1M validated. Strongest in German and English.
-- Size: Q4_K_M about 48-50 GB [ssdnodes-1] [ssdnodes-2].
+- Size: Q4_K_M about 48-50 GB [ssdnodes-1] [ssdnodes-2]. RAM: about
+  52-56 GB at 262,144 tokens; a fifth of its layers keep the whole
+  context.
 - Pros: fast (3.46B active); strong at math (average 96.5 [kolibri]);
   trained with over 20% German, if you need German.
 - Cons: by its own table it trails Qwen3.8-27B at everything we care
@@ -147,7 +181,8 @@ size but generates at about the speed of a dense model with its active size.
   `thinkingmachines/Inkling-Small` on Hugging Face
 - Checked 2026-10-25. Apache 2.0. MoE, 276B total, 12B active. Reads
   text, images, and audio. Context up to 1M tokens.
-- Size: it would fit only at about 2 bits per weight.
+- Size: it would fit only at about 2 bits per weight, about 70 GB.
+  RAM: about 75-85 GB with a modest context, i.e., the whole budget.
 - Pros: the highest claimed coding score here (SWE-bench Verified 80.2
   [inkling]); reads images.
 - Cons: 2-bit quants lose a lot of quality; an independent rerun of
@@ -162,7 +197,9 @@ size but generates at about the speed of a dense model with its active size.
 - Model card: [openai/gpt-oss-120b][gpt-oss]
 - Checked 2026-10-25. Apache 2.0. MoE, 117B total, 5.1B active, MXFP4
   weights. Text only. Released August 2025.
-- Size: about 63-66 GB [pinggy].
+- Size: about 63-66 GB [pinggy]. RAM: about 68-71 GB at its 131,072
+  tokens of context; half its layers use a short sliding window, so its
+  KV cache is about 5 GB.
 - Pros: mature llama.cpp support; fast (5.1B active); strong on
   science questions (GPQA Diamond 80.8 [gpt-oss]).
 - Cons: weak at agentic coding (SWE-Bench Pro 16.2 [gpt-oss]); older
@@ -176,7 +213,8 @@ size but generates at about the speed of a dense model with its active size.
 - Checked 2026-10-25. Apache 2.0. Dense, 0.6B (0.44B without
   embeddings). Text only. Context 32,768 tokens. Thinking can be turned
   on or off.
-- Size: under 0.5 GB at Q4_0.
+- Size: under 0.5 GB at Q4_0. RAM: about 4 GB at 32,768 tokens of
+  context, mostly KV cache: every layer keeps the whole context.
 - Not a coding or math model: it's for testing the engine and the
   tools around it. It loads in moments, it's fast (about 480 tokens/s
   generation, measured; see `local-ai-plan.md`), and it still answers
@@ -187,7 +225,180 @@ size but generates at about the speed of a dense model with its active size.
 
 ## Specialists
 
-Not surveyed yet. `initial-models.yaml` has FLUX.2-klein-4B for making images.
+These are image models: they make images from a prompt, and most can
+also edit images you give them (which `my-gen-image` uses). Each needs
+stable-diffusion.cpp support (it supports dozens [sdcpp]), and each is
+an image model plus a text encoder (a small language model) and a VAE,
+so sizes below include all three.
+
+A specialist loads beside the generalist, so it should fit in what the
+generalist leaves: about 42-47 GB beside Qwen3.8-27B at Q8_0. Their
+RAM estimates add a GB or two of working memory to the file sizes.
+
+Rankings here are Elo scores from Artificial Analysis's blind
+comparisons of text-to-image [aa-t2i] and editing [aa-edit], where
+FLUX.2-dev is fixed at 1000. Nearby scores overlap, so a gap of 10-20
+points doesn't mean much.
+
+Licenses vary more than for generalists. Only three here use an open
+source license (FLUX.2-klein-4B, Z-Image-Turbo, and HiDream-O1-Image);
+the rest are non-commercial or limited by revenue, which is fine for
+personal use but not for work. Some repositories are gated: they need a
+Hugging Face login, and `manage-models.sh` doesn't log in, so you'd
+download those by hand.
+
+### FLUX.2-klein-4B (Black Forest Labs)
+
+- Model card: [black-forest-labs/FLUX.2-klein-4B][klein4b]; GGUF:
+  [leejet/FLUX.2-klein-4B-GGUF][klein4b-gguf]
+- Checked 2026-10-25. Apache 2.0. 4B, with a Qwen3-4B text encoder.
+  4 steps. Released January 2026.
+- Size: about 9 GB at Q8_0 (see `local-ai-plan.md`). RAM: about
+  10-12 GB.
+- It's `initial-models.yaml`'s image model.
+- Pros: open source license; small and fast; edits with one or several
+  reference images; its own (ungated) VAE works in stable-diffusion.cpp
+  (tested; see `local-ai-plan.md`).
+- Cons: the lowest-ranked here (text-to-image 837, editing 938
+  [aa-t2i] [aa-edit]).
+
+### Qwen-Image-2.1 (Alibaba)
+
+- Model card: [Qwen/Qwen-Image-2.1][qwen-image]; GGUF:
+  [leejet/Qwen-Image-2.1-GGUF][qwen-image-gguf]; usage:
+  [stable-diffusion.cpp's docs][sdcpp-qwen-image]
+- Checked 2026-10-25. Qwen Research License (not open source; for
+  research and non-commercial use). 7B, with a Qwen3-VL-8B text
+  encoder. A Turbo setting uses 8 steps. Released September 2026.
+- Size: about 18 GB at Q8_0 (see `local-ai-plan.md`). RAM: about
+  20-24 GB; it also caches the prompt's encoding, about 2 GB for a long
+  prompt [sdcpp-qwen-image].
+- Pros: among the top open-weight models at both (text-to-image 1042,
+  editing 1081 [aa-t2i] [aa-edit]); edits with up to 10 reference
+  images, and with circles, painted notes, or masks [qwen-image].
+- Cons: restrictive license; needs its own VAE (earlier Qwen-Image
+  VAEs don't work) [sdcpp-qwen-image].
+
+### FLUX.3 Image Klein (Black Forest Labs)
+
+- Model card: [black-forest-labs/flux-3-image-klein][flux3]; GGUF:
+  [leejet/flux-3-image-klein-GGUF][flux3-gguf]; usage:
+  [stable-diffusion.cpp's docs][sdcpp-flux3]
+- Checked 2026-10-25. FLUX Kommunity License: non-commercial use, plus
+  commercial use of images by those with under US$5M a year in revenue
+  [flux3]. Gated. 5.6B, with a Qwen3-VL-4B text encoder. 16 steps.
+  Released October 2026.
+- Size: about 11 GB at Q8_0 (see `local-ai-plan.md`). RAM: about
+  12-14 GB.
+- Pros: tied for the top open-weight text-to-image score (1043), and
+  near the top at editing (1072) [aa-t2i] [aa-edit]; up to 10
+  reference images, and bounding boxes to place things [flux3].
+- Cons: not open source; gated; its card says to always expand prompts
+  first (with a "prompt upsampler"), since short prompts give generic
+  images [flux3]; very new, and early hands-on reviews are mixed (one
+  edit grafted a trumpet bell onto a saxophone instead of swapping
+  them) [flux3-review].
+- Revisit if: independent reviews hold up.
+
+### Fibo 2.0 (Bria)
+
+- Model card: [briaai/Fibo-2.0-dev][fibo]; usage:
+  [stable-diffusion.cpp's docs][sdcpp-fibo]
+- Checked 2026-10-25. CC BY-NC 4.0 (non-commercial). 8B, with a
+  Qwen3-VL-4B text encoder. A separate Edit Turbo model edits in 4
+  steps. Released October 2026.
+- Size: roughly 14 GB at 8 bits (our estimate from its parameter
+  counts). RAM: about 15-17 GB.
+- Pros: the top open-weight editing score (1088), and tied at the top
+  for text-to-image (1039) [aa-t2i] [aa-edit]; Bria says it's trained
+  only on licensed images [fibo].
+- Cons: non-commercial; stable-diffusion.cpp's docs use FLUX.2-dev's
+  VAE, which is gated and under FLUX.2-dev's non-commercial license
+  [sdcpp-fibo]; no GGUF from leejet yet (8-bit safetensors instead).
+
+### Ideogram 4 (Ideogram)
+
+- Model card: [ideogram-ai/ideogram-4-fp8][ideogram]
+- Checked 2026-10-25. Ideogram 4 Non-Commercial license. Gated. 9.3B,
+  with a Qwen3-VL-8B text encoder. Released June 2026.
+- Size: roughly 24 GB: it has a second, "unconditional" transformer
+  [sdcpp-ideogram], so two 9.3B transformers in FP8 (if they're the
+  same size), plus its text encoder at Q4_K_M (our estimate). RAM:
+  about 25-28 GB.
+- Pros: Ideogram claims the best text rendering (lettering in images)
+  of any open-weight model [ideogram]; text-to-image 1026 with its
+  quality preset [aa-t2i].
+- Cons: non-commercial; gated; text-to-image only, as far as its card
+  says; uses FLUX.2-dev's gated VAE in stable-diffusion.cpp
+  [sdcpp-ideogram].
+
+### HiDream-O1-Image (HiDream)
+
+- Model card: [HiDream-ai/HiDream-O1-Image-Dev-2604][hidream]
+- Checked 2026-10-25. MIT. 9B, a single model with no separate text
+  encoder (as far as its card says). The full model uses 50 steps, and
+  the Dev version 28. Released May 2026.
+- Size: roughly 10 GB at 8 bits (our estimate). RAM: about 12-14 GB.
+- Pros: open source license; the full model ranks well above
+  FLUX.2-klein-4B (text-to-image 975 [aa-t2i]).
+- Cons: slow (28-50 steps, against 4-16 for the distilled models
+  here); the Dev version ranks below FLUX.2-klein-4B (text-to-image 810
+  [aa-t2i]), and the leaderboards don't list the newer Dev-2604; weak
+  at editing (954 for the full model, 880 for Dev [aa-edit]), and its
+  project recommends the full model for editing; stable-diffusion.cpp
+  documents only text-to-image for it [sdcpp-hidream].
+- Revisit if: you want better images under an open source license.
+
+### Z-Image-Turbo (Alibaba Tongyi)
+
+- Model card: [Tongyi-MAI/Z-Image-Turbo][z-image]; GGUF:
+  [leejet/Z-Image-Turbo-GGUF][z-image-gguf]; usage:
+  [stable-diffusion.cpp's docs][sdcpp-z-image]
+- Checked 2026-10-25. Apache 2.0. 6B, with a Qwen3-4B text encoder. 8
+  steps. Released late 2025.
+- Size: roughly 11 GB at Q8_0 (our estimate). RAM: about 12-14 GB.
+- Pros: open source license; fast; better ranked than FLUX.2-klein-4B
+  (text-to-image 936 [aa-t2i]); uses FLUX.1-schnell's ungated,
+  Apache-licensed VAE [sdcpp-z-image].
+- Cons: no editing; the Z-Image-Edit model is "to be released"
+  [z-image].
+
+### FLUX.2-dev and FLUX.2-klein-9B (Black Forest Labs)
+
+- Model cards: [black-forest-labs/FLUX.2-dev][flux2-dev],
+  [black-forest-labs/FLUX.2-klein-9B][klein9b]
+- Checked 2026-10-25. Both under the FLUX non-commercial license, and
+  gated. FLUX.2-dev is 32B with a large text encoder; klein-9B is 9B,
+  with a Qwen3-8B text encoder, and uses 4 steps [klein9b].
+- Size: FLUX.2-dev is about 60 GB at Q8_0, or 35 GB at 4 bits (see
+  `local-ai-plan.md`), so it doesn't fit beside Qwen3.8-27B at 8 bits.
+  klein-9B is roughly 18 GB at Q8_0 (our estimate). RAM: about
+  62-65 GB for FLUX.2-dev at Q8_0 (37-40 GB at 4 bits), and about
+  19-21 GB for klein-9B.
+- Pros: FLUX.2-dev was the strongest open-weight model until recently
+  (1000 at both, the anchor); klein-9B edits well for its size (1015
+  [aa-edit]).
+- Cons: non-commercial and gated; newer models above match or beat
+  them at a fraction of FLUX.2-dev's size.
+
+### Stable Diffusion 3.5 (Stability AI)
+
+- Model card: [stabilityai/stable-diffusion-3.5-large][sd35]; usage:
+  [stable-diffusion.cpp's docs][sdcpp-sd3]
+- Checked 2026-10-25. Stability AI Community License: free for
+  non-commercial use, and for commercial use by those with under US$1M
+  a year in revenue [sd35]. Gated. Large is 8B (Large Turbo is a
+  faster version of it; Medium is 2.5B), with three text encoders:
+  CLIP-L, CLIP-G, and T5-XXL (about 4.7B). About 28 steps for Large.
+  Released October 2024; a guide updated 2026-10-23 still calls it
+  Stability AI's newest [krea-sd], and we found no successor.
+- Size: roughly 20 GB for Large at 8 bits with T5-XXL at 16 bits (our
+  estimate). RAM: about 21-23 GB.
+- Pros: well known, with many fine-tunes and tools built for it.
+- Cons: not open source; gated; text-to-image only, as far as
+  stable-diffusion.cpp's docs say [sdcpp-sd3]; old, it is two years older than
+  most models here, and not on the current leaderboards at all
+  [aa-t2i] [aa-edit].
 
 ## References
 
@@ -210,3 +421,29 @@ Not surveyed yet. `initial-models.yaml` has FLUX.2-klein-4B for making images.
 [pinggy]: https://pinggy.io/blog/top_5_local_llm_tools_and_models/ "Best local LLM tools and models: what fits in 128GB"
 [qwen3-06]: https://huggingface.co/Qwen/Qwen3-0.6B "Qwen3-0.6B model card"
 [qwen3-06-gguf]: https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF "ggml-org's Qwen3-0.6B GGUFs"
+[sdcpp]: https://github.com/leejet/stable-diffusion.cpp "stable-diffusion.cpp, with its list of supported models"
+[aa-t2i]: https://artificialanalysis.ai/image/leaderboard/text-to-image?open-weights=true "Artificial Analysis text-to-image leaderboard (AA-Image-T2I v2.1), open-weight models"
+[aa-edit]: https://artificialanalysis.ai/image/leaderboard/editing?open-weights=true "Artificial Analysis image editing leaderboard (AA-Image-Editing v2.1), open-weight models"
+[klein4b]: https://huggingface.co/black-forest-labs/FLUX.2-klein-4B "FLUX.2-klein-4B model card"
+[klein4b-gguf]: https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF "leejet's FLUX.2-klein-4B GGUFs"
+[qwen-image]: https://huggingface.co/Qwen/Qwen-Image-2.1 "Qwen-Image-2.1 model card"
+[qwen-image-gguf]: https://huggingface.co/leejet/Qwen-Image-2.1-GGUF "leejet's Qwen-Image-2.1 GGUFs"
+[sdcpp-qwen-image]: https://github.com/leejet/stable-diffusion.cpp/blob/master/docs/qwen_image_2.1.md "stable-diffusion.cpp: Qwen Image 2.1"
+[flux3]: https://huggingface.co/black-forest-labs/flux-3-image-klein "FLUX.3 Image Klein model card"
+[flux3-gguf]: https://huggingface.co/leejet/flux-3-image-klein-GGUF "leejet's FLUX.3 Image Klein GGUFs"
+[sdcpp-flux3]: https://github.com/leejet/stable-diffusion.cpp/blob/master/docs/flux3.md "stable-diffusion.cpp: FLUX.3 Image Klein"
+[flux3-review]: https://www.creativeainews.com/articles/flux-3-image-klein-open-weights-license-test-2026/ "FLUX 3 Image Klein: open weights, license, and a test (2026-10-15)"
+[fibo]: https://huggingface.co/briaai/Fibo-2.0-dev "Fibo 2.0 Dev model card"
+[sdcpp-fibo]: https://github.com/leejet/stable-diffusion.cpp/blob/master/docs/fibo2.md "stable-diffusion.cpp: Fibo 2.0"
+[ideogram]: https://huggingface.co/ideogram-ai/ideogram-4-fp8 "Ideogram 4 model card"
+[sdcpp-ideogram]: https://github.com/leejet/stable-diffusion.cpp/blob/master/docs/ideogram4.md "stable-diffusion.cpp: Ideogram4"
+[hidream]: https://huggingface.co/HiDream-ai/HiDream-O1-Image-Dev-2604 "HiDream-O1-Image-Dev-2604 model card"
+[sdcpp-hidream]: https://github.com/leejet/stable-diffusion.cpp/blob/master/docs/hidream_o1_image.md "stable-diffusion.cpp: HiDream-O1-Image"
+[z-image]: https://huggingface.co/Tongyi-MAI/Z-Image-Turbo "Z-Image-Turbo model card"
+[z-image-gguf]: https://huggingface.co/leejet/Z-Image-Turbo-GGUF "leejet's Z-Image-Turbo GGUFs"
+[sdcpp-z-image]: https://github.com/leejet/stable-diffusion.cpp/blob/master/docs/z_image.md "stable-diffusion.cpp: Z-Image"
+[flux2-dev]: https://huggingface.co/black-forest-labs/FLUX.2-dev "FLUX.2-dev model card"
+[klein9b]: https://huggingface.co/black-forest-labs/FLUX.2-klein-9B "FLUX.2-klein-9B model card"
+[sd35]: https://huggingface.co/stabilityai/stable-diffusion-3.5-large "Stable Diffusion 3.5 Large model card"
+[sdcpp-sd3]: https://github.com/leejet/stable-diffusion.cpp/blob/master/docs/sd3.md "stable-diffusion.cpp: SD3 and SD3.5"
+[krea-sd]: https://www.krea.ai/blog/is-stable-diffusion-free-where-to-get-it-and-what-it-costs-in-2026 "Is Stable Diffusion free in 2026?"
