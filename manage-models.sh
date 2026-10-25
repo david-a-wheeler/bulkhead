@@ -202,29 +202,10 @@ model_lines() {
 }
 
 # set_default NAME FILE: prints FILE with NAME as the only model with
-# metadata.default: true, adding NAME's metadata section if needed.
+# metadata.default: true, adding NAME's metadata section if needed (by
+# manage-models-set-default.awk).
 set_default() {
-  awk -v n="$1" '
-    function end_entry() {
-      if (model == n && !done) {
-        print "    metadata:"
-        print "      default: true"
-        done = 1
-      }
-    }
-    /^[^ #]|^  [^ #]/ {
-      end_entry()
-      model = ""
-      if (/^  /) { model = $0; gsub(/^  "?|"?:$/, "", model) }
-    }
-    /^    [^ #]/ { section = $1; sub(/:.*/, "", section) }
-    section == "metadata" && /^      default: true *$/ { next }
-    { print }
-    model == n && /^    metadata:$/ && !done {
-      print "      default: true"
-      done = 1
-    }
-    END { end_entry() }' "$2"
+  awk -v n="$1" -f "$SCRIPT_DIR/manage-models-set-default.awk" "$2"
 }
 
 # Usage: prepare_models_dir

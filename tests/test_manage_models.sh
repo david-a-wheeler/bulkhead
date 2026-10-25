@@ -116,7 +116,7 @@ HF=https://huggingface.co
 # and an initial-models.yaml naming one generalist, i1, the default.
 new_repo() {
   mkdir "$1"
-  for f in manage-models.sh config.sh common.sh host-models.sh host-models-check.awk; do
+  for f in manage-models.sh config.sh common.sh host-models.sh host-models-check.awk manage-models-set-default.awk; do
     cp "$REPO/$f" "$1/"
   done
   echo "MODELS_DIR=\"$1/models\"" > "$1/config.local.sh"

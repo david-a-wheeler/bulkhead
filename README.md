@@ -130,7 +130,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `update` to find and install publishers' updates; and `prune` to find
   files no model uses, with how to serve each (and with `--delete`,
   delete them). It changes only
-  `models.local.yaml` and `MODELS_DIR`, never the repo.
+  `models.local.yaml` and `MODELS_DIR`, never the repo. `default` and
+  `add --default` set the default with `manage-models-set-default.awk`.
 - `install-models.sh`: has the engine serve `models.local.yaml`: checks
   it, installs llama-swap's config from it (with sudo, asking for your
   password), and restarts the engine (unless `--no-restart`).
