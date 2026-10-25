@@ -122,6 +122,15 @@ size but generates at about the speed of a dense model with its active size.
   whole context (we assumed 128-wide attention heads). If prompt reuse
   needs `--swa-full` (below), the KV cache grows about four times, which
   wouldn't fit at 256K.
+- The 68 GB figure is not poolside's file (checked 2026-10-25 by parsing
+  the GGUF headers). [Poolside's `Q4_K_M` is 96.03 GB][laguna-gguf]: most
+  of its routed experts are Q5_K, about 19B parameters of experts are
+  BF16, and its attention, shared experts, and output are Q8_K, so it
+  averages about 8.2 bits per weight. It doesn't fit our 85-90 GB budget
+  even at a 32K context. The 68 GB size matches [ggml-org's
+  `Q4_K_M`][laguna-ggml-org], 67.66 GB, a standard 4.5-bit quant, which
+  fits with about 13 GB of KV cache at 262,144 tokens (about 80 GB
+  total); poolside's `Q8_0`, 128.75 GB, doesn't fit at all.
 - Pros: we'd expect generation about 3-4 times faster than
   Qwen3.8-27B at Q8_0, since only about 8B parameters are read per
   token (an estimate; MLX measured 65-78 tokens/s on an M5 Max
@@ -138,6 +147,49 @@ size but generates at about the speed of a dense model with its active size.
   [llama-25165]. One reviewer saw more made-up facts than from Qwen [peaster].
 - Use a GGUF made after 2026-07-24: poolside fixed its RoPE metadata
   and chat template after release [peaster].
+- Adding it (2026-10-25, not yet tried on the Mac): on the host,
+  `./manage-models.sh add laguna-s-2.1 https://huggingface.co/ggml-org/Laguna-S-2.1-GGUF --no-mmproj`
+  (it's text only, so no vision projector; the quant repo publishes no
+  license of its own, so `add` records `NOASSERTION` - the base model is
+  OpenMDW-1.1). Then edit the entry it writes, the way the Qwen entries
+  here are edited:
+  - `--jinja`, so llama-server uses the chat template baked into the
+    GGUF; it does the tool-calling and the reasoning.
+  - An explicit `--ctx-size 262144` (and `capabilities.context:
+    262144`): 1M would need about 49 GB more KV cache and doesn't fit
+    while VMs run.
+  - The template defaults to `enable_thinking: true`, and the card
+    recommends keeping each turn's thinking in the history. Whether
+    llama-server's `--reasoning-budget` works with this template is
+    untested, and there are reports of reasoning that doesn't start or
+    never ends (above). If so, either let `metadata.max_tokens` bound
+    thinking, or add a second entry (a llama-swap alias, like
+    qwen3.8-27b's `:instruct`) with
+    `chat_template_kwargs: {enable_thinking: false}` for direct answers.
+  - The GGUF embeds its sampling defaults (temperature 1.0, top_p 1.0,
+    top_k 20, min_p 0.05; read from the file's header), and the card
+    recommends none, so no `filters` block is needed at first.
+  - Leave it a second generalist (no `metadata.default`), so
+    llama-swap swaps it in and out of Qwen3.8-27B on demand.
+  - The card offers a DFlash draft model (2.23 GB GGUF) for
+    speculative decoding, but it says that's on Poolside's llama.cpp
+    fork; upstream support is unverified, so treat it as a later
+    experiment, not part of the entry.
+  The resulting entry should look like this, with the `# file:` line's
+  SHA-256 filled in by `add`:
+  ```yaml
+    laguna-s-2.1:
+      # file: Laguna-S-2.1-Q4_K_M.gguf <sha256> NOASSERTION https://huggingface.co/ggml-org/Laguna-S-2.1-GGUF/resolve/main/Laguna-S-2.1-Q4_K_M.gguf
+      name: "Laguna S 2.1 Q4_K_M"
+      cmd: ${llama-server} --model ${models-dir}/Laguna-S-2.1-Q4_K_M.gguf --ctx-size 262144 --jinja
+      proxy: ${proxy}
+      capabilities:
+        in: [text]
+        out: [text]
+        context: 262144
+      metadata:
+        max_tokens: 65536
+  ```
 - Revisit if: speed starts to matter.
 
 ### Qwen3.6-35B-A3B
@@ -405,6 +457,7 @@ download those by hand.
 [qwen38]: https://huggingface.co/Qwen/Qwen3.8-27B "Qwen3.8-27B model card"
 [laguna]: https://huggingface.co/poolside/Laguna-S-2.1 "Laguna S 2.1 model card"
 [laguna-gguf]: https://huggingface.co/poolside/Laguna-S-2.1-GGUF "poolside's Laguna S 2.1 GGUFs"
+[laguna-ggml-org]: https://huggingface.co/ggml-org/Laguna-S-2.1-GGUF "ggml-org's Laguna S 2.1 GGUFs"
 [laguna-bartowski]: https://huggingface.co/bartowski/Laguna-S-2.1-GGUF "bartowski's Laguna S 2.1 GGUFs"
 [laguna-unsloth]: https://huggingface.co/unsloth/Laguna-S-2.1-GGUF "unsloth's Laguna S 2.1 GGUFs"
 [laguna-reasoning]: https://huggingface.co/unsloth/Laguna-S-2.1-GGUF/discussions/6 "unsloth discussion: reasoning does not work"
