@@ -292,6 +292,13 @@ comparisons of text-to-image [aa-t2i] and editing [aa-edit], where
 FLUX.2-dev is fixed at 1000. Nearby scores overlap, so a gap of 10-20
 points doesn't mean much.
 
+Download access (checked 2026-10-25 via the Hugging Face API) is a
+separate question from the license: some repositories are gated, which
+needs a Hugging Face login to download from. Ungated: FLUX.2-klein-4B,
+Qwen-Image-2.1, HiDream-O1-Image, and Z-Image-Turbo. Gated: Fibo 2.0,
+Ideogram 4, FLUX.2-dev, FLUX.2-klein-9B, FLUX.3 Image Klein, and
+Stable Diffusion 3.5.
+
 Licenses vary more than for generalists. Only three here use an open
 source license (FLUX.2-klein-4B, Z-Image-Turbo, and HiDream-O1-Image);
 the rest are non-commercial or limited by revenue, which is fine for
