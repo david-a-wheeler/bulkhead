@@ -148,8 +148,8 @@ then
   fail=1
 fi
 # with_files: copies a models file, adding a well-formed "# file:" line
-# after each cmd for each file it names, so a test entry breaks only the
-# rule it's meant to.
+# after each cmd for each file it names ("# generated:" for a .jinja
+# file), so a test entry breaks only the rule it's meant to.
 with_files() {
   awk '{ print }
     /^    cmd:/ {
@@ -158,7 +158,10 @@ with_files() {
         f = substr(rest, RSTART + 14, RLENGTH - 14)
         leaf = f
         sub(/.*\//, "", leaf)
-        printf "    # file: %s %064d apache-2.0 https://example.com/%s\n", f, 0, leaf
+        if (f ~ /\.jinja$/)
+          printf "    # generated: %s\n", f
+        else
+          printf "    # file: %s %064d apache-2.0 https://example.com/%s\n", f, 0, leaf
         rest = substr(rest, RSTART + RLENGTH)
       }
     }'
@@ -344,6 +347,32 @@ infer_models_ok "$tmp/shared.yaml" ||
   { echo "FAILED: infer_models_ok rejected a file two models share" >&2; fail=1; }
 [ "$(infer_model_files "$tmp/shared.yaml" | wc -l)" -eq 1 ] ||
   { echo "FAILED: infer_model_files listed a shared file twice" >&2; fail=1; }
+# A .jinja chat template a model's cmd uses, listed as "# generated:"
+# (this host writes it; nothing downloads it): refuse a cmd that uses
+# one without the line, a line naming a non-.jinja file or a path
+# outside MODELS_DIR, a line with more than a path, a line outside a
+# model, and a line the cmd never uses; accept the good one.
+gen_good='  g:
+    # file: g.gguf %064d apache-2.0 https://example.com/g.gguf
+    # generated: g.chat-template.jinja
+    cmd: ${llama-server} --model ${models-dir}/g.gguf --jinja --chat-template ${models-dir}/g.chat-template.jinja --ctx-size 4096
+    proxy: ${proxy}'
+printf "models:\n$gen_good\n" 0 > "$tmp/g.gen.yaml"
+infer_models_ok "$tmp/g.gen.yaml" ||
+  { echo "FAILED: infer_models_ok rejected a good # generated: entry" >&2; fail=1; }
+for bad in "$(grep -v '# generated:' "$tmp/g.gen.yaml")" \
+  "$(sed 's|# generated: g.chat-template.jinja|# generated: g.gguf|' "$tmp/g.gen.yaml")" \
+  "$(sed 's|# generated: g.chat-template.jinja|# generated: ../g.chat-template.jinja|' "$tmp/g.gen.yaml")" \
+  "$(sed 's|# generated: g.chat-template.jinja|# generated: g.chat-template.jinja x|' "$tmp/g.gen.yaml")" \
+  "$(awk 'NR == 1 { print; print "    # generated: g.chat-template.jinja"; next } 1' "$tmp/g.gen.yaml")" \
+  "$(sed 's|--chat-template ${models-dir}/g.chat-template.jinja ||' "$tmp/g.gen.yaml")"; do
+  printf '%s\n' "$bad" > "$tmp/bad-models.yaml"
+  if infer_models_ok "$tmp/bad-models.yaml" 2>/dev/null; then
+    echo "FAILED: infer_models_ok accepted a bad # generated: entry:" >&2
+    cat "$tmp/bad-models.yaml" >&2
+    fail=1
+  fi
+done
 infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 "$tmp/good-models.yaml" > "$tmp/both.yaml"
 got="$(python3 -I -c 'import sys, yaml; print(" ".join(yaml.safe_load(open(sys.argv[1]))["models"]))' "$tmp/both.yaml")"
 if [ "$got" != "m m-img m-vision" ]; then
@@ -368,6 +397,19 @@ if ! (
   done > "$MODELS_DIR/SHA256SUMS"
   render_engine_config "$tmp/r.yaml" 2>/dev/null
   infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 "$INFER_MODELS" | cmp -s - "$tmp/r.yaml"
+  # A list that also uses a generated file renders only once that file
+  # is in MODELS_DIR too.
+  : > "$MODELS_DIR/g.gguf"
+  printf '%s  %s\n' "$(printf '%064d' 0)" "g.gguf" >> "$MODELS_DIR/SHA256SUMS"
+  if (INFER_MODELS="$tmp/g.gen.yaml" render_engine_config "$tmp/r2.yaml") 2>/dev/null; then
+    echo "FAILED: render_engine_config accepted a list whose generated file is missing" >&2
+    exit 1
+  fi
+  : > "$MODELS_DIR/g.chat-template.jinja"
+  if ! INFER_MODELS="$tmp/g.gen.yaml" render_engine_config "$tmp/r2.yaml" 2>/dev/null; then
+    echo "FAILED: render_engine_config refused a list whose generated file is there" >&2
+    exit 1
+  fi
 ); then
   echo "FAILED: render_engine_config (above)" >&2
   fail=1

@@ -23,6 +23,14 @@
 # file that's missing or whose SHA-256 changed. A file two models share
 # is listed in both, the same way.
 #
+# A file a script in this repo generates on the host, rather than a
+# download (a .jinja chat template, written by extract-chat-template.sh
+# next to its source GGUF), is listed in the same place instead, as
+# "# generated: PATH": manage-models.sh never downloads it, so it names
+# no SHA-256 or URL, and PATH is a .jinja file in MODELS_DIR or one
+# subdirectory. Either way, each model lists exactly the files its cmd
+# uses, one per line.
+#
 # Each model has a role, which follows from its cmd. A generalist (a
 # ${llama-server} model) can chat; one usually stays loaded, for up to a
 # day without requests. A specialist (an ${sd-server} model) makes

@@ -44,7 +44,7 @@ render_engine_config() {
   infer_models_ok "$INFER_MODELS" ||
     die "models.local.yaml breaks the rules in initial-models.yaml's opening comment (above)."
   infer_models_synced "$INFER_MODELS" ||
-    die "MODELS_DIR doesn't have every file models.local.yaml names (above); run ./manage-models.sh sync."
+    die "MODELS_DIR doesn't have every file models.local.yaml names (above)."
   [ -n "$(infer_models_default "$INFER_MODELS")" ] ||
     echo "WARNING: no model is the default, so vm-setup.sh will stop; set one with ./manage-models.sh default NAME." >&2
   infer_llama_swap_yaml "$infer_key" "$LLAMA_SERVER" "$INFER_GENERALIST_PORT" \

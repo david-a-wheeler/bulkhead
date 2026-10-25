@@ -116,7 +116,7 @@ HF=https://huggingface.co
 # and an initial-models.yaml naming one generalist, i1, the default.
 new_repo() {
   mkdir "$1"
-  for f in manage-models.sh config.sh common.sh host-models.sh; do
+  for f in manage-models.sh config.sh common.sh host-models.sh host-models-check.awk; do
     cp "$REPO/$f" "$1/"
   done
   echo "MODELS_DIR=\"$1/models\"" > "$1/config.local.sh"
@@ -343,6 +343,14 @@ mm "$T" remove s1 || { cat "$work/out" >&2; failed "removing the specialist"; }
 grep -q '^  s1:$' "$L" && failed "removing s1 left its entry"
 [ -f "$T/models/s1/d.gguf" ] || failed "removing s1 deleted its files"
 mm "$T" remove -- g1 || { cat "$work/out" >&2; failed "removing g1 (after \"--\")"; }
+# g2 also uses a generated chat template: check wants it there.
+# shellcheck disable=SC2016 # a literal cmd line
+sed 's|^    cmd: \(${llama-server} --model ${models-dir}/g.gguf\)|    # generated: g.chat-template.jinja\
+    cmd: \1 --chat-template ${models-dir}/g.chat-template.jinja|' "$L" > "$L.new"
+mv "$L.new" "$L"
+mm "$T" check && failed "check accepted a list whose generated file is missing"
+printf '{{ messages }}' > "$T/models/g.chat-template.jinja"
+mm "$T" check || { cat "$work/out" >&2; failed "check with g2's chat template"; }
 mm "$T" prune || { cat "$work/out" >&2; failed "prune"; }
 if ! grep -q "^  s1/d.gguf (.*), from $HF/o/d/" "$work/out" ||
   ! grep -q "^  s1/v.safetensors (.*), from $HF/o/v/" "$work/out"; then
@@ -352,6 +360,8 @@ grep -qxF "    To serve it: ./manage-models.sh add NAME --dir s1 $(grep "^s1/d.g
   failed "prune didn't say how to serve s1/d.gguf"
 grep -q 'install-models\.sh' "$work/out" || failed "prune didn't mention install-models.sh"
 grep -q 'g.gguf' "$work/out" && failed "prune listed g.gguf, which g2 still uses"
+grep -q 'g.chat-template.jinja' "$work/out" && failed "prune listed g2's chat template"
+mm "$T" prune --delete g.chat-template.jinja && failed "prune --delete deleted g2's chat template"
 [ -f "$T/models/s1/d.gguf" ] || failed "prune deleted without --delete"
 mm "$T" prune --delete g.gguf && failed "prune --delete deleted g.gguf, which g2 uses"
 mm "$T" prune --delete s1/v.safetensors || { cat "$work/out" >&2; failed "prune --delete FILE"; }
@@ -364,6 +374,9 @@ mm "$T" prune --delete || { cat "$work/out" >&2; failed "prune --delete"; }
 mm "$T" remove i1 --yes || { cat "$work/out" >&2; failed "removing the default with --yes"; }
 mm "$T" default && failed "default printed a default after it was removed"
 mm "$T" remove g2 || { cat "$work/out" >&2; failed "removing g2"; }
+mm "$T" prune || { cat "$work/out" >&2; failed "prune after removing g2"; }
+grep -q '^  g.chat-template.jinja (.*): a chat template' "$work/out" ||
+  failed "prune didn't explain g2's unused chat template"
 mm "$T" remove s3 && failed "removing the last model without --yes"
 mm "$T" remove --yes s3 || { cat "$work/out" >&2; failed "removing the last model with --yes"; }
 mm "$T" check && failed "check accepted a list with no models"

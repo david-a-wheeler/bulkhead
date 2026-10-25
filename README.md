@@ -113,7 +113,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   architecture.md's "Currently supported" note.
 - `host-models.sh`: the rules for the list of models, and turning it
   into llama-swap's config. `manage-models.sh`, `install-models.sh`, and
-  `host-setup.sh` source it.
+  `host-setup.sh` source it. The list-checking awk program is in
+  `host-models-check.awk`, which `infer_models_ok` runs by name, so it
+  can be read and tested on its own.
 - `host-install.sh`: where the engine's files go, and installing them
   root-owned, each checked before it replaces the running engine's.
   `host-setup.sh` and `install-models.sh` source it.
@@ -289,5 +291,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   wired into `~/.claude/settings.json`'s `hooks.PreToolUse` by
   `vm-setup.sh` (merged in via `jq`, so any other hand-edited settings
   survive; re-running never appends a duplicate entry).
+- `ci.sh`: every check this repo has (shellcheck, syntax checks, the
+  logic tests in `tests/`, and the Python unit tests), in one script;
+  the GitHub CI run (on Ubuntu) and a local run always do the same
+  thing. You can run it on any Linux machine with shellcheck, jq, node,
+  and Python with PyYAML to verify a change.
 A `*.template.*` file gets rendered (placeholders substituted) before
 install; anything else is copied or run as-is.

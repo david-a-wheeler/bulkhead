@@ -378,10 +378,12 @@ EOF
 }
 
 # unused_files: prints each file in MODELS_DIR that no model in the
-# list uses (except our records, and hidden files like .DS_Store).
+# list uses, downloaded or generated (except our records, and hidden
+# files like .DS_Store).
 unused_files() {
   [ -d "$MODELS_DIR" ] || return 0
-  uf_listed="$(infer_model_files "$INFER_MODELS" | awk '{ print $1 }')"
+  uf_listed="$(infer_model_files "$INFER_MODELS" | awk '{ print $1 }'
+    infer_generated_files "$INFER_MODELS")"
   find "$MODELS_DIR" -type f ! -name '.*' | while IFS= read -r uf; do
     uf="${uf#"$MODELS_DIR"/}"
     case "$uf" in SHA256SUMS | SOURCES.tsv | README.txt) continue ;; esac
@@ -396,6 +398,11 @@ explain_unused() {
   case "$1" in
     *.partial)
       echo "  $1 ($eu_size): an unfinished download; rerun what started it to finish it."
+      return 0 ;;
+    *.jinja)
+      echo "  $1 ($eu_size): a chat template, e.g., from ./extract-chat-template.sh"
+      echo "    To serve it: add --chat-template \${models-dir}/$1 to a generalist's cmd,"
+      echo "    and a \"# generated: $1\" line for it."
       return 0 ;;
   esac
   eu_url="$(awk -F '\t' -v f="$1" '$1 == f { s = $2 } END { print s }' "$MODELS_DIR/SOURCES.tsv" 2>/dev/null)"
@@ -621,7 +628,7 @@ case "$command" in
     [ -n "$(infer_models_default "$INFER_MODELS")" ] ||
       echo "WARNING: no model is the default, so nopi won't pick one; set one with ./manage-models.sh default NAME." >&2
     infer_models_synced "$INFER_MODELS" ||
-      die "models.local.yaml follows the rules, but MODELS_DIR doesn't have every file it names (above); run ./manage-models.sh sync."
+      die "models.local.yaml follows the rules, but MODELS_DIR doesn't have every file it names (above)."
     echo "models.local.yaml follows the rules, and MODELS_DIR has its files."
     exit 0
     ;;

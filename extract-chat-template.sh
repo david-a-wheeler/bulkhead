@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# extract-chat-template.sh — extract the chat template embedded in a GGUF.
+# extract-chat-template.sh: extract the chat template embedded in a GGUF.
 #
 # Usage:
 #   extract-chat-template.sh <file.gguf> [dest-dir]
@@ -33,7 +33,7 @@ if [[ -e "$DST" ]]; then
   exit 1
 fi
 
-python3 - "$SRC" "$DST" <<'PY'
+python3 -I - "$SRC" "$DST" <<'PY'
 import mmap, struct, sys
 
 src, dst = sys.argv[1], sys.argv[2]
