@@ -19,6 +19,24 @@ step() {
   echo "== $1 =="
 }
 
+step "awk lint (gawk --posix --lint)"
+# Each .awk program must parse, with no lint warnings, using only POSIX
+# awk (macOS's awk runs them). A problem here stops ci.sh at once, since
+# every later test that runs the program would fail less clearly. -o
+# pretty-prints the program instead of running it.
+if command -v gawk > /dev/null; then
+  for f in *.awk tests/*.awk; do
+    [ -f "$f" ] || continue
+    if ! out="$(gawk --posix --lint -o/dev/null -f "$f" 2>&1)" || [ -n "$out" ]; then
+      printf '%s\n' "$out" >&2
+      echo "FAILED: awk lint of $f (above); stopping." >&2
+      exit 1
+    fi
+  done
+else
+  echo "Skipping the awk lint check: gawk isn't installed."
+fi
+
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
 PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh manage-models.sh install-models.sh vm-setup.sh nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh"
 
@@ -60,14 +78,15 @@ fi
 render_template secrets-client.template.py "$tmp/secrets-client" SECRETS_SERVER_PORT
 render_template secrets-server.template.py "$tmp/secrets-server.py" \
   SECRETS_SERVER_PORT KEYCHAIN_PREFIX UTMCTL
-for f in secrets-client secrets-server.py; do
-  if ! python3 -m py_compile "$tmp/$f"; then
+for f in "$tmp/secrets-client" "$tmp/secrets-server.py" extract-chat-template.py tests/check_llama_swap_config.py; do
+  if ! python3 -m py_compile "$f"; then
     echo "FAILED: $f (py_compile)" >&2
     fail=1
   fi
 done
 
-render_template infer-models.template.sh "$tmp/infer-models" INFER_PORT
+render_template infer-models.template.sh "$tmp/infer-models.installed" INFER_PORT
+sed "s|^FILTER=.*|FILTER=\"$SCRIPT_DIR/infer-models.jq\"|" "$tmp/infer-models.installed" > "$tmp/infer-models"
 render_template infer-logs.template.sh "$tmp/infer-logs" INFER_PORT
 render_template infer-watch-hook.template.sh "$tmp/infer-watch-hook" \
   INFER_PORT INFER_KEY_FILE INFER_LABEL INFER_LOW_POWER_BELOW INFER_LOW_POWER_UNTIL
@@ -99,51 +118,9 @@ if ! infer_models_ok initial-models.yaml; then
   fail=1
 fi
 # llama-swap isn't here to check the config, so check what pi and nopi
-# need from it: each model's context matches its --ctx-size, max_tokens
-# fits in it, and exactly one model is the default.
+# need from it (tests/check_llama_swap_config.py).
 infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 initial-models.yaml > "$tmp/llama-swap.yaml"
-if ! python3 -I - "$tmp/llama-swap.yaml" <<'EOF'
-import re, sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1]))
-assert cfg["apiKeys"] == ["sk-test"], "the API key isn't ours alone"
-assert cfg["captureBuffer"] == 0, "llama-swap must not keep prompts and replies"
-assert cfg["globalTTL"] == 86400, "llama-swap should keep an idle model loaded for a day"
-defaults = []
-for name, m in cfg["models"].items():
-    ctx = (m.get("capabilities") or {}).get("context")
-    max_tokens = (m.get("metadata") or {}).get("max_tokens")
-    if m["cmd"].startswith("${sd-server} "):
-        assert m["capabilities"]["out"] == ["image"], f"{name}: needs capabilities.out: [image]"
-        assert m["proxy"] == "${specialist-proxy}", f"{name}: a specialist needs its own port"
-        assert 0 < m["ttl"] <= 3600, f"{name}: a specialist must unload within an hour"
-        continue
-    assert m["proxy"] == "${proxy}", f"{name}: a generalist needs the generalist port"
-    assert "ttl" not in m, f"{name}: a generalist should stay loaded (globalTTL)"
-    size = re.search(r"--ctx-size (\d+)", m["cmd"])
-    assert isinstance(ctx, int) and size and int(size.group(1)) == ctx, \
-        f"{name}: capabilities.context must match --ctx-size"
-    assert isinstance(max_tokens, int) and 0 < max_tokens <= ctx, \
-        f"{name}: metadata.max_tokens must be a number up to the context"
-    if (m.get("metadata") or {}).get("default") is True:
-        defaults.append(name)
-assert len(defaults) == 1, f"exactly one model needs metadata.default: true, not {defaults}"
-# One group per role, which swaps within itself and leaves the other
-# alone, and every model in one; otherwise llama-swap's default group
-# would evict both.
-groups = cfg["routing"]["router"]["settings"]["groups"]
-assert cfg["routing"]["router"]["use"] == "group" and set(groups) == {"generalists", "specialists"}
-for g in groups.values():
-    assert g["swap"] is True and g["exclusive"] is False, "each role must swap only within itself"
-roles = {n: "specialists" if m["cmd"].startswith("${sd-server} ") else "generalists"
-         for n, m in cfg["models"].items()}
-for gname, g in groups.items():
-    assert sorted(g["members"] or []) == sorted(n for n, r in roles.items() if r == gname), \
-        f"{gname}: members {g['members']} don't match the models' roles"
-macros = cfg["macros"]
-assert "--port 8999 " in macros["llama-server"] and macros["proxy"] == "http://127.0.0.1:8999"
-assert macros["sd-server"].endswith("--listen-port 8998") and macros["specialist-proxy"] == "http://127.0.0.1:8998"
-EOF
-then
+if ! python3 -I tests/check_llama_swap_config.py "$tmp/llama-swap.yaml"; then
   echo "FAILED: the models in initial-models.yaml (above)" >&2
   fail=1
 fi

@@ -104,7 +104,7 @@ EOF
   while read -r ims_path; do
     [ -n "$ims_path" ] || continue
     if [ ! -f "$MODELS_DIR/$ims_path" ]; then
-      echo "$MODELS_DIR/$ims_path is missing; write it with ./extract-chat-template.sh." >&2
+      echo "$MODELS_DIR/$ims_path is missing; write it with ./extract-chat-template.py." >&2
       ims_ok=1
     fi
   done <<EOF

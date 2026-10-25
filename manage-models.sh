@@ -400,7 +400,7 @@ explain_unused() {
       echo "  $1 ($eu_size): an unfinished download; rerun what started it to finish it."
       return 0 ;;
     *.jinja)
-      echo "  $1 ($eu_size): a chat template, e.g., from ./extract-chat-template.sh"
+      echo "  $1 ($eu_size): a chat template, e.g., from ./extract-chat-template.py"
       echo "    To serve it: add --chat-template \${models-dir}/$1 to a generalist's cmd,"
       echo "    and a \"# generated: $1\" line for it."
       return 0 ;;

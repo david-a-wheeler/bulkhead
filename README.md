@@ -230,8 +230,13 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   the Mac's engine (through the tunnel) what models it serves now, and
   prints them in a form any client can use: each model's name, context
   window, maximum reply, and whether it takes images, plus the default.
-  It treats the answer as untrusted. Each client's wrapper runs it at
-  start, so changing the models on the Mac needs nothing done on a VM.
+  It treats the answer as untrusted, and checks it with
+  `infer-models.jq` (installed in `/usr/local/libexec/bulkhead`). Each
+  client's wrapper runs it at start, so changing the models on the Mac
+  needs nothing done on a VM.
+- `extract-chat-template.py`: writes the chat template embedded in a
+  GGUF to a `.jinja` file beside it, for a model's `--chat-template`
+  (and its `# generated:` line).
 - `nopi`: runs pi like `noclaude` runs Claude Code, against the Mac's
   models. Each time, it turns `infer-models`' answer into pi's
   `models.json` with `pi-models.jq`, and starts pi with the default

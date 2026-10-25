@@ -454,7 +454,8 @@ if [ -s "$INFER_KEY_FILE" ]; then
   rm -rf "${TMPDIR:?}/pi"
   echo "pi $(jq -r .version "$pi_dir/package.json")"
 
-  # infer-models (what the engine serves now, for any client), and nopi,
+  # infer-models (what the engine serves now, for any client, checked by
+  # infer-models.jq), and nopi,
   # which runs it each time pi starts and writes pi's models.json with
   # pi-models.jq. So changing the models on the Mac needs nothing done
   # here. An old models.json stays until nopi first reaches the engine.
@@ -462,7 +463,7 @@ if [ -s "$INFER_KEY_FILE" ]; then
   sudo install -m 755 "$TMPDIR/infer-models" "$SCRIPT_DIR/nopi" /usr/local/bin/
   rm -f "$TMPDIR/infer-models"
   sudo install -d -m 755 /usr/local/libexec/bulkhead
-  sudo install -m 644 "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
+  sudo install -m 644 "$SCRIPT_DIR/infer-models.jq" "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
   # my-gen-image makes and edits images with the engine's image models,
   # from any client with a shell. agents/ holds what clients look for in
   # ~/.agents, e.g., its skill (agents/skills/my-gen-image), where Agent

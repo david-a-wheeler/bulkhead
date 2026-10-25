@@ -35,19 +35,19 @@ function gen_ok(p) {
   return name_ok(p) && p ~ /\.jinja$/
 }
 # Checks the model that just ended, if any.
-function end_model(   i, n, f) {
-  n = split(cmd_files, f, " ")
+function end_model(   i, n, paths) {
+  n = split(cmd_files, paths, " ")
   for (i = 1; i <= n; i++)
-    if (!((model SUBSEP f[i]) in listed) && !((model SUBSEP f[i]) in generated))
-      model_bad("its cmd uses " f[i] ", but it has no \"# file:\" or \"# generated:\" line for it")
-  n = split(file_lines, f, " ")
+    if (!((model SUBSEP paths[i]) in listed) && !((model SUBSEP paths[i]) in generated))
+      model_bad("its cmd uses " paths[i] ", but it has no \"# file:\" or \"# generated:\" line for it")
+  n = split(file_lines, paths, " ")
   for (i = 1; i <= n; i++)
-    if (!((model SUBSEP f[i]) in used))
-      model_bad("its \"# file:\" line names " f[i] ", which its cmd never uses")
-  n = split(gen_lines, f, " ")
+    if (!((model SUBSEP paths[i]) in used))
+      model_bad("its \"# file:\" line names " paths[i] ", which its cmd never uses")
+  n = split(gen_lines, paths, " ")
   for (i = 1; i <= n; i++)
-    if (!((model SUBSEP f[i]) in used))
-      model_bad("its \"# generated:\" line names " f[i] ", which its cmd never uses")
+    if (!((model SUBSEP paths[i]) in used))
+      model_bad("its \"# generated:\" line names " paths[i] ", which its cmd never uses")
   if (is_default && backend != "llama-server")
     model_bad("only a generalist (a ${llama-server} model) can be the default")
   if (model != "" && (cmds != 1 || proxies != 1)) {
