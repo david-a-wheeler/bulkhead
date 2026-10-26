@@ -2,13 +2,23 @@
 ; Sandbox profile for the local AI engine (llama-swap and the backend
 ; it starts, a llama-server, an sd-server, or both; children inherit it),
 ; rendered and installed root-owned by host-setup.sh. See
-; local-ai-plan.md's "Host sandbox": this is the Phase B1 profile plus
-; three allowances. Allow everything except what's denied below. Later
-; rules take precedence over earlier ones.
+; local-ai-plan.md's "Host sandbox": this is the Phase B2 profile, i.e.,
+; Phase B1 plus its three allowances, plus denials of DNS, other network
+; use, and ways to learn who I am. Allow everything except what's denied
+; below. Later rules take precedence over earlier ones.
 (allow default)
 
-; No outbound IP network, except llama-swap to its two backends' ports.
-(deny network-outbound (remote ip "*:*"))
+; No network use, except listening on 127.0.0.1 (llama-swap's port and
+; the backends' ports) and llama-swap connecting to its backends. This
+; also denies Unix-domain sockets, including mDNSResponder's, so no DNS
+; lookups: a lookup of a made-up name could carry data out, and the
+; engine never needs one. Not listening elsewhere means a VM can reach
+; the engine only through a tunnel to llama-swap, never a backend.
+(deny network*)
+(allow network-bind network-inbound
+  (local ip "localhost:@@INFER_PORT@@")
+  (local ip "localhost:@@INFER_GENERALIST_PORT@@")
+  (local ip "localhost:@@INFER_SPECIALIST_PORT@@"))
 (allow network-outbound
   (remote ip "localhost:@@INFER_GENERALIST_PORT@@")
   (remote ip "localhost:@@INFER_SPECIALIST_PORT@@"))
@@ -22,21 +32,44 @@
   (literal "/dev/dtracehelper"))
 
 ; No file reads under /Users, except the models. The engine itself is
-; under /opt, outside /Users.
-(deny file-read* (subpath "/Users"))
+; under /opt, outside /Users. Also no reading other places with my files
+; or that name me: other volumes, shared temporary directories, logs,
+; and system preferences (e.g., the computer name and the last user to
+; log in).
+(deny file-read*
+  (subpath "/Users")
+  (subpath "/Volumes")
+  (subpath "/private/tmp")
+  (subpath "/private/var/tmp")
+  (subpath "/private/var/log")
+  (subpath "/Library/Logs")
+  (subpath "/Library/Preferences"))
 (allow file-read* (subpath "@@MODELS_DIR@@"))
 (allow file-read-metadata
   (literal "/Users")
   (literal "/Users/Shared"))
 
-; Little about other accounts: no reading the local account and group
-; files or the login record (who). The directory service (what dscl and
-; id use) stays available, since libraries often look up the current
-; user.
+; Little about other accounts or this Mac: no reading the local account
+; and group files or the login record (who), and no asking the services
+; that know account names and real names (the directory service, what
+; dscl and id use), the computer name (configd), or system preferences
+; (cfprefsd). Libraries that look up the current user just get no
+; answer. The membership service stays, since I believe finding _infer's
+; cache directory needs it.
 (deny file-read*
   (literal "/private/etc/passwd")
   (literal "/private/etc/group")
   (literal "/private/var/run/utmpx"))
+(deny mach-lookup
+  (global-name-regex #"^com\.apple\.system\.opendirectoryd\.(libinfo|api)$")
+  (global-name "com.apple.system.DirectoryService.libinfo_v1")
+  (global-name "com.apple.SystemConfiguration.configd")
+  (global-name "com.apple.cfprefsd.daemon")
+  (global-name "com.apple.dnssd.service"))
+(deny sysctl-read (sysctl-name "kern.hostname"))
+(deny iokit-get-properties
+  (iokit-property "IOPlatformSerialNumber")
+  (iokit-property "IOPlatformUUID"))
 
 ; No detailed queries about other processes, only its own and those in
 ; the same sandbox (llama-swap and the llama-server it starts). This

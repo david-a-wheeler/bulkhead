@@ -6,7 +6,12 @@ already implemented, what we've measured, and the work that remains. See
 `architecture.md` for the overall bulkhead design this builds on; once
 this is built, the lasting parts belong there.
 
-## Current state (2026-10-19)
+## Current state (2026-10-25)
+
+Since 2026-10-19, the Mac moved to the new model management (see
+"Managing models on the host"), flux2-klein-4b runs beside the chat
+model (see "Image generation"), and the Mac and every VM have rerun
+their setup scripts; the notes below are from 2026-10-19.
 
 Working, for **non-sensitive use only**: there's no secure VM yet (mytux
 is a normal VM with full network access), and the sleep watcher has
@@ -549,6 +554,33 @@ through `(allow iokit-open (iokit-user-client-class
 search (2026-10-18) found no published, tested `(deny default)`
 profile for llama.cpp or other Metal inference servers.
 
+**Phase B2 (written 2026-10-25, not yet run on the Mac).** Some models
+come from sources I don't know, and a crafted one might take over a
+backend. Its replies reach the VMs, so whatever it learns on the Mac
+can leave through a VM, and the trial showed DNS lookups still worked
+under B1 (the sandboxed curl got as far as connecting). So
+`infer.template.sb` now also denies:
+
+* all network use except listening on 127.0.0.1 on llama-swap's and
+  the backends' ports and llama-swap's connections to its backends.
+  That denies DNS (mDNSResponder's socket and Mach service), every
+  other Unix-domain socket, and listening on the UTM network, where a
+  VM could reach a backend directly instead of through a tunnel to
+  llama-swap;
+* reads of `/Volumes`, the shared temporary directories, logs, and
+  `/Library/Preferences` (e.g., the computer name and the last user to
+  log in);
+* the directory service (account names and real names), configd (the
+  computer name), cfprefsd, `kern.hostname`, and IOKit's serial number
+  and platform UUID.
+
+I left program execution alone: I don't know what the backends run,
+and with these services denied, running `dscl` or `scutil` learns
+nothing. `check_profile` in `host-setup.sh` now also checks that DNS
+lookups, `id -un`, `dscl`'s RealName, and `scutil --get ComputerName`
+fail under the profile. If B2 breaks the engine, revert
+`infer.template.sb` and rerun `host-setup.sh`.
+
 The strict profile, if built:
 
 * Seatbelt via `/usr/bin/sandbox-exec -f infer.sb ...` around llama-swap,
@@ -786,7 +818,7 @@ The strict profile, if built:
   if `MODELS_DIR` already has it under another path: one the list
   names with that SHA-256 (e.g., two quantizations from one repo share
   a projector), or one with the same name elsewhere in `MODELS_DIR`
-  (e.g., the unused UD-Q4_K_M file). Not yet tried on the Mac.
+  (e.g., the unused UD-Q4_K_M file).
 * Making images from a client (2026-10-22): I tried a pi extension
   (`infer-images.js`, in 771d5dd) that registered the image models for
   pi's `codemode` tool, but the chat model then had to write JavaScript
@@ -836,7 +868,8 @@ The repo's models (`infer-models.yaml` and `config.sh`'s
 not remove or change the repo's, so you couldn't replace them with
 something better without editing the repo. Now each host owns its whole
 list, and the repo provides only the list a new host starts with.
-Implemented and tested in CI on 2026-10-22; not yet run on the Mac.
+Implemented and tested in CI on 2026-10-22; the Mac migrated to it
+by 2026-10-25.
 
 **Files.**
 
@@ -1283,17 +1316,14 @@ Next (2026-10-22): flux runs beside the chat model on the Mac (see
 "Image generation"). Still to check: a forced sleep with both loaded,
 which should unload both (see step 8).
 
-Then: run the new model management on the Mac (see "Managing models
-on the host"). `git pull`, then `./manage-models.sh sync`, which
-migrates and should download nothing; check `models.local.yaml` and
-`./manage-models.sh prune` (which should list only the unused
-UD-Q4_K_M file); then `./install-models.sh` (the config should be
-unchanged except for the `# file:` comments) and `./host-setup.sh`.
+The new model management runs on the Mac (migrated by 2026-10-25;
+see "Managing models on the host").
 
 Then: vision and images (see "Models"). The Mac has its projector (a
-one-time script added it, 2026-10-22). On each VM, `./vm-setup.sh`
-once (it installs `infer-models`, `my-gen-image`, and the new `nopi`; see "Clients learn the models from the engine"), then ask
-`nopi` to describe an image file, and to make an image with
+one-time script added it, 2026-10-22), and every VM has run
+`./vm-setup.sh` since (it installs `infer-models`, `my-gen-image`, and
+the new `nopi`; see "Clients learn the models from the engine").
+Still to check: ask `nopi` to describe an image file, and to make an image with
 flux2-klein-4b and say what's in it. Check the sandbox log for
 denials. After that, changing models on the Mac should need nothing
 done on a VM: check that by setting another default and restarting

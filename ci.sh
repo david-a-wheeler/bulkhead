@@ -95,6 +95,12 @@ for f in infer.plist infer-tunnel.plist infer-watch.plist; do
   { python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' "$tmp/$f" &&
     ! grep -q '@@' "$tmp/$f"; } || failed "$f"
 done
+# Only macOS can load the sandbox profile (host-setup.sh checks it
+# there), so just check that host-setup.sh's variables fill it in.
+INFER_GENERALIST_PORT=8999 INFER_SPECIALIST_PORT=8998 METAL_CACHE=/m MODELS_DIR=/d
+render_template infer.template.sb "$tmp/infer.sb" \
+  INFER_PORT INFER_GENERALIST_PORT INFER_SPECIALIST_PORT METAL_CACHE MODELS_DIR
+! grep -q '@@' "$tmp/infer.sb" || failed infer.sb
 
 step "host models (tests/test_host_models.sh)"
 # initial-models.yaml and the list's rules, llama-swap's config from it,

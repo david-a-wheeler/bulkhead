@@ -503,7 +503,7 @@ esac
 # check the result.
 render_engine_config "$infer_tmp/llama-swap.yaml"
 render_template "$SCRIPT_DIR/infer.template.sb" "$infer_tmp/infer.sb" \
-  INFER_GENERALIST_PORT INFER_SPECIALIST_PORT METAL_CACHE MODELS_DIR
+  INFER_PORT INFER_GENERALIST_PORT INFER_SPECIALIST_PORT METAL_CACHE MODELS_DIR
 render_template "$SCRIPT_DIR/infer.template.plist" "$infer_tmp/infer.plist" \
   INFER_LABEL MACOS_INFER_USER INFER_PROFILE SWAP_BIN INFER_CONFIG INFER_PORT
 # Only you may restart the engine without a password, and only this way.
@@ -532,9 +532,28 @@ check_profile() {
     return 1
   fi
   profile_ok=0
-  sandbox_denies "$1" "outbound HTTPS" /usr/bin/curl -sS -m 10 -o /dev/null https://example.com ||
+  sandbox_denies "$1" "outbound HTTPS" /usr/bin/curl -sS -m 10 -o /dev/null https://1.1.1.1 ||
     profile_ok=1
+  # curl exits with 6 when it can't resolve the name.
+  if /usr/bin/sandbox-exec -f "$1" /usr/bin/curl -sS -m 10 -o /dev/null https://example.com 2>/dev/null; then
+    curl_status=0
+  else
+    curl_status=$?
+  fi
+  if [ "$curl_status" -ne 6 ]; then
+    echo "FAIL: the sandbox allows DNS lookups" >&2
+    profile_ok=1
+  fi
   sandbox_denies "$1" "reading your home directory" /bin/ls "$HOME" || profile_ok=1
+  # id prints the number when it can't find the name.
+  if [ "$(/usr/bin/sandbox-exec -f "$1" /usr/bin/id -un 2>/dev/null)" = "$(id -un)" ]; then
+    echo "FAIL: the sandbox allows looking up your account name" >&2
+    profile_ok=1
+  fi
+  sandbox_denies "$1" "looking up your full name" \
+    /usr/bin/dscl . -read "/Users/$(id -un)" RealName || profile_ok=1
+  sandbox_denies "$1" "getting the computer name" /usr/sbin/scutil --get ComputerName ||
+    profile_ok=1
   sandbox_denies "$1" "writing to /private/var/tmp" \
     /usr/bin/touch /private/var/tmp/bulkhead-infer-denied || profile_ok=1
   rm -f /private/var/tmp/bulkhead-infer-denied
