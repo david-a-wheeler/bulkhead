@@ -85,6 +85,40 @@ Settings > QEMU in UTM if it's not showing up in `~/.ssh/config`. If
 `ssh-copy-id` failed for a VM (host-setup.sh prints a warning naming it),
 re-run `./host-setup.sh` once the VM's actually reachable.
 
+### The local AI engine's API key
+
+`host-setup.sh` creates the engine's API key in
+`~/.config/bulkhead/infer-api-key` on the Mac (see `local-ai-plan.md`).
+A VM can use the engine only if it has a copy of that file; `vm-setup.sh`
+sets up pi, `nopi`, and `infer-logs` only on a VM that has one.
+
+**To give a VM the key**, run this on the Mac, from this repo, after
+changing `mytux` to the VM's name:
+
+```
+vm=mytux
+ssh "$vm" mkdir -p .config/bulkhead
+scp ~/.config/bulkhead/infer-api-key "$vm":.config/bulkhead/
+```
+
+Then run `./vm-setup.sh` on that VM.
+
+**To rotate the key**, e.g., because it may have leaked (in a paste, a
+log, or a command line) or to cut off a VM, run this on the Mac, from
+this repo:
+
+```
+rm -f ~/.config/bulkhead/infer-api-key
+./host-setup.sh
+```
+
+`host-setup.sh` creates a new key and restarts the engine with it, so
+every VM's old key stops working. Then give the new key to each VM that
+should keep using the engine, as above (including its `./vm-setup.sh`,
+which restarts `infer-logs` with the new key). Restart any running
+`nopi`, since it reads the key when it starts. On a VM you're cutting
+off, delete its old copy: `rm ~/.config/bulkhead/infer-api-key`.
+
 ## Network egress is restricted
 
 VMs can only reach a handful of outbound ports by default: SSH (22),

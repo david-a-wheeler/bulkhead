@@ -595,10 +595,8 @@ and asking the directory service, i.e., the rules doing their job.
 Running it turned up a leak: `infer-logs` passed the key on curl's
 command line, which any process in the VM can read, including one under
 nono. Every script now sends it on curl's stdin (`-H @-`), as
-`infer-models` already did. To rotate the key after a leak like this:
-on the Mac, delete `~/.config/bulkhead/infer-api-key` and rerun
-`host-setup.sh`; copy the new key to each VM (see `vm-setup.sh`); and
-on each VM rerun `vm-setup.sh` and restart `infer-logs@*`.
+`infer-models` already did. `README.md` explains how to rotate the key
+after a leak like this.
 
 The strict profile, if built:
 
