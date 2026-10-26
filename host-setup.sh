@@ -552,8 +552,12 @@ check_profile() {
   fi
   sandbox_denies "$1" "looking up your full name" \
     /usr/bin/dscl . -read "/Users/$(id -un)" RealName || profile_ok=1
-  sandbox_denies "$1" "getting the computer name" /usr/sbin/scutil --get ComputerName ||
+  # scutil exits with 0 even when it can't get the name.
+  if [ "$(/usr/bin/sandbox-exec -f "$1" /usr/sbin/scutil --get ComputerName 2>/dev/null)" = \
+    "$(/usr/sbin/scutil --get ComputerName)" ]; then
+    echo "FAIL: the sandbox allows getting the computer name" >&2
     profile_ok=1
+  fi
   sandbox_denies "$1" "writing to /private/var/tmp" \
     /usr/bin/touch /private/var/tmp/bulkhead-infer-denied || profile_ok=1
   rm -f /private/var/tmp/bulkhead-infer-denied
