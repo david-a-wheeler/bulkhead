@@ -20,8 +20,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 url="http://127.0.0.1:$INFER_PORT"
 [ -s "$INFER_KEY_FILE" ] || die "no API key in $INFER_KEY_FILE; run host-setup.sh first."
-auth="Authorization: Bearer $(cat "$INFER_KEY_FILE")"
-listing="$(curl -sS -m 10 -H "$auth" "$url/v1/models")" ||
+# The key reaches curl on its stdin, not its command line, which any
+# process here can read.
+auth() { printf 'Authorization: Bearer %s\n' "$(cat "$INFER_KEY_FILE")"; }
+listing="$(auth | curl -sS -m 10 -H @- "$url/v1/models")" ||
   die "couldn't reach the engine at $url."
 # Each model and what it outputs, as "ID image" or "ID text"; the same
 # rule as pi's filter in common.sh.
@@ -37,7 +39,7 @@ report() {
   echo "FAIL: $1: HTTP $2: $(printf '%s' "$3" | head -c 500)"
   echo "  The end of $1's log in llama-swap:"
   # The log endpoint streams after the history, so cut it off.
-  curl -s -m 3 -H "$auth" "$url/logs/stream/$1" | tail -n 30 | sed 's/^/    /'
+  auth | curl -s -m 3 -H @- "$url/logs/stream/$1" | tail -n 30 | sed 's/^/    /'
   if [ "$(uname -s)" = Darwin ]; then
     echo "  Sandbox denials for the engine in the last 15 minutes:"
     /usr/bin/log show --last 15m --style compact --predicate 'sender == "Sandbox"' 2>/dev/null |
@@ -68,7 +70,7 @@ for model do
   echo "Checking $model ($kind); loading it can take minutes..."
   png=",infer-check-$model.png"
   rm -f "$png"
-  reply="$(curl -sS -m 1200 -w '\n%{http_code}' -H "$auth" -H 'Content-Type: application/json' \
+  reply="$(auth | curl -sS -m 1200 -w '\n%{http_code}' -H @- -H 'Content-Type: application/json' \
     -d "$body" "$url$path")" || {
     report "$model" "none (curl failed)" "$reply"
     failed=1
@@ -103,5 +105,5 @@ for model do
 done
 # A specialist runs beside the generalist, so after the checks the last
 # generalist and (until its ttl runs out) the last specialist are loaded.
-echo "Loaded now: $(curl -s -m 10 -H "$auth" "$url/running" | jq -c '[.running[].model]')"
+echo "Loaded now: $(auth | curl -s -m 10 -H @- "$url/running" | jq -c '[.running[].model]')"
 exit "$failed"

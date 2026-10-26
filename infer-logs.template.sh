@@ -34,9 +34,10 @@ esac
 # lines per request: prompt eval (prefill), eval (generation), and total
 # time. If llama-server's wording changes, extra lines get through;
 # nothing else is lost. When curl exits, grep does too, and systemd
-# restarts this.
-key="$(cat "$KEY_FILE")"
-curl -sS -N --fail -H "Authorization: Bearer $key" \
-  "http://127.0.0.1:$PORT/logs/stream/$1?no-history" |
+# restarts this. The key reaches curl on its stdin, not its command line,
+# which any process here can read.
+printf 'Authorization: Bearer %s\n' "$(cat "$KEY_FILE")" |
+  curl -sS -N --fail -H @- \
+    "http://127.0.0.1:$PORT/logs/stream/$1?no-history" |
   grep --line-buffered -v -E \
     'graphs reused|graph reallocs|get_availabl|launch_slot_|slot +release:|unused tensor'

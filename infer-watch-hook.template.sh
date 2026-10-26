@@ -60,8 +60,10 @@ on_sleep() {
     log "Sleep: no model loaded."
     return 0
   fi
-  curl -sS -m 5 -o /dev/null -X POST -H "Authorization: Bearer $(cat "$KEY_FILE")" \
-    "http://127.0.0.1:$PORT/api/models/unload" || log "Sleep: the unload request failed."
+  # The key reaches curl on its stdin, not its command line.
+  printf 'Authorization: Bearer %s\n' "$(cat "$KEY_FILE")" |
+    curl -sS -m 5 -o /dev/null -X POST -H @- \
+      "http://127.0.0.1:$PORT/api/models/unload" || log "Sleep: the unload request failed."
   if wait_until 80 no_model; then
     log "Sleep: unloaded the models."
     return 0

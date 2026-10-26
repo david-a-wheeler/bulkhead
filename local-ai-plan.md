@@ -554,7 +554,7 @@ through `(allow iokit-open (iokit-user-client-class
 search (2026-10-18) found no published, tested `(deny default)`
 profile for llama.cpp or other Metal inference servers.
 
-**Phase B2 (written 2026-10-25, not yet run on the Mac).** Some models
+**Phase B2 (2026-10-25; running on the Mac).** Some models
 come from sources I don't know, and a crafted one might take over a
 backend. Its replies reach the VMs, so whatever it learns on the Mac
 can leave through a VM, and the trial showed DNS lookups still worked
@@ -580,6 +580,25 @@ nothing. `check_profile` in `host-setup.sh` now also checks that DNS
 lookups, `id -un`, `dscl`'s RealName, and `scutil --get ComputerName`
 fail under the profile. If B2 breaks the engine, revert
 `infer.template.sb` and rerun `host-setup.sh`.
+
+It works, with no measurable cost (2026-10-25). Qwen3.8-27B Q8_0 with
+its MTP draft model and vision projector loaded in about 4 s, and a
+first turn of 3,659 prompt tokens and 26 output tokens took 6.6 s:
+prefill 618 tokens/s (about B1's 756; without the tensor API it'd be
+about 2.6x slower) and generation 36.6 tokens/s (draft acceptance 59%).
+The only sandbox denials were llama-server reading
+`.GlobalPreferences.plist`, `diagnosticd`'s filter, and `/etc/passwd`,
+and asking the directory service, i.e., the rules doing their job.
+(`scutil --get` exits with 0 even when it can't get the name, so
+`check_profile` compares output for it and for `id`.)
+
+Running it turned up a leak: `infer-logs` passed the key on curl's
+command line, which any process in the VM can read, including one under
+nono. Every script now sends it on curl's stdin (`-H @-`), as
+`infer-models` already did. To rotate the key after a leak like this:
+on the Mac, delete `~/.config/bulkhead/infer-api-key` and rerun
+`host-setup.sh`; copy the new key to each VM (see `vm-setup.sh`); and
+on each VM rerun `vm-setup.sh` and restart `infer-logs@*`.
 
 The strict profile, if built:
 

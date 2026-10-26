@@ -45,8 +45,9 @@ show() {
       echo "WARNING: models.local.yaml names no default model (see ./manage-models.sh default)."
     else
       echo "Loading $model (this can take a minute)"
-      curl -sS -m 300 -o /dev/null -w 'HTTP %{http_code}\n' \
-        -H "Authorization: Bearer $key" -H 'Content-Type: application/json' \
+      printf 'Authorization: Bearer %s\n' "$key" |
+        curl -sS -m 300 -o /dev/null -w 'HTTP %{http_code}\n' \
+        -H @- -H 'Content-Type: application/json' \
         -d "{\"model\": \"$model\", \"max_tokens\": 1, \"messages\": [{\"role\": \"user\", \"content\": \"Hi\"}]}" \
         "http://127.0.0.1:$INFER_PORT/v1/chat/completions"
     fi

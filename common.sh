@@ -237,10 +237,11 @@ unpacked_tree_ok() {
 
 # Usage: infer_engine_answers <api-key>
 # True if the local AI engine (llama-swap) answers on INFER_PORT with
-# <api-key>. On a VM, that's through its tunnel.
+# <api-key>. On a VM, that's through its tunnel. The key reaches curl
+# on its stdin, not its command line, which any process here can read.
 infer_engine_answers() {
-  curl -sf -m 2 -H "Authorization: Bearer $1" \
-    "http://127.0.0.1:$INFER_PORT/v1/models" >/dev/null
+  printf 'Authorization: Bearer %s\n' "$1" |
+    curl -sf -m 2 -H @- "http://127.0.0.1:$INFER_PORT/v1/models" >/dev/null
 }
 
 # git_config_set KEY VALUE: set a global git config value only if it
