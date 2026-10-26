@@ -130,7 +130,8 @@ n="$(downloads)"
 mm "$T" sync || { cat "$work/out" >&2; failed "the second sync"; }
 [ "$(downloads)" = "$n" ] || failed "the second sync downloaded something"
 mm "$T" check || { cat "$work/out" >&2; failed "check"; }
-mm "$T" default && [ "$(cat "$work/out")" = i1 ] || failed "default didn't print i1"
+mm "$T" default || { cat "$work/out" >&2; failed "default"; }
+[ "$(cat "$work/out")" = i1 ] || failed "default printed $(cat "$work/out"), not i1"
 
 # A generalist.
 mm "$T" add g1 "$HF/o/g/blob/main/g.gguf" || { cat "$work/out" >&2; failed "adding a generalist"; }
@@ -148,8 +149,9 @@ mm "$T" add s1 --sd-args "$args" || { cat "$work/out" >&2; failed "adding a spec
 grep -qx '    cmd: ${sd-server} --diffusion-model ${models-dir}/s1/d.gguf --vae ${models-dir}/s1/v.safetensors --cfg-scale 1.0 --steps 4' \
   "$L" || failed "the specialist's cmd"
 grep -qx '    ttl: 600' "$L" || failed "the specialist's ttl"
-[ -f "$T/models/s1/d.gguf" ] && [ -f "$T/models/s1/v.safetensors" ] ||
-  failed "the specialist's files weren't downloaded into its directory"
+for f in s1/d.gguf s1/v.safetensors; do
+  [ -f "$T/models/$f" ] || failed "the specialist's $f wasn't downloaded"
+done
 
 # Another generalist sharing g1's file, as the new default: nothing to
 # download, and the file keeps the line it has (here, its license).
@@ -159,7 +161,8 @@ mm "$T" add g2 --default --license mit "$HF/o/g/resolve/main/g.gguf" ||
 [ "$(downloads)" = "$n" ] || failed "adding a model that shares a file downloaded it again"
 [ "$(grep -c "^    # file: g.gguf .* apache-2.0 " "$L")" -eq 2 ] ||
   failed "a shared file didn't keep the line it already had"
-mm "$T" default && [ "$(cat "$work/out")" = g2 ] || failed "add --default didn't make g2 the default"
+mm "$T" default || { cat "$work/out" >&2; failed "default after add --default"; }
+[ "$(cat "$work/out")" = g2 ] || failed "default after add --default printed $(cat "$work/out"), not g2"
 in_repo "$T" infer_models_ok || failed "the list's rules refused what manage-models.sh added"
 mm "$T" list || { cat "$work/out" >&2; failed "list"; }
 got="$(tr '\n' ',' < "$work/out")"
@@ -180,7 +183,9 @@ printf '%s\n' "$model_lines_w1" | grep -qx '      in: \[text, image\]' ||
   failed "--mmproj didn't say w1 takes images"
 printf '%s\n' "$model_lines_w1" | grep -q '^    # file: w1/m.gguf ' ||
   failed "--mmproj didn't list w1/m.gguf"
-[ -f "$T/models/w1/w.gguf" ] && [ -f "$T/models/w1/m.gguf" ] || failed "--mmproj didn't download both files"
+for f in w1/w.gguf w1/m.gguf; do
+  [ -f "$T/models/$f" ] || failed "--mmproj didn't download $f"
+done
 mm "$T" check || { cat "$work/out" >&2; failed "check after adding w1"; }
 mm "$T" remove w1 || { cat "$work/out" >&2; failed "removing w1"; }
 for f in w1/w.gguf w1/m.gguf; do

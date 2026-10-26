@@ -181,8 +181,8 @@ step "tests/sleep-test.sh runs"
   mkdir -p "$tmp/sleep/bin" "$tmp/sleep/home/.config/bulkhead" \
     "$tmp/sleep/home/Library/Logs" || exit 1
   for cmd in launchctl pmset curl ioreg; do
-    printf '#!/bin/sh\necho "fake %s $*"\n' "$cmd" > "$tmp/sleep/bin/$cmd" &&
-      chmod +x "$tmp/sleep/bin/$cmd" || exit 1
+    { printf '#!/bin/sh\necho "fake %s $*"\n' "$cmd" > "$tmp/sleep/bin/$cmd" &&
+      chmod +x "$tmp/sleep/bin/$cmd"; } || exit 1
   done
   # Except that the engine lists one default model.
   printf '#!/bin/sh\ncase "$*" in\n  */v1/models) echo %s ;;\n  *) echo "fake curl $*" ;;\nesac\n' \

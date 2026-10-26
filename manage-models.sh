@@ -578,7 +578,9 @@ case "$command" in
     infer_model_roles "$INFER_MODELS" | grep -qxF -- "$pos1 generalist" ||
       die "models.local.yaml has no generalist (a \${llama-server} model) named $pos1."
     set_default "$pos1" "$INFER_MODELS" > "$INFER_MODELS.new"
-    infer_models_ok "$INFER_MODELS.new" && [ "$(infer_models_default "$INFER_MODELS.new")" = "$pos1" ] ||
+    infer_models_ok "$INFER_MODELS.new" ||
+      die "making $pos1 the default broke the list's rules (above); set metadata.default: true for it by hand."
+    [ "$(infer_models_default "$INFER_MODELS.new")" = "$pos1" ] ||
       die "couldn't make $pos1 the default; set metadata.default: true for it by hand."
     mv "$INFER_MODELS.new" "$INFER_MODELS"
     echo "$pos1 is now the default. Once the engine serves this, nopi uses it the"
@@ -912,7 +914,7 @@ prepare_models_dir
 need=0
 while read -r given f_url f_sha256 f_license f_file f_size; do
   [ -n "$given" ] || continue
-  [ -f "$MODELS_DIR/$f_file" ] && [ "$(recorded_sha256 "$f_file")" = "$f_sha256" ] ||
+  { [ -f "$MODELS_DIR/$f_file" ] && [ "$(recorded_sha256 "$f_file")" = "$f_sha256" ]; } ||
     need=$((need + f_size))
 done <<EOM
 $files
