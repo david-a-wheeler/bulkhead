@@ -174,6 +174,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   comment has the rules for `models.local.yaml`.
 - `model-candidates.md`: local models worth considering, mainly for
   code and math, with their trade-offs and sources.
+- `multi-agent-plan.md`: options (not yet implemented) for serving a
+  main agent and several sub-agents from one local model without each
+  one discarding the others' context.
 - `infer-check.sh`: run on the Mac to check that the engine really
   serves each model (a few tokens, or one image to look at), showing
   why when one fails.
