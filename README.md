@@ -177,6 +177,11 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `infer-check.sh`: run on the Mac to check that the engine really
   serves each model (a few tokens, or one image to look at), showing
   why when one fails.
+- `infer-doctor.sh`: run on the Mac when a client seems stuck or slow.
+  It reports obvious problems (on battery or Low Power Mode, swap or
+  memory pressure, a request making no progress, a closed tunnel, a
+  recent sleep unload) and what to try. It only reads, so it can't
+  disturb a running job.
 - `secrets-server.template.py`, `com.user.secretsserver.template.plist`:
   the host-side secrets server (see architecture.md) and its LaunchAgent.
   Serves any secret `host-secrets.sh` has stored under Keychain's
