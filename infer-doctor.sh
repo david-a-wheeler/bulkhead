@@ -75,7 +75,7 @@ fi
 swap_used="$(sysctl -n vm.swapusage | sed -n 's/.*used = \([0-9.]*\)M.*/\1/p' | cut -d. -f1)"
 if [ "${swap_used:-0}" -gt 1024 ]; then
   warn "${swap_used} MB of swap is in use" \
-    "Something didn't fit in RAM. Keep the engine plus VMs and apps under the Mac's memory; see the biggest users below."
+    "Something didn't fit in RAM at some point. Swap doesn't empty by itself (macOS leaves pages there until something uses them), so if nothing is swapping now, it may be old; restarting the Mac clears it. Keep the engine plus VMs and apps under the Mac's memory; see the biggest users below."
 else
   ok "${swap_used:-0} MB of swap in use"
 fi
@@ -92,6 +92,18 @@ fi
 pid="$(pgrep -x llama-server | head -n 1)"
 rss="$([ -z "$pid" ] || ps -o rss= -p "$pid" | tr -d ' ')"
 [ -z "$rss" ] || info "llama-server uses $((rss / 1048576)) GB of RAM"
+# top shows compressed memory as, e.g., 2578M or 3G, maybe with a + or -
+# for its trend.
+cmprs_mb="$([ -z "$pid" ] || top -l 1 -pid "$pid" -stats cmprs | tail -n 1 | awk '
+  { v = $1; sub(/[+-]$/, "", v); n = v + 0; u = substr(v, length(v))
+    if (u == "G") n *= 1024; else if (u == "K") n /= 1024; else if (u == "B") n /= 1048576
+    printf "%d\n", n }')"
+if [ "${cmprs_mb:-0}" -gt 1024 ]; then
+  warn "$cmprs_mb MB of llama-server's memory is compressed" \
+    "macOS squeezed the engine to make room, which can slow every token. Free memory (close apps, give VMs less RAM), then restart the engine (./infer-access.sh shared, or unload the model)."
+elif [ -n "$pid" ]; then
+  ok "${cmprs_mb:-0} MB of llama-server's memory is compressed"
+fi
 info "the biggest memory users:"
 top -l 1 -o mem -n 6 -stats pid,command,mem,cmprs | sed -n '/^PID/,$p' | sed 's/^/        /'
 
