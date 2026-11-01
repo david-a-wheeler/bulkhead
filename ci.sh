@@ -164,6 +164,11 @@ step "infer-watch.c (tests/test_infer_watch.sh)"
 # strict gcc warnings and -fanalyzer, then runs it under the sanitizers.
 { shellcheck -x tests/test_infer_watch.sh && tests/test_infer_watch.sh; } || fail=1
 
+step "infer-doctor.sh's awk programs (tests/test_infer_doctor.sh)"
+# Its flag and request summaries, on a sample command line and real
+# llama-server log lines; infer-doctor.sh itself needs macOS.
+{ shellcheck -x tests/test_infer_doctor.sh && tests/test_infer_doctor.sh; } || fail=1
+
 step "manage-models.sh (tests/test_manage_models.sh)"
 # Starts a list, adds and removes a generalist and a
 # specialist, and updates, syncs, and prunes, on a copy of the repo with

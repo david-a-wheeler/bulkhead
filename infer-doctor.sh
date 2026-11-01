@@ -30,11 +30,11 @@ warn() {
 # The key reaches curl on its stdin, not its command line, which any
 # process here can read.
 auth() { printf 'Authorization: Bearer %s\n' "$(cat "$INFER_KEY_FILE")"; }
-# upstream_tail: the newest lines of the backends' output (llama-swap's
-# /logs/stream/upstream sends its history, then waits for more, so cut
-# it off).
-upstream_tail() {
-  auth | curl -s -m 3 -H @- "$url/logs/stream/upstream" 2>/dev/null | tail -n 200
+# upstream_log: the backends' output since llama-swap started, as much
+# as it keeps (/logs/stream/upstream sends that, then waits for more, so
+# cut it off).
+upstream_log() {
+  auth | curl -s -m 3 -H @- "$url/logs/stream/upstream" 2>/dev/null
 }
 # progress_line LINES: the newest line that says a request is under way
 # or done, from llama-server's own output.
@@ -118,16 +118,26 @@ if curl -sf -m 5 -o /dev/null "$url/health"; then
 else
   warn "llama-swap doesn't answer on port $INFER_PORT" "Run ./host-setup.sh; if it still fails, it prints how to run llama-swap by hand."
 fi
-loaded="$(auth | curl -s -m 5 -H @- "$url/running" | jq -r '[.running[]?.model] | join(", ")' 2>/dev/null)"
+running="$(auth | curl -s -m 5 -H @- "$url/running")"
+loaded="$(printf '%s' "$running" | jq -r '[.running[]?.model] | join(", ")' 2>/dev/null)"
 info "loaded now: ${loaded:-nothing}"
+# Each loaded model's settings, from the command llama-swap started it
+# with; anything not listed is the backend's default.
+printf '%s' "$running" | jq -r '.running[]? | .model, .cmd' 2>/dev/null |
+  while read -r model && read -r cmd; do
+    info "$model runs with (anything not listed is the backend's default):"
+    printf '%s\n' "$cmd" | awk -f "$SCRIPT_DIR/infer-doctor-flags.awk" | sed 's/^/        /'
+  done
 # A progress line comes every few seconds while llama-server works, so
 # the same "under way" line twice, 15 seconds apart, means it's stuck or
 # very slow.
-first="$(progress_line "$(upstream_tail)")"
+log="$(upstream_log)"
+first="$(progress_line "$log")"
 case "$first" in
   *"processing task"* | *"prompt processing"* | *"n_gen ="*)
     sleep 15
-    second="$(progress_line "$(upstream_tail)")"
+    log="$(upstream_log)"
+    second="$(progress_line "$log")"
     if [ "$first" = "$second" ]; then
       warn "a request is under way, but llama-server made no progress in 15 seconds" \
         "Check the power and memory lines above. The client waits forever; press Escape in it to give up."
@@ -141,6 +151,11 @@ case "$first" in
 esac
 cpu="$([ -z "$pid" ] || ps -o %cpu= -p "$pid" | tr -d ' ')"
 [ -z "$pid" ] || info "llama-server CPU: $cpu% (it's mostly the GPU's work, so low CPU doesn't mean idle)"
+# Context is the tokens the request ended with; prompt and output are
+# what it processed and generated, in tokens and tokens per second.
+# Speed falls as context grows, so compare requests with similar context.
+info "the last requests (accept: drafted tokens kept; mean: tokens per step):"
+printf '%s\n' "$log" | awk -v last=6 -f "$SCRIPT_DIR/infer-doctor-requests.awk" | sed 's/^/        /'
 
 echo "== Tunnels and sleep"
 "$SCRIPT_DIR/infer-access.sh" status 2>&1 | sed 's/^/      /'

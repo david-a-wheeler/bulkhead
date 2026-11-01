@@ -180,8 +180,11 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `infer-doctor.sh`: run on the Mac when a client seems stuck or slow.
   It reports obvious problems (on battery or Low Power Mode, swap or
   memory pressure, a request making no progress, a closed tunnel, a
-  recent sleep unload) and what to try. It only reads, so it can't
-  disturb a running job.
+  recent sleep unload) and what to try, plus each loaded model's
+  settings and the last few requests' context, speed, and draft
+  acceptance. It only reads, so it can't disturb a running job.
+  `infer-doctor-flags.awk` and `infer-doctor-requests.awk` do its
+  parsing.
 - `secrets-server.template.py`, `com.user.secretsserver.template.plist`:
   the host-side secrets server (see architecture.md) and its LaunchAgent.
   Serves any secret `host-secrets.sh` has stored under Keychain's
