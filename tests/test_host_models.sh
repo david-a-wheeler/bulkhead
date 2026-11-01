@@ -305,8 +305,9 @@ got="$(printf '%s' "$listing" | infer_models_stdin | jq -f pi-models.jq |
 want='[["qwen3.8-27b:instruct","Qwen3.8-27B Q8_0 (qwen3.8-27b:instruct)",262144,16384,["text","image"]],["qwen3-0.6b","Qwen3-0.6B Q4_0 (tests)",32768,4096,["text"]],["qwen3.8-27b","Qwen3.8-27B Q8_0",262144,16384,["text","image"]]]'
 [ "$got" = "$want" ] || failed "pi-models.jq gave $got, not $want"
 got="$(printf '%s' "$listing" | infer_models_stdin | jq -f pi-models.jq | jq -c '.providers["mac-local"] |
-  [.baseUrl, .apiKey, .compat.thinkingTokenBudgetField, ([.models[].thinkingLevelMap.off] | unique)]')"
-want='["http://127.0.0.1:'"$INFER_PORT"'/v1","${INFER_API_KEY}","thinking_budget_tokens",["none"]]'
+  [.baseUrl, .apiKey, .compat.thinkingTokenBudgetField, .compat.thinkingFormat,
+   ([.models[].thinkingLevelMap.high] | unique)]')"
+want='["http://127.0.0.1:'"$INFER_PORT"'/v1","${INFER_API_KEY}","thinking_budget_tokens","chat-template",["xhigh"]]'
 [ "$got" = "$want" ] || failed "pi-models.jq's provider settings are $got, not $want"
 got="$(printf '%s' '{"data": [{"id": "a", "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1}}}]}' |
   infer_models_stdin | jq -c .default)"

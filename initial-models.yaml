@@ -76,27 +76,57 @@
 # setParamsByID, not setParams.
 models:
   qwen3.8-27b:
-    # file: Qwen3.8-27B-Q8_0.gguf a680f44a06920e5d689774823782006aa3acc8db95750323373b24139b67e348 apache-2.0 https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-Q8_0.gguf
     # file: qwen3.8-27b/mmproj-F16.gguf cbb841a9ee0636b2ec172f5bb8df2ea8dfeb01e90fe7c6126581d662a0b4e43e apache-2.0 https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-F16.gguf
+    # file: qwen3.8-27b/mtp-Qwen3.8-27B-Q4_0.gguf 50d9ce5a6da381bbcfb31061cf73df94a90e6faf8efeddee379a9cb8f1501c6e apache-2.0 https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/MTP/mtp-Qwen3.8-27B-Q4_0.gguf
+    # file: Qwen3.8-27B-Q8_0.gguf a680f44a06920e5d689774823782006aa3acc8db95750323373b24139b67e348 apache-2.0 https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-Q8_0.gguf
     name: "Qwen3.8-27B Q8_0"
-    # --reasoning-budget caps thinking at 8192 tokens (pi's "medium"),
-    # then makes the model answer, unless a request sets its own budget
-    # (thinking_budget_tokens). Without it, thinking may run until
-    # max_tokens, leaving no answer at all. When the budget runs out,
+    # --reasoning-budget caps thinking at 32768 tokens, then makes the
+    # model answer, unless a request sets its own budget
+    # (thinking_budget_tokens; pi does, for each thinking level). Without
+    # it, thinking may run until max_tokens, leaving no answer at all.
+    # Qwen evaluated its coding with up to 32768 tokens per turn, and the
+    # chat template tells the model to think at "xhigh" effort unless a
+    # request says otherwise, so a smaller cap would cut it off
+    # mid-plan. When the budget runs out,
     # llama-server inserts --reasoning-budget-message (the sentence Qwen
     # suggests for this) before ending the thinking, so the model answers
     # from what it's worked out instead of stopping mid-thought.
     # --mmproj loads its vision projector (about 0.9 GB), so it can read
     # images; capabilities.in says so, so pi sends them. Many models'
     # projector files share this name, so it's in its own directory.
-    cmd: ${llama-server} --model ${models-dir}/Qwen3.8-27B-Q8_0.gguf --mmproj ${models-dir}/qwen3.8-27b/mmproj-F16.gguf --ctx-size 262144 --reasoning-budget 8192 --reasoning-budget-message "Considering the limited time by the user, I have to give the solution based on the thinking directly now."
+    # --spec-draft-model with --spec-type draft-mtp enables speculative
+    # decoding with the model's own trained MTP module (the repo's
+    # mtp-Qwen3.8-27B-Q4_0.gguf): it drafts a few tokens that the main
+    # model verifies in one pass, speeding token generation, which is
+    # where long thinking spends its time. The cost is ~1.3 GB of module
+    # weights plus a small draft KV cache (~4 KiB/token), fine on this
+    # 128 GB Mac. If a llama.cpp upgrade changes the flags, or acceptance
+    # turns out poor, drop them. ngram-mod also drafts by copying: when
+    # the last 24 tokens match earlier text in the context, it proposes
+    # what followed them there, which often hits when the model rewrites
+    # code it's already seen. --spec-draft-n-max 4 drafts one more token
+    # than the default 3 (acceptance was 59%, with a mean of 2.78 of 3).
+    # Speculative decoding never changes the output, only its speed; one
+    # report found MTP plus ngram-mod at 4 about 25-30% faster on agent
+    # work than MTP alone.
+    # --ubatch-size 2048 (default 512) processes prompts in bigger
+    # chunks, which I expect speeds up prefill on Metal, at the cost of a
+    # bigger compute buffer.
+    # --image-min-tokens 1024 is what llama-server suggests for Qwen-VL
+    # models' accuracy on images; small images then cost more tokens.
+    cmd: ${llama-server} --model ${models-dir}/Qwen3.8-27B-Q8_0.gguf --mmproj ${models-dir}/qwen3.8-27b/mmproj-F16.gguf --spec-draft-model ${models-dir}/qwen3.8-27b/mtp-Qwen3.8-27B-Q4_0.gguf --spec-type ngram-mod,draft-mtp --spec-draft-n-max 4 --ctx-size 262144 --ubatch-size 2048 --image-min-tokens 1024 --reasoning-budget 32768 --reasoning-budget-message "Considering the limited time by the user, I have to give the solution based on the thinking directly now."
     proxy: ${proxy}
     capabilities:
-      context: 262144
       in: [text, image]
       out: [text]
+      context: 262144
     metadata:
-      max_tokens: 32768
+      # The card recommends up to 131072 for the final response on
+      # agentic tasks; we use 65536, to limit rambles and loops. Thinking
+      # and the answer share this ceiling, so it also bounds how large a
+      # request's thinking budget may be: 32768 of thinking still leaves
+      # 32768 for the answer.
+      max_tokens: 65536
       default: true
     filters:
       # From the model card (unsloth/Qwen3.8-27B-GGUF). Its GGUF files
@@ -108,6 +138,16 @@ models:
           top_p?: 0.95
           top_k?: 20
           min_p?: 0
+          # presence_penalty, left at the card's thinking-mode value of
+          # 0: it subtracts a flat amount from the logit of every token
+          # that appears anywhere in the context already (once, unlike
+          # frequency_penalty, which scales with the count). The card
+          # offers it (0-2) to suppress endless repetition, a real
+          # agentic failure mode, but a long coding conversation contains
+          # every identifier the code reuses, so a nonzero value taxes
+          # that legitimate reuse, and the card warns higher values can
+          # cause language mixing and a slight quality drop. Revisit if
+          # repetition loops show up.
           presence_penalty?: 0
           repeat_penalty?: 1.0
         # Without thinking: the card's "instruct (or non-thinking) mode".

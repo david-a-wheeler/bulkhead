@@ -440,6 +440,19 @@ if [ -s "$INFER_KEY_FILE" ]; then
   sudo install -m 755 "$SCRIPT_DIR/nopi" /usr/local/bin/
   sudo install -d -m 755 /usr/local/libexec/bulkhead
   sudo install -m 644 "$SCRIPT_DIR/infer-models.jq" "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
+  # pi's thinking defaults, unless you've set your own (pi saves the
+  # level you pick): think at "high", with 32768 tokens for it instead of
+  # pi's 16384. Qwen evaluated Qwen3.8-27B's coding with up to 32768
+  # tokens per turn. pi treats "xhigh" as "high", so this budget is
+  # pi's most. Other settings in the file are kept.
+  pi_settings="$HOME/.pi/agent/settings.json"
+  mkdir -p "$(dirname "$pi_settings")"
+  [ -s "$pi_settings" ] || printf '%s' '{}' > "$pi_settings"
+  jq '.defaultThinkingLevel //= "high" | .thinkingBudgets.high //= 32768' \
+    "$pi_settings" > "$TMPDIR/pi-settings.json.rendered"
+  cmp -s "$TMPDIR/pi-settings.json.rendered" "$pi_settings" ||
+    cp "$TMPDIR/pi-settings.json.rendered" "$pi_settings"
+  rm -f "$TMPDIR/pi-settings.json.rendered"
   # my-gen-image makes and edits images with the engine's image models,
   # from any client with a shell. agents/ holds what clients look for in
   # ~/.agents, e.g., its skill (agents/skills/my-gen-image), where Agent
