@@ -14,6 +14,8 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/config.sh"
+. "$SCRIPT_DIR/common.sh"
+macos_only "infer-doctor.sh"
 
 url="http://127.0.0.1:$INFER_PORT"
 warnings=0
