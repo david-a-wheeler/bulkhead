@@ -1324,6 +1324,21 @@ Run on the Mac with llama.cpp b11721. The scripts are throwaway, in
   Arbitration, so `hdiutil detach` alone said "Resource busy"); nothing
   had it open, and stopping the daemon had stopped llama-server too.
 
+* **An abliterated model broke tool calls** (2026-10-24, llama.cpp
+  b11669). In pi, `qwen3.8-27b-obliterated` (an "OBLITERATED" Q8_0
+  fine-tune of Qwen3.8-27B) wrote tool calls as text instead of making
+  them. I sent the same one-tool request ("compute 55 * 43 with
+  python3") straight to the engine, with every sampling setting given
+  explicitly, so neither pi nor llama-swap's filters were involved. The
+  base model returned a proper `tool_calls` entry. With the same
+  settings, the fine-tune wrote malformed tool-call markup as plain text
+  (`<tool_call>\nfunction=bash\n<tool_call>...`, missing the `<` on
+  `<function=`), so the server's parser couldn't recognize it; with its
+  own model card's settings, it just wrote a bash code block. So the
+  fine-tune's weights were at fault, not pi, the sampling, or the
+  server. Lesson: test tool calls directly before trusting a
+  fine-tune (especially an abliterated one) as a generalist.
+
 ## Remaining work
 
 In order. Steps marked (sudo) need me, since the AI doesn't run sudo
