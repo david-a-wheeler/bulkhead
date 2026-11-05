@@ -287,6 +287,15 @@ step "commit-msg git hook"
   fi
 ) || fail=1
 
+step "pi-prose-style.js"
+# Checks the pi extension against the checker, with a stand-in for pi.
+(
+  set -e
+  mkdir -p "$tmp/bin"
+  ln -sf "$SCRIPT_DIR/check-prose-style.sh" "$tmp/bin/check-prose-style"
+  PATH="$tmp/bin:$PATH" node tests/test_pi_prose_style.mjs
+) || fail=1
+
 step "check-prose-style.sh self-test"
 # Runs sample hook inputs through check-prose-style.sh and checks that
 # each is allowed or denied as expected (see test-check-prose-style.sh).

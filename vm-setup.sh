@@ -456,7 +456,13 @@ if [ -s "$INFER_KEY_FILE" ]; then
   pi_settings="$HOME/.pi/agent/settings.json"
   mkdir -p "$(dirname "$pi_settings")"
   [ -s "$pi_settings" ] || printf '%s' '{}' > "$pi_settings"
-  jq '.defaultThinkingLevel //= "high" | .thinkingBudgets.high //= 32768' \
+  # pi-prose-style.js makes pi check what it writes with
+  # check-prose-style, as Claude Code's hook does. It's root-owned, like
+  # the checker, so a sandboxed agent can't edit it.
+  sudo install -m 644 "$SCRIPT_DIR/pi-prose-style.js" /usr/local/libexec/bulkhead/
+  jq '.defaultThinkingLevel //= "high" | .thinkingBudgets.high //= 32768
+      | .extensions |= (. // [] | if any(. == $ext) then . else . + [$ext] end)' \
+    --arg ext /usr/local/libexec/bulkhead/pi-prose-style.js \
     "$pi_settings" > "$TMPDIR/pi-settings.json.rendered"
   cmp -s "$TMPDIR/pi-settings.json.rendered" "$pi_settings" ||
     cp "$TMPDIR/pi-settings.json.rendered" "$pi_settings"

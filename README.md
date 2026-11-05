@@ -308,6 +308,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `nopi --model FOO` runs pi against the model named FOO for that
   session, instead of the default. A wrapper for another client (e.g.,
   goose) would do the same, with its own small jq file.
+- `pi-prose-style.js`: a pi extension that checks the text pi writes
+  with `check-prose-style`, as Claude Code's hook does, and blocks a
+  write or edit that breaks the rules. `vm-setup.sh` installs it in
+  `/usr/local/libexec/bulkhead` and lists it in pi's settings.
 - `my-gen-image`: makes an image from a prompt, or edits images, with
   the Mac's image models (e.g., flux), from any client with a shell.
 - `agents/`: `vm-setup.sh` copies it into `~/.agents`, where Agent
