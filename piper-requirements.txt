@@ -1,0 +1,13 @@
+# piper-requirements.txt: the exact Python packages vm-piper-install.sh
+# installs for Piper (text-to-speech), each at least INFER_COOLING_DAYS
+# old when picked. PyPI never lets a release's files change, so exact
+# versions pin what we get. To update, install a newer piper-tts in a
+# scratch venv, check the versions' release dates, and copy its
+# "pip freeze" here.
+flatbuffers==25.12.19
+numpy==2.5.4
+onnxruntime==1.31.1
+packaging==26.3
+pathvalidate==3.3.1
+piper-tts==1.8.0
+protobuf==7.36.2

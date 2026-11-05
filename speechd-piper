@@ -1,0 +1,51 @@
+#!/bin/sh
+# speechd-piper: speak text with Piper, for speech-dispatcher's "piper"
+# output module (vm-speech-setup.sh writes the module's config, which
+# runs this). vm-piper-install.sh installs it in ~/.local/share/piper/bin,
+# beside the venv and voices it uses.
+#
+# Usage: speechd-piper VOICE RATE VOLUME < TEXT
+#   VOICE   a voice name, e.g., en_US-ljspeech-high; its NAME.onnx and
+#           NAME.onnx.json must be in ../voices (relative to this script)
+#   RATE    speech-dispatcher's rate, -100 (slowest) to 100 (fastest);
+#           0 is Piper's normal speed. 100 is twice as fast, -100 half.
+#   VOLUME  speech-dispatcher's volume, -100 (silent) to 100 (full)
+# Out-of-range numbers are clamped. Piper can't change pitch, so
+# speech-dispatcher's pitch setting does nothing.
+#
+# The text comes on stdin, so it's never part of a command line.
+# speech-dispatcher stops speech by killing this script's process group,
+# which includes piper and aplay.
+set -eu
+
+die() { echo "speechd-piper: $*" >&2; exit 1; }
+
+[ $# -eq 3 ] || die "usage: speechd-piper VOICE RATE VOLUME < TEXT"
+voice=$1
+# A voice name is only letters, digits, "_", and "-", so it can't name
+# a file outside the voices directory.
+case $voice in
+  "" | *[!A-Za-z0-9_-]*) die "bad voice name: $voice" ;;
+esac
+for n in "$2" "$3"; do
+  case $n in
+    "" | - | *[!0-9-]* | ?*-*) die "not a whole number: $n" ;;
+  esac
+done
+
+home=$(cd "$(dirname "$0")/.." && pwd)
+model=$home/voices/$voice.onnx
+[ -s "$model" ] && [ -s "$model.json" ] || die "no voice $voice in $home/voices"
+rate=$(jq -er '.audio.sample_rate' "$model.json") || die "no sample rate in $model.json"
+
+# Piper's length scale is how long each sound lasts, so it's 2^(-RATE/100).
+length=$(awk -v r="$2" 'BEGIN {
+  if (r > 100) r = 100; if (r < -100) r = -100
+  printf "%.3f", exp(-r / 100 * log(2)) }')
+volume=$(awk -v v="$3" 'BEGIN {
+  if (v > 100) v = 100; if (v < -100) v = -100
+  printf "%.3f", (v + 100) / 200 }')
+
+"$home/venv/bin/piper" --model "$model" --length-scale "$length" \
+  --volume "$volume" --output-raw 2>/dev/null |
+  aplay -q -r "$rate" -f S16_LE -c 1 -t raw -

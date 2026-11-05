@@ -46,7 +46,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -168,6 +168,11 @@ step "infer-doctor.sh's awk programs (tests/test_infer_doctor.sh)"
 # Its flag and request summaries, on a sample command line and real
 # llama-server log lines; infer-doctor.sh itself needs macOS.
 { shellcheck -x tests/test_infer_doctor.sh && tests/test_infer_doctor.sh; } || fail=1
+
+step "speechd-piper (tests/test_speechd_piper.sh)"
+# How it maps speech-dispatcher's rate and volume to Piper's, and that it
+# refuses bad voice names and numbers.
+{ shellcheck -x tests/test_speechd_piper.sh && tests/test_speechd_piper.sh; } || fail=1
 
 step "manage-models.sh (tests/test_manage_models.sh)"
 # Starts a list, adds and removes a generalist and a

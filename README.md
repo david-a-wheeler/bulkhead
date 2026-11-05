@@ -226,6 +226,21 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `~/.netrc`), since a fresh one gets minted every time and the old one
   would otherwise stay valid.
 - `vm-setup.sh`: guest VM setup (Ubuntu today).
+- `vm-piper-install.sh`: installs Piper, a local neural text-to-speech
+  engine, for you (no sudo) in `~/.local/share/piper`: the exact Python
+  packages in `piper-requirements.txt`, the voices in `config.sh`'s
+  `PIPER_VOICES` (pinned by SHA-256), and `speechd-piper`. Run by
+  `vm-setup.sh`.
+- `vm-speech-setup.sh`: makes Piper speech-dispatcher's default output
+  module, so `spd-say` (and anything else that uses speech-dispatcher)
+  speaks with the first `PIPER_VOICES` voice; espeak-ng stays available
+  (`spd-say -o espeak-ng`). It silently checks that spoken text can't
+  run commands; `--say` also speaks a test sentence. Run by
+  `vm-setup.sh`.
+- `speechd-piper`: what speech-dispatcher's Piper module runs to speak:
+  text on stdin, and speech-dispatcher's voice, rate, and volume as
+  arguments, converted to Piper's settings.
+- `piper-requirements.txt`: the exact Python packages for Piper.
 - `vm-git-helper`: the VM-side git credential helper. Plain file, not a
   template: git invokes it as `vm-git-helper NAME get|store|erase`, with
   `NAME` baked into a `credential.<url>.helper` config line per host by
@@ -315,7 +330,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   distributions, because nono silently skips nonexistent paths. The catch:
   a grant applies only if the path exists when the sandbox starts, so a
   directory you create afterward stays denied until you restart the
-  sandbox (see `architecture.md`). All of it is read-only.
+  sandbox (see `architecture.md`). All of it is read-only, plus a
+  connect-only grant for speech-dispatcher's socket, so agents can use
+  `spd-say` (but not `spd-say -w`, which needs `/dev/shm`).
   Installed by `vm-setup.sh` to
   `~/.config/nono/profiles/default.json`, nono's own reserved "default"
   profile name; `nolabs-ai/claude` and every other pack below already

@@ -164,6 +164,21 @@ NFTABLES_ALLOWED_TCP_PORTS="22 80 443"
 # nono's "default" profile, which is what that file becomes on install.
 NONO_AGENT_PROFILES="nolabs-ai/claude nolabs-ai/goose nolabs-ai/pi"
 
+# Piper voices (local neural text-to-speech) that vm-piper-install.sh
+# installs on each VM, one per line: NAME TYPE ONNX_SHA256 JSON_SHA256.
+# NAME is a voice from https://huggingface.co/rhasspy/piper-voices (its
+# MODEL_CARD gives its license), TYPE the speech-dispatcher voice type
+# it answers to (MALE1-3, FEMALE1-3, CHILD_MALE, CHILD_FEMALE), and the
+# SHA-256s pin its NAME.onnx and NAME.onnx.json. The first is the
+# default voice for spd-say and everything else that uses
+# speech-dispatcher (vm-speech-setup.sh). To add one, give "-" for both
+# SHA-256s: vm-piper-install.sh then prints what it downloaded, for you
+# to check (Hugging Face shows the .onnx's SHA-256) and paste in, and
+# doesn't use it until you do. ljspeech's recordings are public domain.
+PIPER_VOICES="
+en_US-ljspeech-high FEMALE1 5d4f08ba6a2a48c44592eed3ce56bf85e9de3dd4e20df90541ae68a8310c029a 7e1f4634af596d83cca997fb7a931ba80b70f8a316a2655ee69c55365e0ace14
+"
+
 
 # Local, uncommitted overrides: anything set here wins, since this loads
 # last. $SCRIPT_DIR is already set by whichever script sourced this one

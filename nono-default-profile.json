@@ -52,6 +52,9 @@
       "/etc/mime.types",
       "/snap",
       "/etc/fonts"
+    ],
+    "unix_socket": [
+      "$XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock"
     ]
   }
 }
