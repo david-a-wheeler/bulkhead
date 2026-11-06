@@ -456,14 +456,17 @@ if [ -s "$INFER_KEY_FILE" ]; then
   pi_settings="$HOME/.pi/agent/settings.json"
   mkdir -p "$(dirname "$pi_settings")"
   [ -s "$pi_settings" ] || printf '%s' '{}' > "$pi_settings"
-  # pi-prose-style.js makes pi check what it writes with
-  # check-prose-style, as Claude Code's hook does. It's root-owned, like
-  # the checker, so a sandboxed agent can't edit it.
-  sudo install -m 644 "$SCRIPT_DIR/pi-prose-style.js" /usr/local/libexec/bulkhead/
+  # Our pi extensions: pi-prose-style.js makes pi check what it writes
+  # with check-prose-style, as Claude Code's hook does, and
+  # pi-next-steps.js has pi act on NEXT-STEPS.md once it's done. They're
+  # root-owned, like the checker, so a sandboxed agent can't edit them.
+  sudo install -m 644 "$SCRIPT_DIR/pi-prose-style.js" \
+    "$SCRIPT_DIR/pi-next-steps.js" /usr/local/libexec/bulkhead/
   jq '.defaultThinkingLevel //= "high" | .thinkingBudgets.high //= 32768
-      | .extensions |= (. // [] | if any(. == $ext) then . else . + [$ext] end)' \
-    --arg ext /usr/local/libexec/bulkhead/pi-prose-style.js \
-    "$pi_settings" > "$TMPDIR/pi-settings.json.rendered"
+      | reduce ($ARGS.positional[] | "/usr/local/libexec/bulkhead/" + .) as $ext
+          (.; .extensions |= (. // [] | if any(. == $ext) then . else . + [$ext] end))' \
+    "$pi_settings" --args pi-prose-style.js pi-next-steps.js \
+    > "$TMPDIR/pi-settings.json.rendered"
   cmp -s "$TMPDIR/pi-settings.json.rendered" "$pi_settings" ||
     cp "$TMPDIR/pi-settings.json.rendered" "$pi_settings"
   rm -f "$TMPDIR/pi-settings.json.rendered"

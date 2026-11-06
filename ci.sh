@@ -296,6 +296,10 @@ step "pi-prose-style.js"
   PATH="$tmp/bin:$PATH" node tests/test_pi_prose_style.mjs
 ) || fail=1
 
+step "pi-next-steps.js"
+mkdir "$tmp/next-steps"
+node tests/test_pi_next_steps.mjs "$tmp/next-steps" || fail=1
+
 step "check-prose-style.sh self-test"
 # Runs sample hook inputs through check-prose-style.sh and checks that
 # each is allowed or denied as expected (see test-check-prose-style.sh).

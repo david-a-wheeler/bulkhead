@@ -312,6 +312,13 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   with `check-prose-style`, as Claude Code's hook does, and blocks a
   write or edit that breaks the rules. `vm-setup.sh` installs it in
   `/usr/local/libexec/bulkhead` and lists it in pi's settings.
+- `pi-next-steps.js`: a pi extension that, once pi has finished its
+  work, sends the text of `NEXT-STEPS.md` (in pi's working directory)
+  as your next message and moves the file into `.next-steps/`, which
+  keeps every version sent (e.g., to recover after a crash). So
+  you can queue instructions by editing a file instead of interrupting
+  pi. It has guards against looping; see its comment. Installed like
+  `pi-prose-style.js`.
 - `my-gen-image`: makes an image from a prompt, or edits images, with
   the Mac's image models (e.g., flux), from any client with a shell.
 - `agents/`: `vm-setup.sh` copies it into `~/.agents`, where Agent
