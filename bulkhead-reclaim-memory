@@ -1,0 +1,84 @@
+#!/bin/sh
+# bulkhead-reclaim-memory KEEP_MB MAX_LOAD: evict this VM's cold file
+# cache beyond KEEP_MB, so the host gets that RAM back.
+# bulkhead-reclaim-memory --check: exit 0 if this VM can give freed RAM
+# back to the host, else say why not and exit 1.
+#
+# Linux keeps file cache until something else needs the RAM, so an idle
+# VM still looks full to the host. Run by a systemd timer
+# (bulkhead-reclaim-memory.timer), this asks the kernel to reclaim the
+# extra through cgroup v2's memory.reclaim, which evicts the coldest
+# pages first; "swappiness=0" keeps it from swapping programs out. It
+# asks for no more than the inactive file cache (pages not used again
+# since they were last aged), so cache that's being reused stays. The
+# virtio balloon driver then reports the freed pages to QEMU, which
+# hands them back to the host.
+#
+# It does nothing without a balloon that reports free pages (evicting
+# cache then gains the host nothing and costs us rereads), or while the
+# 1-minute load average is at least MAX_LOAD (the VM's busy, so don't
+# slow it down). It skips amounts under 64 MB, which aren't worth it.
+# The timer's interval gives cache time to be reused before it goes.
+# BULKHEAD_RECLAIM_ROOT prefixes /proc and /sys, for tests.
+set -eu
+
+root="${BULKHEAD_RECLAIM_ROOT-}"
+
+# has_reporting: true if a virtio balloon offers free page reporting.
+# The features file lists bit 0 first; bit 5 is VIRTIO_BALLOON_F_REPORTING.
+has_reporting() {
+  for hr_dev in "$root"/sys/bus/virtio/devices/*; do
+    [ "$(cat "$hr_dev/device" 2>/dev/null)" = 0x0005 ] || continue
+    case "$(cat "$hr_dev/features")" in
+      ?????1*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+if [ "${1-}" = --check ]; then
+  has_reporting && exit 0
+  if grep -qs '0x0005' "$root"/sys/bus/virtio/devices/*/device; then
+    echo "this VM has a virtio balloon, but without free page reporting."
+  else
+    echo "this VM has no virtio balloon device."
+  fi
+  exit 1
+fi
+
+[ "$#" -eq 2 ] || {
+  echo "Usage: $0 KEEP_MB MAX_LOAD | --check" >&2
+  exit 2
+}
+keep_mb="$1" max_load="$2"
+case "$keep_mb" in
+  '' | *[!0-9]*)
+    echo "$0: KEEP_MB must be a whole number: $keep_mb" >&2
+    exit 2
+    ;;
+esac
+
+has_reporting || exit 0
+reclaim="$root/sys/fs/cgroup/memory.reclaim"
+[ -w "$reclaim" ] || {
+  echo "$0: can't write $reclaim (needs root and cgroup v2)." >&2
+  exit 1
+}
+awk -v max="$max_load" '{ exit !($1 < max + 0) }' "$root/proc/loadavg" || exit 0
+
+# meminfo FIELD: print FIELD's value in kB.
+meminfo() {
+  awk -v f="$1:" '$1 == f { print $2; found = 1 } END { exit !found }' \
+    "$root/proc/meminfo"
+}
+inactive_kb=$(meminfo 'Inactive(file)')
+cache_kb=$(($(meminfo 'Active(file)') + inactive_kb))
+excess_kb=$((cache_kb - keep_mb * 1024))
+[ "$excess_kb" -le "$inactive_kb" ] || excess_kb=$inactive_kb
+[ "$excess_kb" -ge $((64 * 1024)) ] || exit 0
+
+free_before=$(meminfo MemFree)
+# A write that reclaims less than asked fails (EAGAIN); that's fine.
+printf '%sK swappiness=0\n' "$excess_kb" > "$reclaim" 2>/dev/null || :
+free_after=$(meminfo MemFree)
+echo "asked to reclaim $((excess_kb / 1024)) MB of file cache; MemFree grew $(((free_after - free_before) / 1024)) MB."

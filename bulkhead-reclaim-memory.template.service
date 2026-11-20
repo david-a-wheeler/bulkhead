@@ -1,0 +1,13 @@
+[Unit]
+Description=Give this VM's cold file cache back to the host (bulkhead)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/bulkhead-reclaim-memory @@VM_RECLAIM_KEEP_MB@@ @@VM_RECLAIM_MAX_LOAD@@
+Nice=19
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full

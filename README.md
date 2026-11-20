@@ -427,6 +427,13 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `agent-network-plan.md`: the shared network policy's design, test
   results, and rollout steps.
 - `nftables.template.conf`: VM egress firewall ruleset.
+- `bulkhead-reclaim-memory`, `bulkhead-reclaim-memory.template.service`,
+  and `bulkhead-reclaim-memory.template.timer`: every 15 minutes, when
+  the VM is idle, evict file cache beyond `VM_RECLAIM_KEEP_MB` that
+  hasn't been reused lately, so the Mac gets that RAM back instead of
+  swapping. It only works if the VM has a virtio balloon with free
+  page reporting (UTM QEMU argument `VM_BALLOON_QEMU_ARG`);
+  `host-setup.sh` and `vm-setup.sh` warn about any VM without one. Installed by `vm-setup.sh`.
 - `vm-bash-aliases-block.sh`: the managed block installed into each VM's
   `~/.bash_aliases`: editor and `BULKHEAD_AUTH_SESSION`. Not a
   template (nothing left to substitute since `noclaude` moved out to its

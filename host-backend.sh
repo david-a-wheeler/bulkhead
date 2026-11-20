@@ -56,3 +56,19 @@ enumerate_guests() {
         [ -n "$vm_ip" ] && echo "$vm_name $vm_ip"
       done
 }
+
+# Usage: guests_without_memory_reporting
+# Prints the name of each QEMU guest whose settings don't let it give
+# freed RAM back to the host: its QEMU arguments lack a balloon with
+# free-page-reporting=on ($VM_BALLOON_QEMU_ARG). Reads UTM's config.plist
+# directly, so it works on stopped VMs too, but only for VMs in UTM's
+# default folder. Skips Apple Virtualization guests, which can't take
+# that argument.
+guests_without_memory_reporting() {
+  for gw_plist in "$HOME"/Library/Containers/com.utmapp.UTM/Data/Documents/*.utm/config.plist; do
+    [ -f "$gw_plist" ] || continue
+    [ "$(plutil -extract Backend raw -o - "$gw_plist" 2>/dev/null)" = QEMU ] || continue
+    plutil -convert xml1 -o - "$gw_plist" | grep -q 'free-page-reporting=on' ||
+      basename "$(dirname "$gw_plist")" .utm
+  done
+}
