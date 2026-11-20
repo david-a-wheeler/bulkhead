@@ -51,7 +51,10 @@ if [ -z "${NONO_CAP_FILE:-}" ]; then
   exec nono run -s "$@" --profile "$profile" --allow-cwd --read "$dir" -- \
     "$dir/$(basename "$0")" "$mode"
 fi
+# Inside a sandbox already (e.g., run by hand in a harness session),
+# test that sandbox; --broad then just picks broad mode's expectations.
 mode="${1:-narrow}"
+[ "$mode" != --broad ] || mode=broad
 
 fails=0
 skips=0

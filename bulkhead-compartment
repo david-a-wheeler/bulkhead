@@ -5,9 +5,9 @@
 # through this; nono then sandboxes the command inside it.
 #
 # The compartment is ~/projects/NAME or ~/sensitive/NAME when the real
-# current directory is in one of them, else the directory itself. Its
-# state lives in that directory's .bulkhead, so it moves with a rename,
-# and a .gitignore there hides it from git (and ripgrep). We use
+# current directory is in one of them, else the directory itself (see
+# bulkhead-compartment-info). Its state lives in that directory's
+# .bulkhead, so it moves with a rename, and a .gitignore there hides it from git (and ripgrep). We use
 # bubblewrap (bwrap), unprivileged, to mount over the paths that
 # compartment-paths lists: e.g., a private /tmp and a private ~/.claude.
 # Everything else is the real filesystem, still limited by nono.
@@ -18,7 +18,8 @@
 #
 # Usage: bulkhead-compartment [--dry-run] COMMAND [ARG...]
 # --dry-run prints the compartment's key and the bwrap arguments
-# instead of running anything (for tests).
+# instead of running anything (for tests). bulkhead-compartment-info
+# computes the key and where the state lives.
 #
 # If bwrap can't run, this fails rather than silently running without
 # a compartment. To run without one anyway, set BULKHEAD_NO_COMPARTMENT=1.
@@ -37,25 +38,11 @@ if [ -n "${BULKHEAD_NO_COMPARTMENT:-}" ]; then
 fi
 
 paths_file="${BULKHEAD_COMPARTMENT_PATHS:-/usr/local/libexec/bulkhead/compartment-paths}"
-home="$(cd "$HOME" && pwd -P)"
 here="$(pwd -P)"
-
-case "$here/" in
-  "$home"/projects/?*/* | "$home"/sensitive/?*/*)
-    rest="${here#"$home"/}"
-    top="${rest%%/*}"
-    rest="${rest#*/}"
-    key="$top-${rest%%/*}"
-    root="$home/$top/${rest%%/*}"
-    ;;
-  *)
-    # Elsewhere, the directory is its own compartment; "/" becomes "%"
-    # so the key is one path component.
-    key="dir$(printf '%s' "$here" | tr '/' '%')"
-    root="$here"
-    ;;
-esac
-comp="$root/.bulkhead"
+info="$(dirname "$0")/bulkhead-compartment-info"
+key="$("$info" key)"
+root="$("$info" root)"
+comp="$("$info" state)"
 if [ -n "$(git -C "$root" ls-files -- .bulkhead 2>/dev/null)" ]; then
   echo "bulkhead-compartment: $comp is in git; refusing to use it." >&2
   exit 1

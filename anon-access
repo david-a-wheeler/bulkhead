@@ -64,6 +64,24 @@ if [ "${1:-}" = nono ] && [ "${2:-}" = run ]; then
       set -- nono run --extends bulkhead-broad "$@"
       ;;
   esac
+  # nono logs to stderr by default, and its proxy's warnings (e.g.,
+  # "WARN tls_intercept ...") then land on top of a harness's
+  # full-screen display. So we log to a file per compartment, outside
+  # every sandbox grant, so the agent can't change or erase its own
+  # log. We pass --log-file rather than export NONO_LOG_FILE, so the
+  # sandboxed command doesn't inherit a path it can't write. If the
+  # caller set NONO_LOG_FILE, nono uses that instead. We keep one old
+  # log, rotated at launch once it passes 1 MB.
+  if [ -z "${NONO_LOG_FILE:-}" ] &&
+    logs="$("$(dirname "$0")/bulkhead-compartment-info" logs)" &&
+    mkdir -p "$logs" && chmod 700 "$logs"; then
+    log="$logs/nono.log"
+    if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt 1000000 ]; then
+      mv -f "$log" "$log.1"
+    fi
+    shift 2
+    set -- nono run --log-file "$log" "$@"
+  fi
 fi
 
 # bulkhead-compartment runs the command in this directory's compartment

@@ -267,7 +267,9 @@ echo "== Installing heroku-session, gh-session, and anon-access (secrets-client 
 sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-access" /usr/local/bin/
 # anon-access runs everything through bulkhead-compartment (bubblewrap),
 # which reads compartment-paths.
-sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" /usr/local/bin/
+sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
+  "$SCRIPT_DIR/bulkhead-compartment-info" \
+  "$SCRIPT_DIR/bulkhead-copy-claude-history" /usr/local/bin/
 sudo install -d -m 755 /usr/local/libexec/bulkhead
 sudo install -m 644 "$SCRIPT_DIR/compartment-paths" /usr/local/libexec/bulkhead/
 

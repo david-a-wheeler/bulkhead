@@ -1,0 +1,53 @@
+#!/bin/sh
+# bulkhead-compartment-info: print one fact about a directory's
+# compartment (see bulkhead-compartment), so every script computes it
+# the same way.
+#
+# Usage: bulkhead-compartment-info FIELD [DIR]
+# DIR defaults to the current directory. FIELD is one of:
+#   key    the compartment's name, e.g., projects-NAME, sensitive-NAME,
+#          or dir%PATH (the directory's path with "/" as "%")
+#   root   the compartment's top directory, e.g., ~/projects/NAME
+#   state  where its private files live: ROOT/.bulkhead
+#   logs   the directory for its logs (e.g., nono's), outside the
+#          project and outside every sandbox grant, so an agent in the
+#          compartment can't change or erase its own log
+#
+# The compartment is ~/projects/NAME or ~/sensitive/NAME when DIR's real
+# path is in one of them, else DIR itself.
+set -eu
+
+usage() {
+  echo "Usage: bulkhead-compartment-info key|root|state|logs [DIR]" >&2
+  exit 2
+}
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
+field="$1"
+here="$(cd "${2:-.}" && pwd -P)"
+home="$(cd "$HOME" && pwd -P)"
+
+case "$here/" in
+  "$home"/projects/?*/* | "$home"/sensitive/?*/*)
+    rest="${here#"$home"/}"
+    top="${rest%%/*}"
+    rest="${rest#*/}"
+    key="$top-${rest%%/*}"
+    root="$home/$top/${rest%%/*}"
+    ;;
+  *)
+    # Elsewhere, the directory is its own compartment; "/" becomes "%"
+    # so the key is one path component.
+    key="dir$(printf '%s' "$here" | tr '/' '%')"
+    root="$here"
+    ;;
+esac
+
+case "$field" in
+  key) printf '%s\n' "$key" ;;
+  root) printf '%s\n' "$root" ;;
+  state) printf '%s\n' "$root/.bulkhead" ;;
+  # Not $XDG_STATE_HOME: nono-claude-profile.json grants one directory
+  # under ~/.local/state/bulkhead, and this must stay a sibling of it.
+  logs) printf '%s\n' "$home/.local/state/bulkhead/logs/$key" ;;
+  *) usage ;;
+esac

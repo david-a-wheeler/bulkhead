@@ -1,0 +1,61 @@
+#!/bin/sh
+# bulkhead-copy-claude-history: copy a project's Claude Code history
+# (transcripts, so --resume finds them, and its auto-memory) from the
+# real ~/.claude into the project's compartment (see
+# bulkhead-compartment), which otherwise starts empty. Run it outside
+# any compartment, ideally with no Claude session running there.
+#
+# Usage: bulkhead-copy-claude-history [DIR]
+# DIR (default: the current directory) is the directory Claude was
+# started in. It never overwrites a file the compartment already has,
+# so it's safe to re-run. It copies only DIR's history; sessions
+# started in DIR's subdirectories have their own (run it there too).
+set -eu
+
+if [ -n "${BULKHEAD_COMPARTMENT:-}" ]; then
+  echo "bulkhead-copy-claude-history: run this outside a compartment." >&2
+  exit 2
+fi
+[ "$#" -le 1 ] || { echo "Usage: bulkhead-copy-claude-history [DIR]" >&2; exit 2; }
+cd "${1:-.}"
+here="$(pwd -P)"
+
+# Claude Code names a project's history directory after its path, with
+# each character other than a letter or digit changed to "-".
+name="$(printf '%s' "$here" | sed 's/[^A-Za-z0-9]/-/g')"
+src="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$name"
+if [ ! -d "$src" ]; then
+  echo "bulkhead-copy-claude-history: no history at $src" >&2
+  exit 1
+fi
+
+comp="$("$(dirname "$0")/bulkhead-compartment-info" state)"
+[ -n "$comp" ] || { echo "bulkhead-copy-claude-history: no compartment found" >&2; exit 1; }
+# Same layout as bulkhead-compartment's "private ~/.claude".
+dst="$comp/$(printf '%s' "${HOME#/}/.claude" | tr '/' '%')/projects/$name"
+
+if [ ! -d "$comp" ]; then
+  mkdir -m 700 "$comp"
+  echo '*' > "$comp/.gitignore"
+fi
+mkdir -p "$dst"
+chmod 700 "$comp/$(printf '%s' "${HOME#/}/.claude" | tr '/' '%')"
+
+# File names here are Claude's (UUIDs, memory names), not arbitrary,
+# but read them line by line anyway so spaces would work.
+(cd "$src" && find . -type d) | while IFS= read -r d; do
+  mkdir -p "$dst/$d"
+done
+tally="$(
+  (cd "$src" && find . -type f) | while IFS= read -r f; do
+    if [ -e "$dst/$f" ]; then
+      echo skipped
+    else
+      cp -p "$src/$f" "$dst/$f"
+      echo copied
+    fi
+  done
+)"
+copied="$(printf '%s\n' "$tally" | grep -c '^copied' || true)"
+skipped="$(printf '%s\n' "$tally" | grep -c '^skipped' || true)"
+echo "Copied $copied files into $dst ($skipped already there)."

@@ -46,7 +46,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment tests/compartment-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-copy-claude-history tests/compartment-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -149,6 +149,36 @@ mkdir -p "$fh/projects/p2/.bulkhead"
 : > "$fh/projects/p2/.bulkhead/x"
 git -C "$fh/projects/p2" init -q && git -C "$fh/projects/p2" add -f .bulkhead/x
 compart "$fh/projects/p2" > /dev/null 2>&1 && failed "compartment used a tracked .bulkhead"
+# bulkhead-compartment-info: same key from a subdirectory, state in the
+# project, and logs outside it (where no sandbox grant reaches).
+cinfo() { HOME="$fh" ./bulkhead-compartment-info "$@"; }
+[ "$(cinfo key "$fh/projects/p1/sub")" = projects-p1 ] || failed "compartment-info key"
+[ "$(cinfo state "$fh/projects/p1/sub")" = "$fhp/projects/p1/.bulkhead" ] ||
+  failed "compartment-info state"
+[ "$(cinfo logs "$fh/sensitive/s1")" = "$fhp/.local/state/bulkhead/logs/sensitive-s1" ] ||
+  failed "compartment-info logs"
+cinfo bogus "$fh" 2> /dev/null && failed "compartment-info refused a bad field"
+# bulkhead-copy-claude-history copies a project's history in, without
+# overwriting, into the private ~/.claude that the dry run names.
+hist="$fh/.claude/projects/$(printf '%s' "$fhp/projects/p1" | sed 's/[^A-Za-z0-9]/-/g')"
+mkdir -p "$hist/memory"
+echo old > "$hist/s1.jsonl"
+echo mem > "$hist/memory/MEMORY.md"
+copyhist() {
+  (cd "$fh/projects/p1" && env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT HOME="$fh" PATH="$OLDPWD:$PATH" \
+    BULKHEAD_COMPARTMENT_PATHS="$OLDPWD/compartment-paths" \
+    "$OLDPWD/bulkhead-copy-claude-history")
+}
+copyhist > /dev/null || failed "bulkhead-copy-claude-history ran"
+claude_src="$(compart "$fh/projects/p1" | grep -x "$fhp/projects/p1/.bulkhead/.*%.claude")"
+[ "$(cat "$claude_src/projects/${hist##*/}/memory/MEMORY.md" 2>/dev/null)" = mem ] ||
+  failed "bulkhead-copy-claude-history copied memory"
+echo new > "$claude_src/projects/${hist##*/}/s1.jsonl"
+copyhist > /dev/null
+[ "$(cat "$claude_src/projects/${hist##*/}/s1.jsonl")" = new ] ||
+  failed "bulkhead-copy-claude-history overwrote a file"
+[ "$(cat "$fh/projects/p1/.bulkhead/.gitignore")" = '*' ] ||
+  failed "bulkhead-copy-claude-history made .bulkhead's .gitignore"
 
 # nopi opens the engine's port from what infer-models --url prints.
 [ "$(sh "$tmp/infer-models" --url)" = "http://127.0.0.1:$INFER_PORT/v1" ] ||

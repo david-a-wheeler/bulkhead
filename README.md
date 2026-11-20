@@ -285,7 +285,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   instead of bash-only functions in `vm-bash-aliases-block.sh`; `noclaude`
   below is the first caller.
   It runs the command through `bulkhead-compartment`, and for `nono run`
-  adds `--extends bulkhead-broad` outside `~/sensitive`.
+  adds `--extends bulkhead-broad` outside `~/sensitive` and
+  `--log-file` with the compartment's log (see
+  `bulkhead-compartment-info`), so nono's warnings don't land on the
+  harness's screen.
 - `bulkhead-compartment`: runs a command in its directory's compartment
   (`~/projects/NAME`, `~/sensitive/NAME`, or else the directory itself)
   using bubblewrap, so one project's agent can't leave anything for
@@ -299,6 +302,16 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   is refused, since a repo could plant one. It fails rather than run
   without a compartment; `BULKHEAD_NO_COMPARTMENT=1` skips it.
   `tests/compartment-test.sh` (run by hand, outside nono) checks it.
+- `bulkhead-compartment-info`: prints a directory's compartment key,
+  root, state directory, or log directory, so every script computes
+  them the same way. Logs go in
+  `~/.local/state/bulkhead/logs/KEY/`, outside every sandbox grant, so
+  an agent can't change or erase its own compartment's log; `nono.log`
+  there is rotated to `nono.log.1` at launch once it passes 1 MB.
+- `bulkhead-copy-claude-history`: copies a project's Claude Code
+  history (transcripts and auto-memory) from the real `~/.claude` into
+  its compartment, without overwriting, so `--resume` and memory carry
+  over. Run it once per project, outside any compartment.
 - `compartment-paths`: the data `bulkhead-compartment` reads: which
   paths are private per compartment, read-only shared, or a fresh
   tmpfs. Installed in `/usr/local/libexec/bulkhead/`.
@@ -407,8 +420,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   and login), since other harnesses don't need them. It also undoes
   the pack's shared `TMPDIR` (`~/.claude/tmp/claude-$UID`), so Claude's
   temp files go in `anon-access`'s per-directory one (which also
-  keeps `nono why --self` working). Installed by
-  `vm-setup.sh` beside `default.json`.
+  keeps `nono why --self` working). It sets `DISABLE_TELEMETRY` and
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, since the network policy
+  refuses that traffic anyway and each refusal fills nono's log.
+  Installed by `vm-setup.sh` beside `default.json`.
 - `agent-network-plan.md`: the shared network policy's design, test
   results, and rollout steps.
 - `nftables.template.conf`: VM egress firewall ruleset.
