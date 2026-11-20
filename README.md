@@ -169,6 +169,12 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `install-models.sh`: has the engine serve `models.local.yaml`: checks
   it, installs llama-swap's config from it (with sudo, asking for your
   password), and restarts the engine (unless `--no-restart`).
+- `install-nono-deb.sh`: installs nono, or updates it to the latest
+  release, on Debian, Ubuntu, or another dpkg system. nono has no apt
+  repository, so this downloads the release's `.deb` from GitHub, checks
+  its sha256 digest, and installs it with `sudo dpkg -i`. Run by
+  `vm-setup.sh`; run it yourself (outside any sandbox) to update just
+  nono, then restart agent sessions.
 - `initial-models.yaml`: the models a new host starts with, with their
   sampling defaults and files, in llama-swap's format. Its opening
   comment has the rules for `models.local.yaml`.
@@ -278,16 +284,39 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   Part of a move toward small, single-purpose, any-shell-callable files
   instead of bash-only functions in `vm-bash-aliases-block.sh`; `noclaude`
   below is the first caller.
-- `noclaude`: `exec anon-access nono run --profile nolabs-ai/claude
+  It runs the command through `bulkhead-compartment`, and for `nono run`
+  adds `--extends bulkhead-broad` outside `~/sensitive`.
+- `bulkhead-compartment`: runs a command in its directory's compartment
+  (`~/projects/NAME`, `~/sensitive/NAME`, or else the directory itself)
+  using bubblewrap, so one project's agent can't leave anything for
+  another's to read or run: each compartment gets a private `/tmp`,
+  `~/.claude` (transcripts, history, config), Claude's caches and
+  sockets, and so on, per `compartment-paths`. Shared setup (e.g.,
+  `~/.claude/CLAUDE.md`, settings, skills, plugins) is mounted
+  read-only, so change it from outside a compartment. State lives in
+  the compartment directory's `.bulkhead` (so it survives a rename),
+  whose `.gitignore` hides it from git; a `.bulkhead` that git tracks
+  is refused, since a repo could plant one. It fails rather than run
+  without a compartment; `BULKHEAD_NO_COMPARTMENT=1` skips it.
+  `tests/compartment-test.sh` (run by hand, outside nono) checks it.
+- `compartment-paths`: the data `bulkhead-compartment` reads: which
+  paths are private per compartment, read-only shared, or a fresh
+  tmpfs. Installed in `/usr/local/libexec/bulkhead/`.
+- `noclaude`: `exec anon-access nono run --profile bulkhead-claude
   --allow-cwd -- claude "$@"` (a handful of lines total). Running
   through `anon-access` gets the sandboxed agent every one of its
   protections (see above) for free, rather than `noclaude` maintaining
   its own separate, easy-to-forget-to-update env var list; it also means
   `gh` works for public reads inside the sandbox, same as any other
-  `anon-access` caller. `--profile nolabs-ai/claude` is nono's own
+  `anon-access` caller. `bulkhead-claude` (see `nono-claude-profile.json`)
+  extends `nolabs-ai/claude`, nono's own
   maintained profile for Claude Code (installed by `vm-setup.sh`),
   rather than a hand-rolled `--allow` list this repo would have to keep
-  in sync with what Claude Code actually needs at runtime. Plain
+  in sync with what Claude Code actually needs at runtime. Every
+  compartment shares one Claude login: `bulkhead-claude` sets
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` to
+  `~/.local/state/bulkhead/claude-credentials`, which `noclaude` creates
+  (copying in `~/.claude/.credentials.json` the first time). Plain
   executable file, not a bash function: any shell can run it.
 - `infer-models.template.sh`: installed as `infer-models`, which asks
   the Mac's engine (through the tunnel) what models it serves now, and
@@ -301,7 +330,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   GGUF to a `.jinja` file beside it, for a model's `--chat-template`
   (and its `# generated:` line).
 - `nopi`: runs pi like `noclaude` runs Claude Code, against the Mac's
-  models. Each time, it turns `infer-models`' answer into pi's
+  models, adding only the engine's port to the shared network allowlist
+  (from `infer-models --url`). Each time, it turns `infer-models`' answer into pi's
   `models.json` with `pi-models.jq`, and starts pi with the default
   model. `nopi --list-models` lists the models it would serve (the
   generalists, by their ID in `models.local.yaml`), and
@@ -351,6 +381,36 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   not just `noclaude`. Same `install_unless_locally_newer` treatment as
   `claude-CLAUDE.md` below: an edit made straight to the installed copy
   isn't silently overwritten.
+  It also holds the network policy every harness shares: nono's own
+  `developer` network profile, plus our additions (one line per host).
+  That turns on nono's proxy: the agent can reach only allowed hosts,
+  can't make DNS queries, and on hosts that accept writes (including
+  model providers, Hugging Face, and Wikipedia) can make only GETs,
+  HEADs, and a few read-only POSTs (e.g., git fetch and GitHub GraphQL).
+  See `agent-network-plan.md` for the reasons and
+  the accepted risks, and `tests/agent-network-test.sh` (run by hand)
+  to check it. It also refuses known exfiltration sinks (request
+  catchers, tunnels, and paste sites). This narrow list is all that
+  applies under `~/sensitive`; elsewhere `anon-access` adds
+  `bulkhead-broad` (below). For one more host for one run under
+  `~/sensitive`, set `NONO_ALLOW_DOMAIN` (one host), e.g.,
+  `NONO_ALLOW_DOMAIN=docs.example.org noclaude`.
+- `nono-broad-profile.json`: the `bulkhead-broad` profile, GET and HEAD
+  to every host under every TLD (one `*.<tld>` entry each), which
+  `anon-access` adds to every `nono run` outside `~/sensitive`, since
+  most work isn't sensitive. Generated by `update-broad-profile.sh`
+  from IANA's TLD list; installed by `vm-setup.sh`.
+- `update-broad-profile.sh`: regenerates `nono-broad-profile.json`. Run
+  it by hand now and then.
+- `nono-claude-profile.json`: the `bulkhead-claude` profile `noclaude`
+  uses: `nolabs-ai/claude` plus only Claude Code's own hosts (its API
+  and login), since other harnesses don't need them. It also undoes
+  the pack's shared `TMPDIR` (`~/.claude/tmp/claude-$UID`), so Claude's
+  temp files go in `anon-access`'s per-directory one (which also
+  keeps `nono why --self` working). Installed by
+  `vm-setup.sh` beside `default.json`.
+- `agent-network-plan.md`: the shared network policy's design, test
+  results, and rollout steps.
 - `nftables.template.conf`: VM egress firewall ruleset.
 - `vm-bash-aliases-block.sh`: the managed block installed into each VM's
   `~/.bash_aliases`: editor and `BULKHEAD_AUTH_SESSION`. Not a

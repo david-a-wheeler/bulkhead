@@ -1,0 +1,38 @@
+# compartment-paths: what bulkhead-compartment gives each compartment.
+# vm-setup.sh installs this in /usr/local/libexec/bulkhead/.
+#
+# One "KIND PATH" per line; later lines can mount inside earlier ones.
+# PATH may start with "~/" or "$XDG_RUNTIME_DIR/" (a line using an
+# unset XDG_RUNTIME_DIR is skipped). KIND is:
+#   private  the compartment's own copy, empty at first (a directory)
+#   ro       the real path, read-only (skipped if it doesn't exist), so
+#            your shared setup applies everywhere but no compartment can
+#            change it for the others
+#   tmpfs    an empty in-memory directory for each run
+#
+# Anything a harness writes that another compartment could read (or
+# run) belongs here. List every harness's paths in this one file.
+
+tmpfs /tmp
+
+# Claude Code. Transcripts, history, todos, plans, and its config file
+# (~/.claude/.claude.json, since bulkhead-claude sets CLAUDE_CONFIG_DIR)
+# become per compartment. Credentials aren't here: bulkhead-claude keeps
+# them in one shared directory (CLAUDE_SECURESTORAGE_CONFIG_DIR), so
+# one login works everywhere.
+private ~/.claude
+ro ~/.claude/CLAUDE.md
+ro ~/.claude/settings.json
+ro ~/.claude/keybindings.json
+ro ~/.claude/agents
+ro ~/.claude/commands
+ro ~/.claude/hooks
+ro ~/.claude/skills
+ro ~/.claude/plugins
+private ~/.cache/claude
+private ~/.cache/claude-cli-nodejs
+private ~/.local/state/claude
+private $XDG_RUNTIME_DIR/cc-socks
+
+# pi (untested: pi isn't installed everywhere yet).
+private ~/.pi/agent/sessions

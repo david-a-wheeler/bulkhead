@@ -10,6 +10,8 @@
 #
 # Usage: infer-models           (ask the engine)
 #        infer-models --stdin   (read a /v1/models listing instead, e.g., to test)
+#        infer-models --url     (just print the engine's URL, without asking it;
+#                                e.g., so a wrapper can open its port in a sandbox)
 #
 # It prints, e.g.:
 #   {"url": "http://127.0.0.1:PORT/v1", "default": "qwen3.8-27b",
@@ -41,7 +43,8 @@ case "$*" in
     }
     ;;
   --stdin) listing="$(cat)" ;;
-  *) echo "Usage: infer-models [--stdin]" >&2; exit 2 ;;
+  --url) echo "$URL"; exit 0 ;;
+  *) echo "Usage: infer-models [--stdin | --url]" >&2; exit 2 ;;
 esac
 
 printf '%s' "$listing" | jq --arg url "$URL" -f "$FILTER"

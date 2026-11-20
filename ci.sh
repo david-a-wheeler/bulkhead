@@ -46,7 +46,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment tests/compartment-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -101,6 +101,58 @@ INFER_GENERALIST_PORT=8999 INFER_SPECIALIST_PORT=8998 METAL_CACHE=/m MODELS_DIR=
 render_template infer.template.sb "$tmp/infer.sb" \
   INFER_PORT INFER_GENERALIST_PORT INFER_SPECIALIST_PORT METAL_CACHE MODELS_DIR
 ! grep -q '@@' "$tmp/infer.sb" || failed infer.sb
+
+step "nono's shared profile (nono-default-profile.json)"
+# Every network entry is a host, or a host with endpoint rules that each
+# name a method and a path (nono default-denies anything else on it).
+jq -e '.network.allow_domain | length > 0 and all(
+    (type == "string") or
+    (type == "object" and (.domain | type == "string") and
+      (.endpoints | length > 0) and
+      all(.endpoints[]; (.method | type == "string") and (.path | startswith("/")))))' \
+  nono-default-profile.json > /dev/null || failed nono-default-profile.json
+jq -e '.network.deny_domain | length > 0 and all(type == "string")' \
+  nono-default-profile.json > /dev/null || failed "nono-default-profile.json deny_domain"
+# The broad profile is many GET- and HEAD-only "*.<tld>" entries.
+jq -e '.meta.name == "bulkhead-broad" and (.network.allow_domain | length > 1000 and all(
+    (.domain | test("^[*][.][a-z0-9-]+$")) and
+    ([.endpoints[].method] | sort == ["GET", "HEAD"])))' \
+  nono-broad-profile.json > /dev/null || failed nono-broad-profile.json
+jq -e '.extends == "nolabs-ai/claude" and (.network.allow_domain | length > 0)' \
+  nono-claude-profile.json > /dev/null || failed nono-claude-profile.json
+step "bulkhead-compartment --dry-run"
+# Keys and mounts, without needing bwrap: a fake HOME with projects/,
+# sensitive/, and a directory outside both.
+fh="$tmp/home"
+mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/.claude"
+: > "$fh/.claude/CLAUDE.md"
+compart() {
+  (cd "$1" && HOME="$fh" XDG_STATE_HOME="$fh/state" XDG_RUNTIME_DIR=/run/user/9 \
+    BULKHEAD_COMPARTMENT_PATHS="$OLDPWD/compartment-paths" \
+    "$OLDPWD/bulkhead-compartment" --dry-run cmd 'a b')
+}
+fhp="$(cd "$fh" && pwd -P)"
+out="$(compart "$fh/projects/p1/sub")"
+[ "$(printf '%s\n' "$out" | head -n 1)" = "key: projects-p1" ] || failed "compartment key under ~/projects"
+printf '%s\n' "$out" | tail -n 3 | tr '\n' '|' | grep -qx -- '--|cmd|a b|' ||
+  failed "compartment command passthrough"
+printf '%s\n' "$out" | grep -qx -- '--tmpfs' || failed "compartment private /tmp"
+printf '%s\n' "$out" | grep -qx "$fhp/projects/p1/.bulkhead/.*%.claude" ||
+  failed "compartment private ~/.claude"
+printf '%s\n' "$out" | grep -qx -- '--ro-bind' || failed "compartment read-only CLAUDE.md"
+[ "$(compart "$fh/sensitive/s1" | head -n 1)" = "key: sensitive-s1" ] ||
+  failed "compartment key under ~/sensitive"
+[ "$(compart "$fh/other" | head -n 1)" = "key: dir$(printf '%s' "$fhp/other" | tr '/' '%')" ] ||
+  failed "compartment key elsewhere"
+# A repo's own (tracked) .bulkhead is refused.
+mkdir -p "$fh/projects/p2/.bulkhead"
+: > "$fh/projects/p2/.bulkhead/x"
+git -C "$fh/projects/p2" init -q && git -C "$fh/projects/p2" add -f .bulkhead/x
+compart "$fh/projects/p2" > /dev/null 2>&1 && failed "compartment used a tracked .bulkhead"
+
+# nopi opens the engine's port from what infer-models --url prints.
+[ "$(sh "$tmp/infer-models" --url)" = "http://127.0.0.1:$INFER_PORT/v1" ] ||
+  failed "infer-models --url"
 
 step "host models (tests/test_host_models.sh)"
 # initial-models.yaml and the list's rules, llama-swap's config from it,

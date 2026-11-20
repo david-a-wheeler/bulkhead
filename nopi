@@ -57,5 +57,11 @@ PI_SKIP_VERSION_CHECK=1
 PI_TELEMETRY=0
 export INFER_API_KEY INFER_MODELS PI_OFFLINE PI_SKIP_VERSION_CHECK PI_TELEMETRY
 
-exec anon-access nono run --profile nolabs-ai/pi --allow-cwd --read "$PI_DIR" -- \
-  /usr/local/bin/pi --provider mac-local "$@"
+# The network allowlist every harness shares (nono's "default" profile;
+# see agent-network-plan.md) has no model providers: pi only needs the
+# engine's port on 127.0.0.1, where the tunnel ends.
+url="$(/usr/local/bin/infer-models --url)"
+port="${url#http://127.0.0.1:}"
+port="${port%%/*}"
+exec anon-access nono run --profile nolabs-ai/pi --allow-cwd --read "$PI_DIR" \
+  --open-port "$port" -- /usr/local/bin/pi --provider mac-local "$@"

@@ -78,7 +78,7 @@ echo "== Installing base packages =="
 sudo apt-get update
 sudo apt-get install -y openssh-server avahi-daemon nftables curl cups \
   qemu-guest-agent git shellcheck make build-essential vim python3 jq \
-  ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv
+  ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv bubblewrap
 
 echo "== Enabling services =="
 sudo systemctl enable --now ssh avahi-daemon nftables cups qemu-guest-agent
@@ -161,45 +161,10 @@ sudo sed -i '/^[[:space:]]*Listen localhost:631/s/^/#/' /etc/cups/cupsd.conf
 sudo systemctl restart cups
 
 echo "== Installing/updating nono =="
-# nono ships prebuilt .deb/.rpm on GitHub Releases; no real apt repo
-# backs it (confirmed earlier: apt-cache policy showed nothing), so this
-# fetches the latest release's .deb for this VM's architecture directly
-# and dpkg -i's it, the same way it's actually installed on lftux already
-# (confirmed via dpkg.log: a direct "dpkg -i" of a downloaded .deb, not
-# apt/a script). Re-running this always grabs whatever's currently latest,
-# so updating nono is just re-running vm-setup.sh. Cargo/Homebrew (the
-# project's other documented options) would mean a whole extra toolchain
-# just to build a 25 MB tool we can get prebuilt.
-nono_arch="$(dpkg --print-architecture)"
-nono_deb_url="$(curl -fsSL https://api.github.com/repos/nolabs-ai/nono/releases/latest \
-  | grep -o "https://github.com/nolabs-ai/nono/releases/download/[^\"]*_${nono_arch}\.deb" \
-  | head -1)"
-if [ -n "$nono_deb_url" ]; then
-  # Version comes from the release tag in the URL path
-  # (.../download/v0.74.0/...), not the .deb filename. That decouples this
-  # from nono's asset-naming convention, only relying on GitHub's own
-  # release-asset URL structure. dpkg-query fails (nonzero) if nono-cli
-  # isn't installed yet, which is expected, not an error; old_version
-  # just stays empty in that case.
-  nono_new_version="$(printf '%s' "$nono_deb_url" | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p')"
-  nono_new_version="${nono_new_version#v}"
-  nono_old_version="$(dpkg-query -W -f='${Version}' nono-cli 2>/dev/null || true)"
-  if [ -n "$nono_old_version" ] && [ "$nono_old_version" = "$nono_new_version" ]; then
-    echo "nono is already up to date (version $nono_new_version)."
-  else
-    curl -fsSL "$nono_deb_url" -o "$TMPDIR/nono-cli.deb"
-    sudo dpkg -i "$TMPDIR/nono-cli.deb"
-    rm -f "$TMPDIR/nono-cli.deb"
-    if [ -n "$nono_old_version" ]; then
-      echo "Updated nono: $nono_old_version -> $nono_new_version"
-    else
-      echo "Installed nono $nono_new_version (was not previously installed)."
-    fi
-  fi
-else
-  echo "WARNING: couldn't find a nono .deb release for architecture $nono_arch; install manually:" >&2
-  echo "  https://github.com/nolabs-ai/nono/releases" >&2
-fi
+# A separate script, so you can also update nono without the rest of
+# this. If it fails, keep going with whatever nono is installed.
+"$SCRIPT_DIR/install-nono-deb.sh" ||
+  echo "WARNING: couldn't install or update nono (see above)." >&2
 
 echo "== Installing nono's default profile (nono-default-profile.json) =="
 # "default" is nono's own reserved profile name: nolabs-ai/claude (and
@@ -207,13 +172,23 @@ echo "== Installing nono's default profile (nono-default-profile.json) =="
 # profile.json, and a user profile of that name takes precedence over
 # nono's built-in one. So this is the one place to grant filesystem access
 # every harness needs (e.g., $HOME/.gitconfig and the global git hooks it
-# names), instead of a per-harness flag noclaude alone would have to carry.
+# names), and the network allowlist every harness shares (see
+# agent-network-plan.md), instead of per-harness flags.
 # install_unless_locally_newer, not a plain cp: same reasoning as
 # claude-CLAUDE.md below, an edit made directly to the installed copy
 # (e.g. via nono's own profile tooling) shouldn't be silently clobbered.
+# nono-claude-profile.json (bulkhead-claude) adds only Claude Code's own
+# hosts; it's a profile rather than noclaude flags because nono ignores
+# NONO_ALLOW_DOMAIN when the command line has --allow-domain.
 mkdir -p "$HOME/.config/nono/profiles"
 install_unless_locally_newer "$SCRIPT_DIR/nono-default-profile.json" \
   "$HOME/.config/nono/profiles/default.json"
+install_unless_locally_newer "$SCRIPT_DIR/nono-claude-profile.json" \
+  "$HOME/.config/nono/profiles/bulkhead-claude.json"
+# bulkhead-broad (nono-broad-profile.json) allows GET and HEAD to the
+# whole web; anon-access adds it to every "nono run" outside ~/sensitive.
+install_unless_locally_newer "$SCRIPT_DIR/nono-broad-profile.json" \
+  "$HOME/.config/nono/profiles/bulkhead-broad.json"
 
 echo "== Installing nono agent profiles (config.sh's NONO_AGENT_PROFILES) =="
 # One pack per supported harness (noclaude's --profile nolabs-ai/claude
@@ -290,10 +265,15 @@ echo "== Installing heroku-session, gh-session, and anon-access (secrets-client 
 # render_template. Any shell can run these (they're just executables on
 # $PATH).
 sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-access" /usr/local/bin/
+# anon-access runs everything through bulkhead-compartment (bubblewrap),
+# which reads compartment-paths.
+sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" /usr/local/bin/
+sudo install -d -m 755 /usr/local/libexec/bulkhead
+sudo install -m 644 "$SCRIPT_DIR/compartment-paths" /usr/local/libexec/bulkhead/
 
 echo "== Installing noclaude (sandboxed Claude Code wrapper) =="
-# Plain file, no templating needed: extra filesystem access beyond
-# --profile nolabs-ai/claude comes from nono-default-profile.json
+# Plain file, no templating needed: the sandbox policy every harness
+# shares (files and network) comes from nono-default-profile.json
 # (installed above). It runs through anon-access, but install order
 # doesn't matter: nothing runs noclaude until this script has finished.
 sudo install -m 755 "$SCRIPT_DIR/noclaude" /usr/local/bin/

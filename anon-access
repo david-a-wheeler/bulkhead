@@ -44,11 +44,34 @@ public_token="$(secrets-client --context "anon-access: ${*:-interactive shell}" 
 
 export TMPDIR="$PWD/.tmp"
 export XDG_CACHE_HOME="$PWD/.cache"
+# npm ignores XDG_CACHE_HOME and would use ~/.npm, which is shared (and
+# read-only in the sandbox), so point it here too.
+export npm_config_cache="$XDG_CACHE_HOME/npm"
 mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
 
+# Network mode for "anon-access nono run ...": most work isn't
+# sensitive, so by default we add the bulkhead-broad profile (GET and
+# HEAD to the whole web; see agent-network-plan.md). Under ~/sensitive
+# (by real path) we don't, so only the narrow allowlist in nono's
+# "default" profile applies. nono has no environment variable for
+# --extends, so we insert it here, once, for every harness wrapper.
+if [ "${1:-}" = nono ] && [ "${2:-}" = run ]; then
+  sensitive="$(cd "$HOME/sensitive" 2>/dev/null && pwd -P)" || sensitive=""
+  case "$(pwd -P)/" in
+    "${sensitive:-/nonexistent}"/*) ;;
+    *)
+      shift 2
+      set -- nono run --extends bulkhead-broad "$@"
+      ;;
+  esac
+fi
+
+# bulkhead-compartment runs the command in this directory's compartment
+# (a private /tmp, ~/.claude, and so on), so one project's agent can't
+# leave something for another's to read or run.
 exec env -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
     -u SSH_AUTH_SOCK -u HEROKU_API_KEY \
     -u BULKHEAD_AUTH_SESSION \
     GH_CONFIG_DIR="$(mktemp -d)" \
     GH_TOKEN="$public_token" GITHUB_TOKEN="$public_token" \
-    "${@:-${SHELL:-/bin/sh}}"
+    bulkhead-compartment "${@:-${SHELL:-/bin/sh}}"

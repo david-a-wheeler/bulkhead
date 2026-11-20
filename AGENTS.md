@@ -50,6 +50,37 @@ didn't exist then stays denied. So replacing such a file by rename
 session; don't edit the nono profile or `chmod` around it. Don't run
 `vm-setup.sh` unless asked, and if you do, say a restart may be needed.
 
+## Keep security policy shared across harnesses
+
+The human experiments with many AI harnesses (Claude Code, pi, goose,
+and more to come), and each must get the same protections without
+redoing the work. So put policy in one shared place, not in one
+harness's wrapper or config:
+
+- Sandbox policy (files, network, DNS) goes in nono's shared `default`
+  profile (`nono-default-profile.json`), which every harness pack
+  extends.
+- Launch behavior (stripping secrets, per-directory temp and caches,
+  and the per-project compartment from `bulkhead-compartment`) goes in
+  the shared wrapper `anon-access`, which every harness wrapper calls.
+  A harness's per-project state goes in `compartment-paths` (data).
+- A harness's own wrapper (`noclaude`, `nopi`, ...) or small profile
+  (e.g., `nono-claude-profile.json`) adds only what that harness alone
+  needs, such as its model provider's hosts or the local engine's port,
+  and says why.
+- Use existing systems the way their authors intend, where practical,
+  and add only what's missing: e.g., start from nono's own profiles and
+  network profiles, and use its profile mechanisms (`extends`,
+  per-host rules), instead of writing our own launcher or lists.
+- Prefer data (a profile entry) over code, and keep data in a format
+  that's easy to process later (e.g., nono's JSON, one entry per line).
+- Prefer a mechanism that works for any harness (nono, the VM, the
+  host) over a harness's own permission settings, which the commands
+  it runs can bypass.
+
+If a change seems to need a per-harness rule, first ask whether it
+belongs in the shared layer, and say so if it can't.
+
 ## Testing: ci.sh
 
 Run `./ci.sh` after every change (GitHub CI just runs the same script).

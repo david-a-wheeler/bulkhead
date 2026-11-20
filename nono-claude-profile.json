@@ -1,0 +1,27 @@
+{
+  "meta": {
+    "name": "bulkhead-claude",
+    "description": "nolabs-ai/claude, plus any method on the hosts only Claude Code needs, per-directory temp files, and shared credentials (see agent-network-plan.md and bulkhead-compartment)"
+  },
+  "extends": "nolabs-ai/claude",
+  "filesystem": {
+    "allow": [
+      "$HOME/.local/state/bulkhead/claude-credentials"
+    ]
+  },
+  "network": {
+    "allow_domain": [
+      {"domain": "api.anthropic.com", "endpoints": [{"method": "*", "path": "/**"}]},
+      {"domain": "claude.ai", "endpoints": [{"method": "*", "path": "/**"}]},
+      {"domain": "platform.claude.com", "endpoints": [{"method": "*", "path": "/**"}]}
+    ]
+  },
+  "environment": {
+    "set_vars": {
+      "CLAUDE_CODE_TMPDIR": "$TMPDIR",
+      "TMPDIR": "$TMPDIR",
+      "CLAUDE_CONFIG_DIR": "$HOME/.claude",
+      "CLAUDE_SECURESTORAGE_CONFIG_DIR": "$HOME/.local/state/bulkhead/claude-credentials"
+    }
+  }
+}
