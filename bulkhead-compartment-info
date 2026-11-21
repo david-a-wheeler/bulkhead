@@ -1,6 +1,6 @@
 #!/bin/sh
 # bulkhead-compartment-info: print one fact about a directory's
-# workspace (see compartment-meta-plan.md), so every script computes it
+# workspace (see workspace-dossier-plan.md), so every script computes it
 # the same way. It refuses (exits 1, saying why) a directory no agent
 # should start in, whatever the field.
 #
@@ -9,13 +9,13 @@
 #   key       the workspace's name: projects-NAME, sensitive-NAME, or
 #             dir%PATH (its path with "/" as "%")
 #   root      the workspace's top directory
-#   meta      ROOT.meta, beside it: data about the workspace that its
+#   dossier   ROOT.dossier, beside it: data about the workspace that its
 #             agent mustn't fully control, or that mustn't arrive with
 #             the workspace's contents
-#   state     META/state: the harness's private files (bwrap binds them
+#   state     DOSSIER/state: the harness's private files (bwrap binds them
 #             over ~/.claude and the like, read-write)
-#   logs      META/logs: e.g., nono's log (no agent access)
-#   registry  the file listing every workspace that has had a .meta
+#   logs      DOSSIER/logs: e.g., nono's log (no agent access)
+#   registry  the file listing every workspace that has had a dossier
 #             (no refusal checks for this one)
 #
 # The workspace is ~/projects/NAME or ~/sensitive/NAME when DIR's real
@@ -25,12 +25,12 @@
 # It refuses DIR when DIR or its workspace matches a pattern in
 # workspace-forbidden ($BULKHEAD_WORKSPACE_FORBIDDEN, else the installed
 # copy), when the workspace is ~ or above it (an agent there would be
-# granted every workspace's .meta), or when the workspace holds another
-# workspace's .meta (its agent could change that one).
+# granted every workspace's dossier), or when the workspace holds another
+# workspace's dossier (its agent could change that one).
 set -eu
 
 usage() {
-  echo "Usage: bulkhead-compartment-info key|root|meta|state|logs|registry [DIR]" >&2
+  echo "Usage: bulkhead-compartment-info key|root|dossier|state|logs|registry [DIR]" >&2
   exit 2
 }
 [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
@@ -76,7 +76,7 @@ case "$here/" in
 esac
 
 case "$home/" in
-  "${root%/}"/*) refuse "$root holds your home directory, so an agent there could change every workspace's .meta." ;;
+  "${root%/}"/*) refuse "$root holds your home directory, so an agent there could change every workspace's dossier." ;;
 esac
 [ -r "$forbidden" ] || {
   echo "bulkhead: can't read $forbidden, so can't check $here." >&2
@@ -103,8 +103,8 @@ if [ -r "$registry" ]; then
     [ -n "$ws" ] || continue
     case "$ws/" in
       "$root"/?*)
-        [ ! -d "$ws.meta" ] ||
-          refuse "$root holds $ws.meta, another workspace's .meta. Start in $ws instead, or move it out of $root."
+        [ ! -d "$ws.dossier" ] ||
+          refuse "$root holds $ws.dossier, another workspace's dossier. Start in $ws instead, or move it out of $root."
         ;;
     esac
   done < "$registry"
@@ -113,8 +113,8 @@ fi
 case "$field" in
   key) printf '%s\n' "$key" ;;
   root) printf '%s\n' "$root" ;;
-  meta) printf '%s\n' "$root.meta" ;;
-  state) printf '%s\n' "$root.meta/state" ;;
-  logs) printf '%s\n' "$root.meta/logs" ;;
+  dossier) printf '%s\n' "$root.dossier" ;;
+  state) printf '%s\n' "$root.dossier/state" ;;
+  logs) printf '%s\n' "$root.dossier/logs" ;;
   *) usage ;;
 esac

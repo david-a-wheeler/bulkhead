@@ -291,10 +291,10 @@ echo "== Installing heroku-session, gh-session, and anon-access (secrets-client 
 # render_template. Any shell can run these (they're just executables on
 # $PATH).
 sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-access" /usr/local/bin/
-# anon-access checks each workspace and sets up its .meta
+# anon-access checks each workspace and sets up its dossier
 # (bulkhead-workspace-prepare, which reads workspace-forbidden), then
 # runs everything through bulkhead-compartment (bubblewrap), which
-# reads compartment-paths. See compartment-meta-plan.md.
+# reads compartment-paths. See workspace-dossier-plan.md.
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
   "$SCRIPT_DIR/bulkhead-compartment-info" \
   "$SCRIPT_DIR/bulkhead-workspace-prepare" \
@@ -305,11 +305,11 @@ sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbi
 orphans="$(/usr/local/bin/bulkhead-workspace-prepare --orphans)"
 if [ -n "$orphans" ]; then
   cat >&2 <<EOF
-WARNING: these .meta directories have no workspace beside them anymore:
+WARNING: these dossiers have no workspace beside them anymore:
 $orphans
   Each holds a workspace's logs and harness state (e.g., Claude's
-  transcripts and memory). If you moved the workspace, move its .meta
-  beside it (DIR.meta for DIR); if you deleted it, delete the .meta and
+  transcripts and memory). If you moved the workspace, move its dossier
+  beside it (DIR.dossier for DIR); if you deleted it, delete the dossier and
   its line in $(/usr/local/bin/bulkhead-compartment-info registry).
 EOF
 fi

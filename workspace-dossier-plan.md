@@ -1,9 +1,8 @@
-# Plan: workspaces and their .meta directories
+# Plan: workspaces and their dossier directories
 
-Status (2026-11-20): implemented on the `workspace-meta` branch
-(`bulkhead-workspace-prepare`, `bulkhead-compartment-info`,
-`workspace-forbidden`); `ci.sh` passes, but `tests/compartment-test.sh`
-(outside nono) hasn't run yet. Builds on the compartments in
+Status (2026-11-20): implemented (`bulkhead-workspace-prepare`,
+`bulkhead-compartment-info`, `workspace-forbidden`); `ci.sh` passes,
+but `tests/compartment-test.sh` (outside nono) hasn't run yet. Builds on the compartments in
 `bulkhead-compartment` (see `,restart-notes.md` for their tests).
 "Decisions while implementing" says where the code differs from the
 first draft.
@@ -35,16 +34,16 @@ it.
 
 ## Design
 
-Each workspace `DIR` gets a sibling `DIR.meta`, created at launch:
+Each workspace `DIR` gets a sibling `DIR.dossier`, created at launch:
 
 | Path | Agent's access | Holds |
 | --- | --- | --- |
-| `DIR.meta/workspace` | none | `DIR`'s real path when last launched |
-| `DIR.meta/state/` | read-write, via bwrap (same as today) | what `DIR/.bulkhead` holds today |
-| `DIR.meta/logs/` | none | `nono.log` and its one rotated copy |
-| `DIR.meta/policy/` | none | your additions, e.g., a nono profile fragment |
+| `DIR.dossier/workspace` | none | `DIR`'s real path when last launched |
+| `DIR.dossier/state/` | read-write, via bwrap (same as today) | what `DIR/.bulkhead` holds today |
+| `DIR.dossier/logs/` | none | `nono.log` and its one rotated copy |
+| `DIR.dossier/policy/` | none | your additions, e.g., a nono profile fragment |
 
-`DIR.meta` is mode 700. nono grants the workspace (`--allow-cwd`) and
+`DIR.dossier` is mode 700. nono grants the workspace (`--allow-cwd`) and
 its profiles' paths, none of which cover a sibling, so "none" needs no
 new rule. `state` keeps today's mechanism: bwrap binds its
 subdirectories over `~/.claude` and the rest of `compartment-paths`.
@@ -53,9 +52,9 @@ mechanically. The shared Claude credentials stay where they are
 (`~/.local/state/bulkhead/claude-credentials`): they're shared by
 design, not per workspace.
 
-Why a sibling: when you move or delete `DIR`, `ls` shows `DIR.meta`
+Why a sibling: when you move or delete `DIR`, `ls` shows `DIR.dossier`
 right beside it. The cost is that `ls ~/projects` doubles, and a loop
-over `~/projects/*` sees each `.meta`.
+over `~/projects/*` sees each dossier.
 
 ## Why harness state moves
 
@@ -77,7 +76,7 @@ What these run stays inside the sandbox, but each skips a point where
 you'd normally consent. Our only defense today is refusing a
 `.bulkhead` that git tracks, which misses every other way files
 arrive. A sibling directory can't arrive inside the workspace's
-contents, so in `.meta` the harness's state comes only from the
+contents, so in the dossier the harness's state comes only from the
 harness, and we can drop that check.
 
 It also keeps ordinary workspace tools from treating the state as
@@ -86,14 +85,14 @@ memory, and archiving or `rsync`ing the project to share it would
 copy transcripts that may hold secrets you pasted.
 
 The cost: `state/` no longer moves with `DIR` by itself. `logs/` and
-`policy/` already make the `.meta` something you must move with `DIR`,
+`policy/` already make the dossier something you must move with `DIR`,
 so this adds nothing new to remember.
 
 ## Choosing and checking the workspace
 
 `bulkhead-compartment-info` computes the workspace root as it does now
 (`~/projects/NAME` or `~/sensitive/NAME` for anything under them, else
-the current directory), and gains a `meta` field. Then, before
+the current directory), and gains a `dossier` field. Then, before
 anything else starts:
 
 1. **Refuse forbidden directories.** Check both the root and the
@@ -104,31 +103,31 @@ anything else starts:
    ~/projects
    ~/sensitive
    ~/.*
-   *.meta
-   *.meta/*
+   *.dossier
+   *.dossier/*
    ```
 
    Also refuse `~` and any ancestor of it (`/`, `/home`): that's one
    `case` test in code, since an agent there would be granted every
-   workspace and every `.meta`. `~/.*` keeps an agent out of
+   workspace and every dossier. `~/.*` keeps an agent out of
    `~/.ssh`, `~/.config`, and the like. Anything else, e.g., `~/junk`,
    is fine if the rest of these checks pass.
-2. **Refuse if a registered `.meta` is inside the root.** If
+2. **Refuse if a registered dossier is inside the root.** If
    `~/junk/sub` is a workspace, an agent started in `~/junk` could
-   change `~/junk/sub.meta`. So at creation we append each `.meta`'s
+   change `~/junk/sub.dossier`. So at creation we append each dossier's
    path to a registry, `~/.local/state/bulkhead/workspaces` (one path
    per line, outside every grant), and refuse a root that contains
    any of them. That's a `grep`, with no walk of the tree.
 3. **Require write access.** If you can't write the root, or can't
-   create `DIR.meta` and its subdirectories, fail with a message
+   create `DIR.dossier` and its subdirectories, fail with a message
    saying which. No fallback location for now; that keeps it simple.
-4. **Notice moves.** If `DIR.meta/workspace` names another path, say
-   so and update it (you moved both; that's fine). If `DIR.meta` is
+4. **Notice moves.** If `DIR.dossier/workspace` names another path, say
+   so and update it (you moved both; that's fine). If `DIR.dossier` is
    new, say so, and add "if you moved this workspace, move its old
-   `.meta` beside it". `vm-setup.sh` lists registered `.meta`
+   dossier beside it". `vm-setup.sh` lists registered dossier
    directories whose workspace is gone.
 
-The `.meta` and its subdirectories must exist before nono starts:
+The dossier and its subdirectories must exist before nono starts:
 nono binds grants at sandbox start, so a directory created later
 stays denied.
 
@@ -140,14 +139,21 @@ fragment by path through `--extends` (to check).
 
 ## Decisions while implementing
 
-- The registry lists workspace paths, not `.meta` paths, one per line;
-  the `.meta` is always the path plus `.meta`. A registered workspace
+- We call it a *dossier* (`DIR.dossier`), the first draft's `DIR.meta`.
+  A dossier is the file an authority keeps about a subject, which the
+  subject can't change: that's this directory's purpose. We rejected
+  `.meta` (Unity puts a `.meta` beside every asset, and it says nothing
+  about who controls it), `.bulkhead` (it names our implementation,
+  not the purpose), verbs such as `.watch` and `.guard` (we wanted a
+  noun), and `.casefile` (it collides with assurance cases).
+- The registry lists workspace paths, not `.dossier` paths, one per line;
+  the dossier is always the path plus `.dossier`. A registered workspace
   also becomes the root for its subdirectories (like `~/projects/NAME`),
   so `~/junk/sub` shares `~/junk`'s compartment. Step 2 only refuses a
-  registered workspace whose `.meta` still exists.
-- A `.meta` must be a real directory you own (not a symlink), and
+  registered workspace whose `.dossier` still exists.
+- A dossier must be a real directory you own (not a symlink), and
   `/tmp`, `/var/tmp`, `/dev/shm`, and everything in them are
-  forbidden: another user could create `/tmp/x.meta` before you.
+  forbidden: another user could create `/tmp/x.dossier` before you.
 - A refused directory fails in `anon-access` before anything else,
   including the secrets dialog for `GH_PUBLIC_TOKEN`. That also means
   any `anon-access` command (not just an agent) refuses `~`.
@@ -164,23 +170,23 @@ fragment by path through `--extends` (to check).
 
 ## Migration
 
-At launch, outside the sandbox: if `DIR.meta` doesn't exist and
+At launch, outside the sandbox: if `DIR.dossier` doesn't exist and
 `DIR/.bulkhead` does, move `.bulkhead`'s contents (less its
-`.gitignore`) to `DIR.meta/state`, and move
-`~/.local/state/bulkhead/logs/KEY` to `DIR.meta/logs`. Both are
+`.gitignore`) to `DIR.dossier/state`, and move
+`~/.local/state/bulkhead/logs/KEY` to `DIR.dossier/logs`. Both are
 harmless when there's nothing to move. Then drop the `.bulkhead`
 code, the git-tracked check, and the logs directory's grant notes.
 
 ## Tests
 
 - `ci.sh`: `bulkhead-compartment-info` refusals (each forbidden
-  pattern, `~` and its ancestors, a registered `.meta` inside the
+  pattern, `~` and its ancestors, a registered dossier inside the
   root, an unwritable root), plus `--dry-run` showing binds from
-  `DIR.meta/state`.
+  `DIR.dossier/state`.
 - Outside nono, on the VM: `tests/compartment-test.sh` extended to
   migrate a workspace with an old `.bulkhead`, then check that an
-  agent can't read `DIR.meta/logs` or `DIR.meta/policy` and can't
-  write `DIR.meta/workspace`.
+  agent can't read `DIR.dossier/logs` or `DIR.dossier/policy` and can't
+  write `DIR.dossier/workspace`.
 
 ## Open questions
 
@@ -189,8 +195,8 @@ code, the git-tracked check, and the logs directory's grant notes.
 - Should `.tmp` and `.cache` (today in the current directory, from
   `anon-access`) move to `state/`? They're agent-owned, so the
   workspace is fine; moving them would only tidy it.
-- The registry trusts that every `.meta` was made by our code. A
-  `.meta` you make by hand isn't registered, so step 2 can't see it.
+- The registry trusts that every dossier was made by our code. A
+  dossier you make by hand isn't registered, so step 2 can't see it.
 
 ## Lessons so far
 

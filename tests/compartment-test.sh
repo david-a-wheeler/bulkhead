@@ -6,7 +6,7 @@
 # It uses this repo's bulkhead-workspace-prepare, bulkhead-compartment,
 # compartment-paths, and workspace-forbidden, makes two scratch
 # projects ~/projects/,compartment-test-a and -b, and removes them, their
-# .meta directories, and their registry lines when it's done.
+# dossiers, and their registry lines when it's done.
 set -eu
 
 if [ -n "${NONO_CAP_FILE:-}" ]; then
@@ -19,7 +19,7 @@ b="$HOME/projects/,compartment-test-b"
 marker=",compartment-test-$$"
 registry="$("$repo/bulkhead-compartment-info" registry)"
 cleanup() {
-  rm -rf "$a" "$b" "$a.meta" "$b.meta"
+  rm -rf "$a" "$b" "$a.dossier" "$b.dossier"
   rm -f "/tmp/$marker"
   if [ -f "$registry" ]; then
     grep -vFx -e "$(cd "$HOME" && pwd -P)/projects/,compartment-test-a" \
@@ -78,15 +78,15 @@ r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"
 r=$(git -C "$a" init -q && git -C "$a" status --porcelain | grep -v '^?? .tmp/$' || :)
 check "the workspace holds no harness state" "$r" ""
-r=$([ -d "$a.meta/state" ] && [ -d "$a.meta/logs" ] && echo made || echo missing)
-check "the workspace's .meta is beside it" "$r" made
+r=$([ -d "$a.dossier/state" ] && [ -d "$a.dossier/logs" ] && echo made || echo missing)
+check "the workspace's dossier is beside it" "$r" made
 
 # nono inside the compartment, with the installed profiles.
 if run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'echo hi > ./,nono-ok'" &&
   [ -f "$a/,nono-ok" ]; then r=ok; else r=failed; fi
 check "nono runs inside a compartment" "$r" ok
-r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'ls ../,compartment-test-a.meta/logs > /dev/null 2>&1 && echo read || echo refused'")
-check "an agent can't read its workspace's .meta" "$r" refused
+r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'ls ../,compartment-test-a.dossier/logs > /dev/null 2>&1 && echo read || echo refused'")
+check "an agent can't read its workspace's dossier" "$r" refused
 
 echo "$fails failed."
 [ "$fails" -eq 0 ]

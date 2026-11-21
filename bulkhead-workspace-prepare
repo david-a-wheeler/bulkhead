@@ -1,18 +1,18 @@
 #!/bin/sh
 # bulkhead-workspace-prepare: check the current directory's workspace
-# and set up its .meta beside it (see compartment-meta-plan.md and
+# and set up its dossier beside it (see workspace-dossier-plan.md and
 # bulkhead-compartment-info). anon-access runs this before anything
 # else, outside every sandbox: nono binds grants at start, so a
 # directory made later stays denied. Safe to re-run.
 #
 # Usage: bulkhead-workspace-prepare [--orphans]
-# --orphans instead lists each registered workspace's .meta whose
+# --orphans instead lists each registered workspace's dossier whose
 # workspace is gone (moved or deleted without it).
 #
 # It fails (exit 1, saying why) if the directory is refused, if you
-# can't write the workspace or create its .meta, or if the .meta isn't
-# yours. It moves an old WORKSPACE/.bulkhead into META/state, and old
-# logs from ~/.local/state/bulkhead/logs/KEY into META/logs.
+# can't write the workspace or create its dossier, or if the dossier isn't
+# yours. It moves an old WORKSPACE/.bulkhead into DOSSIER/state, and old
+# logs from ~/.local/state/bulkhead/logs/KEY into DOSSIER/logs.
 set -eu
 
 info="$(dirname "$0")/bulkhead-compartment-info"
@@ -24,8 +24,8 @@ registry="$("$info" registry)"
 if [ "${1:-}" = --orphans ]; then
   [ -r "$registry" ] || exit 0
   while IFS= read -r ws; do
-    if [ -n "$ws" ] && [ ! -d "$ws" ] && [ -d "$ws.meta" ]; then
-      printf '%s\n' "$ws.meta"
+    if [ -n "$ws" ] && [ ! -d "$ws" ] && [ -d "$ws.dossier" ]; then
+      printf '%s\n' "$ws.dossier"
     fi
   done < "$registry"
   exit 0
@@ -35,34 +35,34 @@ fi
 # Each call refuses a forbidden directory, so stop at the first.
 root="$("$info" root)" || exit 1
 key="$("$info" key)"
-meta="$("$info" meta)"
+dossier="$("$info" dossier)"
 state="$("$info" state)"
 logs="$("$info" logs)"
 
 [ -w "$root" ] || { say "can't write $root, so it can't be a workspace."; exit 1; }
 new=false
-if [ ! -e "$meta" ] && [ ! -L "$meta" ]; then
-  mkdir -m 700 "$meta" 2> /dev/null ||
-    { say "can't create $meta, which every workspace needs (see compartment-meta-plan.md)."; exit 1; }
+if [ ! -e "$dossier" ] && [ ! -L "$dossier" ]; then
+  mkdir -m 700 "$dossier" 2> /dev/null ||
+    { say "can't create $dossier, which every workspace needs (see workspace-dossier-plan.md)."; exit 1; }
   new=true
 fi
-if [ -L "$meta" ] || [ ! -d "$meta" ] || [ "$(stat -c %u "$meta")" != "$(id -u)" ]; then
-  say "$meta isn't a directory you own; refusing to use it."
+if [ -L "$dossier" ] || [ ! -d "$dossier" ] || [ "$(stat -c %u "$dossier")" != "$(id -u)" ]; then
+  say "$dossier isn't a directory you own; refusing to use it."
   exit 1
 fi
-chmod 700 "$meta"
-for d in "$state" "$logs" "$meta/policy"; do
+chmod 700 "$dossier"
+for d in "$state" "$logs" "$dossier/policy"; do
   [ -d "$d" ] || mkdir -m 700 "$d"
 done
 
-# Notice moves: META/workspace records the workspace it was made for.
-recorded="$(cat "$meta/workspace" 2> /dev/null || :)"
+# Notice moves: DOSSIER/workspace records the workspace it was made for.
+recorded="$(cat "$dossier/workspace" 2> /dev/null || :)"
 if "$new"; then
-  say "created $meta for this workspace. If you moved $root here from elsewhere, replace $meta with its old .meta."
+  say "created $dossier for this workspace. If you moved $root here from elsewhere, replace $dossier with its old dossier."
 elif [ "$recorded" != "$root" ]; then
-  say "$meta was for ${recorded:-an unrecorded path}; it's now for $root (you moved them together, I assume)."
+  say "$dossier was for ${recorded:-an unrecorded path}; it's now for $root (you moved them together, I assume)."
 fi
-[ "$recorded" = "$root" ] || printf '%s\n' "$root" > "$meta/workspace"
+[ "$recorded" = "$root" ] || printf '%s\n' "$root" > "$dossier/workspace"
 
 # Register it, dropping the old path if that workspace is gone.
 old="$root"

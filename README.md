@@ -290,37 +290,37 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   with the workspace's log, so nono's warnings don't land on the
   harness's screen.
 - `bulkhead-workspace-prepare`: checks the current directory's
-  workspace and sets up its `.meta` beside it (`DIR.meta` for `DIR`;
-  see `compartment-meta-plan.md`), before any sandbox starts. The
-  `.meta` holds what's about the workspace but mustn't be under its
+  workspace and sets up its dossier beside it (`DIR.dossier` for `DIR`;
+  see `workspace-dossier-plan.md`), before any sandbox starts. The
+  dossier holds what's about the workspace but mustn't be under its
   agent's control (`logs/`, `policy/`) or mustn't arrive with its
   contents (`state/`, the harness's private files). It refuses a
   directory no agent may start in, notices a workspace moved with its
-  `.meta`, and moves an old `.bulkhead` and old logs in. `--orphans`
-  lists `.meta` directories left behind (`vm-setup.sh` warns about
+  dossier, and moves an old `.bulkhead` and old logs in. `--orphans`
+  lists dossiers left behind (`vm-setup.sh` warns about
   them).
 - `bulkhead-compartment`: runs a command in its directory's
   compartment using bubblewrap, so one project's agent can't leave
   anything for another's to read or run: each compartment gets a
   private `/tmp` (its `$TMPDIR`), `~/.claude` (transcripts, history,
   config), Claude's caches and sockets, and so on, per
-  `compartment-paths`, from its `.meta/state`. Shared setup (e.g.,
+  `compartment-paths`, from its dossier's `state/`. Shared setup (e.g.,
   `~/.claude/CLAUDE.md`, settings, skills, plugins) is mounted
   read-only, so change it from outside a compartment. It fails rather
   than run without a compartment; `BULKHEAD_NO_COMPARTMENT=1` skips
   it. `tests/compartment-test.sh` (run by hand, outside nono) checks
   it.
 - `bulkhead-compartment-info`: prints a directory's workspace key,
-  root, `.meta`, state directory, or log directory, so every script
+  root, dossier, state directory, or log directory, so every script
   computes them the same way. The workspace is `~/projects/NAME`,
   `~/sensitive/NAME`, the nearest registered workspace holding the
   directory, or else the directory itself. It refuses `~` and anything
   above it, anything matching `workspace-forbidden`, and a directory
-  holding another workspace's `.meta`. `nono.log` is rotated to
+  holding another workspace's dossier. `nono.log` is rotated to
   `nono.log.1` at launch once it passes 1 MB.
 - `workspace-forbidden`: the data `bulkhead-compartment-info` reads:
   shell patterns for directories no agent may start in (e.g.,
-  `~/projects`, `~/.*`, `*.meta`, `/tmp/*`). Installed in
+  `~/projects`, `~/.*`, `*.dossier`, `/tmp/*`). Installed in
   `/usr/local/libexec/bulkhead/`.
 - `bulkhead-copy-claude-history`: copies a project's Claude Code
   history (transcripts and auto-memory) from the real `~/.claude` into
@@ -441,8 +441,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   Installed by `vm-setup.sh` beside `default.json`.
 - `agent-network-plan.md`: the shared network policy's design, test
   results, and rollout steps.
-- `compartment-meta-plan.md`: plan for each workspace's sibling
-  `.meta` directory (logs, policy, and harness state an agent mustn't
+- `workspace-dossier-plan.md`: plan for each workspace's sibling
+  dossier directory (logs, policy, and harness state an agent mustn't
   fully control) and for refusing risky places to start an agent.
 - `nftables.template.conf`: VM egress firewall ruleset.
 - `bulkhead-reclaim-memory`, `bulkhead-reclaim-memory.template.service`,

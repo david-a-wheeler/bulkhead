@@ -151,22 +151,22 @@ compart() { run_ws "$1" bulkhead-compartment --dry-run cmd 'a b'; }
 prep() { run_ws "$1" bulkhead-workspace-prepare; }
 registry="$fhp/.local/state/bulkhead/workspaces"
 
-# Keys, roots, and where the .meta goes.
+# Keys, roots, and where the dossier goes.
 [ "$(cinfo key "$fh/projects/p1/sub")" = projects-p1 ] || failed "workspace key under ~/projects"
 [ "$(cinfo key "$fh/sensitive/s1")" = sensitive-s1 ] || failed "workspace key under ~/sensitive"
 [ "$(cinfo key "$fh/other")" = "dir$(printf '%s' "$fhp/other" | tr '/' '%')" ] ||
   failed "workspace key elsewhere"
-[ "$(cinfo state "$fh/projects/p1/sub")" = "$fhp/projects/p1.meta/state" ] ||
-  failed "workspace state in its .meta"
-[ "$(cinfo logs "$fh/sensitive/s1")" = "$fhp/sensitive/s1.meta/logs" ] ||
-  failed "workspace logs in its .meta"
+[ "$(cinfo state "$fh/projects/p1/sub")" = "$fhp/projects/p1.dossier/state" ] ||
+  failed "workspace state in its dossier"
+[ "$(cinfo logs "$fh/sensitive/s1")" = "$fhp/sensitive/s1.dossier/logs" ] ||
+  failed "workspace logs in its dossier"
 cinfo bogus "$fh/other" 2> /dev/null && failed "compartment-info accepted a bad field"
 
 # Refusals: ~ and above it, the forbidden patterns, and an unwritable
 # workspace (the last only when not root, who can write anything).
-mkdir -p "$fh/projects/x.meta" "$fh/projects/p1/y.meta"
+mkdir -p "$fh/projects/x.dossier" "$fh/projects/p1/y.dossier"
 for d in "$fh" "$fh/.." / "$fh/projects" "$fh/sensitive" "$fh/.ssh" "$fh/.claude" \
-  "$fh/projects/x.meta" "$fh/projects/p1/y.meta"; do
+  "$fh/projects/x.dossier" "$fh/projects/p1/y.dossier"; do
   cinfo root "$d" > /dev/null 2>&1 && failed "workspace allowed in $d"
   prep "$d" 2> /dev/null && failed "prepare allowed $d"
 done
@@ -178,26 +178,26 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 chmod 755 "$fh/ro"
 
-# prepare: makes the .meta, records and registers the workspace, and
+# prepare: makes the dossier, records and registers the workspace, and
 # says so only the first time.
 out="$(prep "$fh/projects/p1/sub" 2>&1)" || failed "prepare ran"
-case "$out" in *created*) ;; *) failed "prepare said it created the .meta" ;; esac
+case "$out" in *created*) ;; *) failed "prepare said it created the dossier" ;; esac
 for d in state logs policy; do
-  [ -d "$fh/projects/p1.meta/$d" ] || failed "prepare made .meta/$d"
+  [ -d "$fh/projects/p1.dossier/$d" ] || failed "prepare made .dossier/$d"
 done
-[ "$(stat -c %a "$fh/projects/p1.meta")" = 700 ] || failed "prepare made .meta mode 700"
-[ "$(cat "$fh/projects/p1.meta/workspace")" = "$fhp/projects/p1" ] ||
+[ "$(stat -c %a "$fh/projects/p1.dossier")" = 700 ] || failed "prepare made .dossier mode 700"
+[ "$(cat "$fh/projects/p1.dossier/workspace")" = "$fhp/projects/p1" ] ||
   failed "prepare recorded the workspace"
 grep -qFx "$fhp/projects/p1" "$registry" || failed "prepare registered the workspace"
 [ -z "$(prep "$fh/projects/p1" 2>&1)" ] || failed "prepare was quiet the second time"
 [ "$(grep -cFx "$fhp/projects/p1" "$registry")" = 1 ] || failed "prepare registered once"
 
-# A .meta that isn't a directory you own (here, a symlink) is refused.
+# A dossier that isn't a directory you own (here, a symlink) is refused.
 mkdir -p "$fh/projects/p3" "$wst/elsewhere"
-ln -s "$wst/elsewhere" "$fh/projects/p3.meta"
-prep "$fh/projects/p3" 2> /dev/null && failed "prepare used a symlinked .meta"
+ln -s "$wst/elsewhere" "$fh/projects/p3.dossier"
+prep "$fh/projects/p3" 2> /dev/null && failed "prepare used a symlinked .dossier"
 
-# The dry run binds the private ~/.claude from the .meta's state.
+# The dry run binds the private ~/.claude from the dossier's state.
 out="$(compart "$fh/projects/p1/sub")"
 [ "$(printf '%s\n' "$out" | head -n 1)" = "key: projects-p1" ] || failed "compartment key"
 printf '%s\n' "$out" | tail -n 3 | tr '\n' '|' | grep -qx -- '--|cmd|a b|' ||
@@ -209,58 +209,58 @@ mkdir -p "$fh/projects/p1/sub/.tmp"
   grep -qF -- "|--bind|$fhp/projects/p1/sub/.tmp|/tmp|" || failed "compartment /tmp is its TMPDIR"
 (cd "$fh/projects/p1/sub" && TMPDIR="$fh" wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd) |
   grep -qx -- '--tmpfs' || failed "compartment /tmp ignores a TMPDIR outside the directory"
-printf '%s\n' "$out" | grep -qx "$fhp/projects/p1.meta/state/.*%.claude" ||
+printf '%s\n' "$out" | grep -qx "$fhp/projects/p1.dossier/state/.*%.claude" ||
   failed "compartment private ~/.claude"
 printf '%s\n' "$out" | grep -qx -- '--ro-bind' || failed "compartment read-only CLAUDE.md"
 
-# Moving a workspace with its .meta updates the record and registry.
+# Moving a workspace with its dossier updates the record and registry.
 mv "$fh/projects/p1" "$fh/projects/p1b"
-mv "$fh/projects/p1.meta" "$fh/projects/p1b.meta"
+mv "$fh/projects/p1.dossier" "$fh/projects/p1b.dossier"
 run_ws "$fh/projects/p1b" bulkhead-workspace-prepare --orphans | grep -q . &&
   failed "orphans listed a moved-together workspace"
 out="$(prep "$fh/projects/p1b" 2>&1)" || failed "prepare after a move"
 case "$out" in *"it's now for"*) ;; *) failed "prepare noticed the move" ;; esac
-[ "$(cat "$fh/projects/p1b.meta/workspace")" = "$fhp/projects/p1b" ] ||
+[ "$(cat "$fh/projects/p1b.dossier/workspace")" = "$fhp/projects/p1b" ] ||
   failed "prepare updated the record after a move"
 grep -qFx "$fhp/projects/p1" "$registry" && failed "prepare dropped the old path"
-# Moving a workspace without its .meta leaves an orphan.
+# Moving a workspace without its dossier leaves an orphan.
 prep "$fh/sensitive/s1" 2> /dev/null
 mv "$fh/sensitive/s1" "$fh/sensitive/s1b"
-[ "$(run_ws "$fh/other" bulkhead-workspace-prepare --orphans)" = "$fhp/sensitive/s1.meta" ] ||
-  failed "orphans listed a .meta left behind"
+[ "$(run_ws "$fh/other" bulkhead-workspace-prepare --orphans)" = "$fhp/sensitive/s1.dossier" ] ||
+  failed "orphans listed a dossier left behind"
 
 # Nested workspaces outside ~/projects: under a registered one, its
 # subdirectories share it; above one, an agent is refused.
 prep "$fh/junk" 2> /dev/null || failed "prepare in ~/junk"
 [ "$(cinfo root "$fh/junk/sub")" = "$fhp/junk" ] || failed "a registered workspace holds its subdirectories"
-rm -rf "$fh/junk.meta"
+rm -rf "$fh/junk.dossier"
 grep -svFx "$fhp/junk" "$registry" > "$registry.new" || :
 mv "$registry.new" "$registry"
 prep "$fh/junk/sub" 2> /dev/null || failed "prepare in ~/junk/sub"
 mkdir -p "$fh/junk/sub2"
 mv "$fh/junk/sub" "$fh/junk/sub2/sub"
-mv "$fh/junk/sub.meta" "$fh/junk/sub2/sub.meta"
+mv "$fh/junk/sub.dossier" "$fh/junk/sub2/sub.dossier"
 prep "$fh/junk/sub2/sub" 2> /dev/null
-cinfo root "$fh/junk" > /dev/null 2>&1 && failed "workspace allowed above another's .meta"
+cinfo root "$fh/junk" > /dev/null 2>&1 && failed "workspace allowed above another's .dossier"
 
-# Migration: an old .bulkhead we made moves into the .meta, as do old
+# Migration: an old .bulkhead we made moves into the dossier, as do old
 # logs; one we didn't make (or that git tracks) stays, with a warning.
 mkdir -p "$fh/projects/p4/.bulkhead/home%x%.claude" "$fhp/.local/state/bulkhead/logs/projects-p4"
 echo '*' > "$fh/projects/p4/.bulkhead/.gitignore"
 echo t > "$fh/projects/p4/.bulkhead/home%x%.claude/t"
 echo l > "$fhp/.local/state/bulkhead/logs/projects-p4/nono.log"
 prep "$fh/projects/p4" 2> /dev/null || failed "prepare migrating"
-[ "$(cat "$fh/projects/p4.meta/state/home%x%.claude/t" 2> /dev/null)" = t ] ||
-  failed "prepare moved .bulkhead into the .meta"
+[ "$(cat "$fh/projects/p4.dossier/state/home%x%.claude/t" 2> /dev/null)" = t ] ||
+  failed "prepare moved .bulkhead into the dossier"
 [ ! -e "$fh/projects/p4/.bulkhead" ] || failed "prepare removed the old .bulkhead"
-[ "$(cat "$fh/projects/p4.meta/logs/nono.log" 2> /dev/null)" = l ] ||
+[ "$(cat "$fh/projects/p4.dossier/logs/nono.log" 2> /dev/null)" = l ] ||
   failed "prepare moved the old logs"
 mkdir -p "$fh/projects/p5/.bulkhead"
 echo '*' > "$fh/projects/p5/.bulkhead/.gitignore"
 : > "$fh/projects/p5/.bulkhead/x"
 git -C "$fh/projects/p5" init -q && git -C "$fh/projects/p5" add -f .bulkhead/x
 out="$(prep "$fh/projects/p5" 2>&1)"
-[ -z "$(ls -A "$fh/projects/p5.meta/state")" ] || failed "prepare moved a tracked .bulkhead"
+[ -z "$(ls -A "$fh/projects/p5.dossier/state")" ] || failed "prepare moved a tracked .bulkhead"
 case "$out" in *WARNING*) ;; *) failed "prepare warned about a tracked .bulkhead" ;; esac
 
 # bulkhead-copy-claude-history copies a project's history in, without
@@ -274,7 +274,7 @@ copyhist() {
   (cd "$fh/projects/p6" && wsenv PATH="$SCRIPT_DIR:$PATH" "$SCRIPT_DIR/bulkhead-copy-claude-history")
 }
 copyhist > /dev/null 2>&1 || failed "bulkhead-copy-claude-history ran"
-claude_src="$(compart "$fh/projects/p6" | grep -x "$fhp/projects/p6.meta/state/.*%.claude")"
+claude_src="$(compart "$fh/projects/p6" | grep -x "$fhp/projects/p6.dossier/state/.*%.claude")"
 [ "$(cat "$claude_src/projects/${hist##*/}/memory/MEMORY.md" 2> /dev/null)" = mem ] ||
   failed "bulkhead-copy-claude-history copied memory"
 echo new > "$claude_src/projects/${hist##*/}/s1.jsonl"

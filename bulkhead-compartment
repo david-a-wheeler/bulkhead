@@ -6,9 +6,9 @@
 #
 # The compartment is the current directory's workspace (see
 # bulkhead-compartment-info, which refuses directories no agent may
-# start in). Its state lives in the workspace's .meta/state, beside the
+# start in). Its state lives in the workspace's .dossier/state, beside the
 # workspace, not in it, so it can't arrive with the workspace's
-# contents (see compartment-meta-plan.md); bulkhead-workspace-prepare
+# contents (see workspace-dossier-plan.md); bulkhead-workspace-prepare
 # (run by anon-access) creates it. We use bubblewrap (bwrap),
 # unprivileged, to mount over the paths that compartment-paths lists:
 # e.g., a private /tmp and a private ~/.claude. Everything else is the

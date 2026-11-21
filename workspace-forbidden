@@ -1,5 +1,5 @@
 # workspace-forbidden: directories no agent may start in (see
-# compartment-meta-plan.md). vm-setup.sh installs this in
+# workspace-dossier-plan.md). vm-setup.sh installs this in
 # /usr/local/libexec/bulkhead/; bulkhead-compartment-info reads it.
 #
 # One shell "case" pattern per line, matched against the real path of
@@ -7,15 +7,15 @@
 # your home directory. bulkhead-compartment-info also refuses ~ and
 # everything above it, in code, since that can't be one pattern.
 
-# These hold every workspace (and so every .meta).
+# These hold every workspace (and so every dossier).
 ~/projects
 ~/sensitive
 # Your configuration, keys, and state (e.g., ~/.ssh, ~/.config).
 ~/.*
-# A workspace's .meta is data about it that its agent mustn't control.
-*.meta
-*.meta/*
-# Shared with other users, who could plant a .meta first.
+# A workspace's dossier is data about it that its agent mustn't control.
+*.dossier
+*.dossier/*
+# Shared with other users, who could plant a dossier first.
 /tmp
 /tmp/*
 /var/tmp
