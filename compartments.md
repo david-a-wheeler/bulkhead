@@ -163,9 +163,16 @@ resolver (read from `/etc/resolv.conf`), and bwrap mounts
 `/etc/resolv.conf` points to.
 
 pasta's own AppArmor profile runs its command unconfined (`Ux`), so
-bwrap still runs under its usual profile. pasta passes through the
-terminal, the environment, and the exit status. Each run gets a fresh
-namespace, which goes away when the command exits.
+bwrap still runs under its usual profile. But the capital `U` also
+scrubs the environment: glibc drops its "unsecure" variables, such as
+`TMPDIR`, `TZDIR`, `LOCPATH`, and the `LD_*` and `MALLOC_*` debugging
+knobs. Without `TMPDIR`, nono expands `$TMPDIR` in `bulkhead-claude` to
+`/tmp`, and Claude Code refuses `/tmp/claude-UID`. So bwrap sets
+`TMPDIR` again. We let the rest go: they're rarely set, and a sandbox
+is better off without the loader's debugging knobs. If one of them
+turns out to matter, have bwrap set it too. pasta passes through the
+terminal, the rest of the environment, and the exit status. Each run
+gets a fresh namespace, which goes away when the command exits.
 
 ### bwrap: the filesystem view
 
@@ -260,6 +267,30 @@ We rejected these alternatives:
   worked, and nono didn't need DNS inside, but it needed more pieces
   than pasta, which does all of it.
 
+## Why bwrap and pasta, not a higher-level tool
+
+We need the VM's real filesystem (so agents use the tools installed
+there), a few private per-project paths, and a network namespace that
+still has a route out, all without root. bwrap and pasta are Ubuntu
+packages that do exactly that, and they're already the parts Flatpak
+(bwrap) and rootless podman (pasta) are built on. We looked at these
+alternatives in Ubuntu's repositories and rejected them:
+
+- **Rootless podman:** it handles the environment and pasta networking
+  for you, but it's built around images. Agents would lose direct use
+  of the VM's installed tools unless we built and maintained an image
+  of them.
+- **firejail:** closest in features (`--private-tmp`, `--whitelist`,
+  per-run networks), but it's setuid root, with a long history of
+  vulnerabilities, so it adds root attack surface we otherwise avoid.
+  It scrubs the environment too.
+- **`systemd-run --user`:** it offers `PrivateTmp`, `BindPaths`, and
+  `TemporaryFileSystem`, but its `PrivateNetwork` gives no route out,
+  so we'd still need pasta. It would also tie the agent's lifetime to
+  a transient systemd unit, which is more to manage than one `exec`.
+- **systemd-nspawn, LXD, and full containers:** they need root (or a
+  privileged daemon) and, like podman, a separate root filesystem.
+
 ## Escape hatches
 
 - `BULKHEAD_NO_NETNS=1`: skip pasta. The agent shares the VM's network
@@ -294,6 +325,6 @@ pasta forwards nothing unless asked. `tests/compartment-test.sh` runs
 real compartments; run it by hand in a VM, outside any sandbox (bwrap
 can't run inside nono). It checks the file isolation, the inbox and
 outbox, that an agent can't see or reach the VM's loopback services,
-that names resolve in the compartment, that a forwarded port works and an unforwarded one
+that a compartment keeps your uid and `TMPDIR`, that names resolve in the compartment, that a forwarded port works and an unforwarded one
 doesn't, that an agent reaches an allowed site through nono's proxy,
 and that abstract sockets stay apart.
