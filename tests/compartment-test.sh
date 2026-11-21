@@ -124,6 +124,8 @@ r=$(run_agent "$a" "python3 ,net-probe.py loopback")
 check "an agent can't use loopback ports not in local-ports" "$r" refused
 
 # The compartment's own network namespace (pasta).
+r=$(run_in "$a" "id -u")
+check "a compartment keeps your uid (not pasta's root)" "$r" "$(id -u)"
 if python3 "$a/,net-probe.py" see22 | grep -qx ok; then
   r=$(run_in "$a" "python3 ,net-probe.py see22")
   check "a compartment can't see the VM's sshd listening" "$r" refused

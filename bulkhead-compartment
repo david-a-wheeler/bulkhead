@@ -75,7 +75,10 @@ fi
 # Build bwrap's arguments after the command, then rotate the command to
 # the end (the usual way to build an argument list in POSIX sh).
 ncmd=$#
-set -- "$@" --dev-bind / /
+# pasta's user namespace maps us to root, so map us back to our own
+# uid and gid; otherwise programs see uid 0 (e.g., Claude Code then
+# picks /tmp/claude-0 and refuses it).
+set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)" --dev-bind / /
 if [ -z "${BULKHEAD_NO_NETNS:-}" ]; then
   # The namespace's resolver: an address pasta maps to the VM's own.
   # We bind over the file /etc/resolv.conf resolves to (on Ubuntu,
