@@ -454,6 +454,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   Installed by `vm-setup.sh` beside `default.json`.
 - `agent-network-plan.md`: the shared network policy's design, test
   results, and rollout steps.
+- `compartments.md`: what each agent's compartment can and can't do,
+  and how `anon-access`, pasta, bwrap, and nono build it.
 - `workspace-dossier-plan.md`: plan for each workspace's sibling
   dossier directory (logs, policy, and harness state an agent mustn't
   fully control) and for refusing risky places to start an agent.
