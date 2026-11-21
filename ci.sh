@@ -213,17 +213,15 @@ printf '%s\n' "$out" | grep -qx "$fhp/projects/p1.dossier/state/.*%.claude" ||
   failed "compartment private ~/.claude"
 printf '%s\n' "$out" | grep -qx -- '--ro-bind' || failed "compartment read-only CLAUDE.md"
 
-# nono's arguments: the inbox (read-only), outbox (write-only), and a
-# private loopback, unless local ports are open.
+# nono's arguments: the inbox (read-only), outbox (write-only), and
+# local ports.
 d1="$fhp/projects/p1.dossier"
 [ -d "$d1/inbox" ] && [ -d "$d1/outbox" ] || failed "prepare made inbox and outbox"
 grep -q '^#' "$d1/policy/local-ports" && ! grep -q '^[^#]' "$d1/policy/local-ports" ||
   failed "prepare made a commented local-ports"
 nargs() { run_ws "$fh/projects/p1" bulkhead-workspace-nono-args "$@" 2> /dev/null | tr '\n' '|'; }
-[ "$(nargs --profile x)" = "--read|$d1/inbox|--write|$d1/outbox|--isolate|net,loopback|" ] ||
-  failed "nono args: inbox, outbox, and isolation: $(nargs)"
-case "$(nargs --open-port 8089)" in *--isolate*) failed "nono args isolated despite the wrapper's port" ;; esac
-case "$(BULKHEAD_NO_ISOLATE=1 nargs)" in *--isolate*) failed "nono args isolated despite BULKHEAD_NO_ISOLATE" ;; esac
+[ "$(nargs --profile x)" = "--read|$d1/inbox|--write|$d1/outbox|" ] ||
+  failed "nono args: inbox and outbox: $(nargs)"
 cp "$d1/policy/local-ports" "$wst/local-ports"
 printf '8089\n 3000-3002  # a dev server\n' >> "$d1/policy/local-ports"
 [ "$(nargs)" = "--read|$d1/inbox|--write|$d1/outbox|--open-port|8089|--open-port|3000|--open-port|3001|--open-port|3002|" ] ||

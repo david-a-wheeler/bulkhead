@@ -87,25 +87,26 @@ nono 0.82:
   listening port and abstract socket name on the VM. That's names, not
   data, but it tells an agent what else is running.
 
-So `anon-access` adds `--isolate net,loopback` to every `nono run`:
-each agent gets its own network namespace, so `/proc/self/net` shows
-only its own sockets, and it gets its own loopback, where its own
-servers and tests work on any port. It reaches the outside only
-through nono's proxy. nono can't
-isolate while it opens any local port, so ports are an explicit
-exception: list them in `DIR.dossier/policy/local-ports`, one port or
-range per line, and each becomes an `--open-port`, with isolation off
-for that agent. A port a harness's wrapper opens itself (e.g., `nopi`'s
-for the local AI engine) turns isolation off too.
-`bulkhead-workspace-nono-args` builds these arguments, and says when
-an agent isn't isolated. `BULKHEAD_NO_ISOLATE=1` turns isolation off
-if it ever won't start.
+We wanted each agent in its own network namespace, via nono's
+`--isolate net,loopback`, so `/proc/self/net` would show only its own
+sockets and it could run its own servers on any loopback port. That
+doesn't work here: nono runs inside `bulkhead-compartment`'s bwrap, and
+Ubuntu's AppArmor profile for bwrap runs everything bwrap starts under
+`unpriv_bwrap`, which denies every capability, including the
+`CAP_SYS_ADMIN` nono needs to create the namespace (even inside its own
+user namespace). nono then fails with a misleading message blaming
+`kernel.apparmor_restrict_unprivileged_userns`. We won't loosen that
+AppArmor profile; that would give nono more privilege. So agents share
+the VM's network namespace: they can list the VM's ports and sockets
+(names, not data), and can use a local port only if it's listed in
+`DIR.dossier/policy/local-ports` (one port or range per line, each
+becoming an `--open-port`) or opened by the harness's wrapper (e.g.,
+`nopi`'s for the local AI engine).
 
-That `nopi` can't be isolated is a gap: the engine's port forces the
-shared network namespace, so a pi agent can list the VM's ports and
-sockets (but, per the tests above, not connect to them). A nono
-feature that forwards one host port into an isolated namespace would
-close it.
+A possible fix is for bwrap to create the namespace (`--unshare-net`)
+and relay the few ports that must get out (e.g., the AI engine) over
+Unix sockets, which cross network namespaces. nono's own proxy would
+then need a way out too, e.g., `--upstream-proxy` through such a relay.
 
 ## Snapshots (not yet)
 

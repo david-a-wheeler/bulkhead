@@ -1,7 +1,7 @@
 # net-probe.py: try one local network operation and print "ok" or
 # "refused". tests/compartment-test.sh copies this into a scratch
-# workspace and runs it under nono, to check that a workspace's agent
-# gets its own loopback and abstract Unix sockets.
+# workspace and runs it under nono, to check what local sockets a
+# workspace's agent can use.
 #
 # Usage: python3 net-probe.py OP [NAME]
 #   connect22         connect to the VM's sshd on 127.0.0.1:22

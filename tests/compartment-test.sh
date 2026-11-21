@@ -88,8 +88,8 @@ check "nono runs inside a compartment" "$r" ok
 r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'ls ../,compartment-test-a.dossier/logs > /dev/null 2>&1 && echo read || echo refused'")
 check "an agent can't read its workspace's dossier" "$r" refused
 
-# An agent with the arguments anon-access adds (inbox, outbox, and a
-# private loopback). COMMAND mustn't contain single quotes.
+# An agent with the arguments anon-access adds (inbox and outbox).
+# COMMAND mustn't contain single quotes.
 run_agent() {
   run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd \$(\"$repo/bulkhead-workspace-nono-args\" 2>/dev/null) -- sh -c '$2'"
 }
@@ -107,7 +107,7 @@ cp "$repo/tests/net-probe.py" "$b/,net-probe.py"
 r=$(run_agent "$a" "python3 ,net-probe.py connect22")
 check "an agent can't reach the VM's loopback services" "$r" refused
 r=$(run_agent "$a" "python3 ,net-probe.py loopback")
-check "an agent has its own loopback" "$r" ok
+check "an agent can't use loopback ports not in local-ports" "$r" refused
 name="bulkhead-test-$$"
 run_agent "$a" "python3 ,net-probe.py abstract-listen $name" > ,compartment-test.abs &
 sleep 2
