@@ -24,8 +24,9 @@ An agent in a compartment **can**:
 - Keep its own harness state: its own `/tmp`, `~/.claude` (transcripts,
   history, todos, its config file), Claude's caches and sockets, and
   pi's sessions. These persist between runs in the same compartment.
-- Read your shared harness setup (e.g., `~/.claude/CLAUDE.md`,
-  `settings.json`, skills, plugins), so it applies everywhere.
+- Read your shared harness setup (e.g., `~/.agents`, including the
+  global instructions `~/.agents/AGENTS.md`, and `~/.claude/CLAUDE.md`,
+  `settings.json`, skills, and plugins), so it applies everywhere.
 - Reach the web through nono's proxy, as the network policy allows:
   outside `~/sensitive`, GET and HEAD to any site plus the harness's
   own hosts (e.g., Claude's API); under `~/sensitive`, only the narrow
@@ -43,7 +44,9 @@ An agent in a compartment **can't**:
 - Read or change its own dossier, except `inbox/` (read only) and
   `outbox/` (write only). So it can't change its own policy, read back
   what it gave you, or erase its own log.
-- Change your shared harness setup (it's read-only inside).
+- Change your shared harness setup (it's read-only inside), even when a
+  harness's pack grants it write access (e.g., `nolabs-ai/goose` grants
+  `~/.agents` read-write).
 - Read the rest of your home directory, beyond what the nono profiles
   grant.
 - See or reach the VM's local services (e.g., sshd, or other agents'
@@ -175,7 +178,8 @@ over the paths `compartment-paths` lists, each as one of these kinds:
   `~/.claude`, `~/.cache/claude`, `~/.local/state/claude`,
   `$XDG_RUNTIME_DIR/cc-socks`, and `~/.pi/agent/sessions`.
 - `ro`: the real path, read-only, so shared setup applies everywhere
-  but no compartment can change it. E.g., `~/.claude/CLAUDE.md`,
+  but no compartment can change it. E.g., `~/.agents`,
+  `~/.claude/CLAUDE.md`,
   `settings.json`, `keybindings.json`, `agents`, `commands`, `hooks`,
   `skills`, and `plugins`.
 - `tmpdir`: `/tmp` becomes the workspace's `$TMPDIR` (on disk, inside

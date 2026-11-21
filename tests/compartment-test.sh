@@ -82,6 +82,12 @@ if [ -e "$HOME/.claude/CLAUDE.md" ]; then
   r=$(run_in "$a" "[ -s ~/.claude/CLAUDE.md ] && echo readable || echo missing")
   check "shared ~/.claude/CLAUDE.md is readable" "$r" readable
 fi
+if [ -d "$HOME/.agents" ]; then
+  # Even with nolabs-ai/goose, whose pack grants ~/.agents read-write.
+  r=$(run_in "$a" "nono run -s --profile nolabs-ai/goose --allow-cwd -- sh -c 'touch ~/.agents/$marker 2>/dev/null && echo wrote || echo refused'")
+  rm -f "$HOME/.agents/$marker"
+  check "shared ~/.agents is read-only, even for goose" "$r" refused
+fi
 r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"
 r=$(git -C "$a" init -q && git -C "$a" status --porcelain | grep -v '^?? .tmp/$' || :)

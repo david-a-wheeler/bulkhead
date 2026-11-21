@@ -18,6 +18,13 @@
 
 tmpdir /tmp
 
+# Every harness's shared instructions, skills, and plugins
+# (~/.agents/AGENTS.md is the VMs' global instructions). nono's default
+# profile grants it read-only, but nolabs-ai/goose grants it read-write
+# (for goose's plugins), which would let one compartment's agent change
+# every agent's instructions. Change it from outside a compartment.
+ro ~/.agents
+
 # Claude Code. Transcripts, history, todos, plans, and its config file
 # (~/.claude/.claude.json, since bulkhead-claude sets CLAUDE_CONFIG_DIR)
 # become per compartment. Credentials aren't here: bulkhead-claude keeps
