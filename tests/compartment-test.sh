@@ -39,13 +39,21 @@ check() {
     fails=$((fails + 1))
   fi
 }
-# run_in DIR COMMAND: run a shell command in DIR's compartment, as
-# anon-access would (prepare the workspace, then a TMPDIR in DIR).
+# run_in DIR [--forward-port PORT] COMMAND: run a shell command in
+# DIR's compartment, as anon-access would (prepare the workspace, then
+# a TMPDIR in DIR).
 run_in() {
-  (cd "$1" && export BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
-    BULKHEAD_WORKSPACE_FORBIDDEN="$repo/workspace-forbidden" TMPDIR="$1/.tmp" &&
+  d="$1"
+  shift
+  (cd "$d" && export BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
+    BULKHEAD_WORKSPACE_FORBIDDEN="$repo/workspace-forbidden" \
+    BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" TMPDIR="$d/.tmp" &&
     mkdir -p "$TMPDIR" && "$repo/bulkhead-workspace-prepare" 2> /dev/null &&
-    "$repo/bulkhead-compartment" sh -c "$2")
+    if [ "$1" = --forward-port ]; then
+      "$repo/bulkhead-compartment" --forward-port "$2" sh -c "$3"
+    else
+      "$repo/bulkhead-compartment" sh -c "$1"
+    fi)
 }
 
 if run_in "$a" true 2> ,compartment-test.err; then r=ok; else r=failed; fi
@@ -108,6 +116,26 @@ r=$(run_agent "$a" "python3 ,net-probe.py connect22")
 check "an agent can't reach the VM's loopback services" "$r" refused
 r=$(run_agent "$a" "python3 ,net-probe.py loopback")
 check "an agent can't use loopback ports not in local-ports" "$r" refused
+
+# The compartment's own network namespace (pasta).
+if python3 "$a/,net-probe.py" see22 | grep -qx ok; then
+  r=$(run_in "$a" "python3 ,net-probe.py see22")
+  check "a compartment can't see the VM's sshd listening" "$r" refused
+else
+  echo "skip: the VM's sshd isn't listening on port 22"
+fi
+r=$(run_in "$a" "python3 ,net-probe.py resolve example.com")
+check "a compartment can look up names" "$r" ok
+python3 -m http.server -b 127.0.0.1 18989 > /dev/null 2>&1 &
+server=$!
+sleep 1
+r=$(run_in "$a" "python3 ,net-probe.py connect 18989")
+check "a compartment can't reach a VM port it isn't given" "$r" refused
+r=$(run_in "$a" --forward-port 18989 "python3 ,net-probe.py connect 18989")
+check "a compartment can reach a VM port it's given" "$r" ok
+kill "$server"
+r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd --allow-domain example.com -- curl -s -o /dev/null -w %{http_code} --max-time 20 https://example.com/")
+check "an agent reaches an allowed site through nono's proxy" "$r" 200
 name="bulkhead-test-$$"
 run_agent "$a" "python3 ,net-probe.py abstract-listen $name" > ,compartment-test.abs &
 sleep 2

@@ -303,8 +303,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `bulkhead-workspace-nono-args`: prints the arguments `anon-access`
   adds to every `nono run`: the dossier's `inbox/` (read-only) and
   `outbox/` (write-only), and an `--open-port` for each port in the
-  dossier's `policy/local-ports`. It doesn't isolate the agent's
-  network (see `workspace-dossier-plan.md`).
+  dossier's `policy/local-ports` (ports on the agent's own loopback).
 - `bulkhead-compartment`: runs a command in its directory's
   compartment using bubblewrap, so one project's agent can't leave
   anything for another's to read or run: each compartment gets a
@@ -312,9 +311,14 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   config), Claude's caches and sockets, and so on, per
   `compartment-paths`, from its dossier's `state/`. Shared setup (e.g.,
   `~/.claude/CLAUDE.md`, settings, skills, plugins) is mounted
-  read-only, so change it from outside a compartment. It fails rather
-  than run without a compartment; `BULKHEAD_NO_COMPARTMENT=1` skips
-  it. `tests/compartment-test.sh` (run by hand, outside nono) checks
+  read-only, so change it from outside a compartment. It runs bwrap
+  under pasta (from `passt`), so each run gets its own network
+  namespace: its own loopback, a route out, and DNS through the VM's
+  resolver, but no VM ports except those `anon-access` asks it to
+  forward (a harness wrapper's `--open-port`, e.g., `nopi`'s for the
+  local AI engine). It fails rather than run without a compartment;
+  `BULKHEAD_NO_COMPARTMENT=1` skips it, and `BULKHEAD_NO_NETNS=1`
+  skips only the network namespace. `tests/compartment-test.sh` (run by hand, outside nono) checks
   it.
 - `bulkhead-compartment-info`: prints a directory's workspace key,
   root, dossier, state directory, or log directory, so every script
@@ -336,6 +340,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   paths are private per compartment, read-only shared, a fresh tmpfs,
   or the compartment's `$TMPDIR`. Installed in
   `/usr/local/libexec/bulkhead/`.
+- `netns-resolv.conf`: `/etc/resolv.conf` inside each compartment's
+  network namespace; pasta forwards its address to the VM's resolver.
+  Installed in `/usr/local/libexec/bulkhead/`.
 - `noclaude`: `exec anon-access nono run --profile bulkhead-claude
   --allow-cwd -- claude "$@"` (a handful of lines total). Running
   through `anon-access` gets the sandboxed agent every one of its

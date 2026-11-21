@@ -87,26 +87,40 @@ nono 0.82:
   listening port and abstract socket name on the VM. That's names, not
   data, but it tells an agent what else is running.
 
-We wanted each agent in its own network namespace, via nono's
-`--isolate net,loopback`, so `/proc/self/net` would show only its own
-sockets and it could run its own servers on any loopback port. That
-doesn't work here: nono runs inside `bulkhead-compartment`'s bwrap, and
-Ubuntu's AppArmor profile for bwrap runs everything bwrap starts under
-`unpriv_bwrap`, which denies every capability, including the
-`CAP_SYS_ADMIN` nono needs to create the namespace (even inside its own
-user namespace). nono then fails with a misleading message blaming
-`kernel.apparmor_restrict_unprivileged_userns`. We won't loosen that
-AppArmor profile; that would give nono more privilege. So agents share
-the VM's network namespace: they can list the VM's ports and sockets
-(names, not data), and can use a local port only if it's listed in
-`DIR.dossier/policy/local-ports` (one port or range per line, each
-becoming an `--open-port`) or opened by the harness's wrapper (e.g.,
-`nopi`'s for the local AI engine).
+So each agent gets its own network namespace, where `/proc/self/net`
+shows only its own sockets. nono's `--isolate net,loopback` would do
+that, but it doesn't work here: nono runs inside
+`bulkhead-compartment`'s bwrap, and Ubuntu's AppArmor profile for bwrap
+runs everything bwrap starts under `unpriv_bwrap`, which denies every
+capability, including the `CAP_SYS_ADMIN` nono needs to create the
+namespace (even inside its own user namespace). nono then fails with a
+misleading message blaming `kernel.apparmor_restrict_unprivileged_userns`.
+We won't loosen that AppArmor profile; that would give nono more
+privilege.
 
-A possible fix is for bwrap to create the namespace (`--unshare-net`)
-and relay the few ports that must get out (e.g., the AI engine) over
-Unix sockets, which cross network namespaces. nono's own proxy would
-then need a way out too, e.g., `--upstream-proxy` through such a relay.
+Instead, `bulkhead-compartment` runs bwrap under pasta (from `passt`,
+the default network for rootless podman), which makes the namespace
+before bwrap starts. We tell pasta to forward no ports either way, and
+not to map any address to the VM's loopback, so the VM's local
+services are out of reach. Its route out is no wider than the VM's
+(nftables still applies), and inside it, nono's proxy and Landlock
+still limit the agent. DNS goes to an address (`netns-resolv.conf`)
+that pasta maps to the VM's resolver. A port the harness's wrapper
+opens (e.g., `nopi`'s for the local AI engine) is a VM service, so
+`anon-access` has pasta forward it in; that closes the gap where
+`nopi` couldn't be isolated. The dossier's
+`DIR.dossier/policy/local-ports` (one port or range per line, each an
+`--open-port`) are for the agent's own servers, on its own loopback.
+
+nono still refuses any loopback port that isn't opened, so an agent
+can't run a test server on an arbitrary port without listing it. A
+nono option to allow all loopback ports in a namespace it didn't make
+would fix that.
+
+We tried bwrap's own `--unshare-net`, relaying ports out over Unix
+sockets, and nono's `--upstream-proxy` to a CONNECT proxy outside.
+That worked, but needed more pieces (relays, a proxy, startup
+ordering) than pasta, which does all of it.
 
 ## Snapshots (not yet)
 

@@ -78,7 +78,7 @@ echo "== Installing base packages =="
 sudo apt-get update
 sudo apt-get install -y openssh-server avahi-daemon nftables curl cups \
   qemu-guest-agent git shellcheck make build-essential vim python3 jq \
-  ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv bubblewrap
+  ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv bubblewrap passt
 
 echo "== Enabling services =="
 sudo systemctl enable --now ssh avahi-daemon nftables cups qemu-guest-agent
@@ -293,8 +293,9 @@ echo "== Installing heroku-session, gh-session, and anon-access (secrets-client 
 sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-access" /usr/local/bin/
 # anon-access checks each workspace and sets up its dossier
 # (bulkhead-workspace-prepare, which reads workspace-forbidden), then
-# runs everything through bulkhead-compartment (bubblewrap), which
-# reads compartment-paths. See workspace-dossier-plan.md.
+# runs everything through bulkhead-compartment (bubblewrap, in a
+# network namespace from pasta), which reads compartment-paths and
+# netns-resolv.conf. See workspace-dossier-plan.md.
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
   "$SCRIPT_DIR/bulkhead-compartment-info" \
   "$SCRIPT_DIR/bulkhead-workspace-prepare" \
@@ -302,7 +303,7 @@ sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
   "$SCRIPT_DIR/bulkhead-copy-claude-history" /usr/local/bin/
 sudo install -d -m 755 /usr/local/libexec/bulkhead
 sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbidden" \
-  /usr/local/libexec/bulkhead/
+  "$SCRIPT_DIR/netns-resolv.conf" /usr/local/libexec/bulkhead/
 orphans="$(/usr/local/bin/bulkhead-workspace-prepare --orphans)"
 if [ -n "$orphans" ]; then
   cat >&2 <<EOF

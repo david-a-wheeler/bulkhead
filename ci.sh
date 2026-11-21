@@ -212,6 +212,18 @@ mkdir -p "$fh/projects/p1/sub/.tmp"
 printf '%s\n' "$out" | grep -qx "$fhp/projects/p1.dossier/state/.*%.claude" ||
   failed "compartment private ~/.claude"
 printf '%s\n' "$out" | grep -qx -- '--ro-bind' || failed "compartment read-only CLAUDE.md"
+# The network namespace: pasta forwards nothing, unless asked.
+printf '%s\n' "$out" | sed -n 2p | grep -qx pasta || failed "compartment runs under pasta"
+for opt in --tcp-ports --udp-ports --udp-ns --tcp-ns --map-host-loopback --map-guest-addr; do
+  printf '%s\n' "$out" | tr '\n' '|' | grep -qF -- "|$opt|none|" || failed "compartment pasta $opt none"
+done
+(cd "$fh/projects/p1/sub" && wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run \
+  --forward-port 8089 --forward-port 8090 cmd) | tr '\n' '|' |
+  grep -qF -- "|--tcp-ns|8089,8090|" || failed "compartment forwards ports"
+(cd "$fh/projects/p1/sub" && wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run \
+  --forward-port 80x cmd) > /dev/null 2>&1 && failed "compartment forwarded a bad port"
+(cd "$fh/projects/p1/sub" && BULKHEAD_NO_NETNS=1 wsenv "$SCRIPT_DIR/bulkhead-compartment" \
+  --dry-run cmd 2> /dev/null) | grep -qx pasta && failed "compartment used pasta despite BULKHEAD_NO_NETNS"
 
 # nono's arguments: the inbox (read-only), outbox (write-only), and
 # local ports.

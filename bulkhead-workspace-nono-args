@@ -7,13 +7,11 @@
 #   --write DOSSIER/outbox   files the agent gives you; it can't read them
 #   --open-port PORT         for each port in DOSSIER/policy/local-ports
 #
-# We don't pass --isolate net,loopback (a private network namespace):
-# nono runs inside bulkhead-compartment's bwrap, and Ubuntu's AppArmor
-# profile for bwrap (unpriv_bwrap) denies nono the CAP_SYS_ADMIN it
-# needs to create one. So nono refuses TCP and UDP on local ports
-# other than these, and connections to abstract Unix sockets made
-# outside the sandbox, but /proc/self/net lists every listening port
-# and abstract socket on the VM.
+# We don't pass --isolate net,loopback: nono can't make a network
+# namespace inside bulkhead-compartment's bwrap (Ubuntu's AppArmor
+# profile for bwrap denies it the capability), so bulkhead-compartment
+# makes one with pasta instead. The agent's local ports are on that
+# namespace's own loopback; nono still refuses any port not listed.
 #
 # Usage: bulkhead-workspace-nono-args [NONO-RUN-ARG...]
 # Run it outside the sandbox (anon-access does). We ignore the
