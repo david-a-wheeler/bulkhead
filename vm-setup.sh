@@ -201,7 +201,7 @@ echo "== Installing nono's default profile (nono-default-profile.json) =="
 # names), and the network allowlist every harness shares (see
 # agent-network-plan.md), instead of per-harness flags.
 # install_unless_locally_newer, not a plain cp: same reasoning as
-# claude-CLAUDE.md below, an edit made directly to the installed copy
+# agents-AGENTS.md below, an edit made directly to the installed copy
 # (e.g. via nono's own profile tooling) shouldn't be silently clobbered.
 # nono-claude-profile.json (bulkhead-claude) adds only Claude Code's own
 # hosts; it's a profile rather than noclaude flags because nono ignores
@@ -298,6 +298,7 @@ sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRI
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
   "$SCRIPT_DIR/bulkhead-compartment-info" \
   "$SCRIPT_DIR/bulkhead-workspace-prepare" \
+  "$SCRIPT_DIR/bulkhead-workspace-nono-args" \
   "$SCRIPT_DIR/bulkhead-copy-claude-history" /usr/local/bin/
 sudo install -d -m 755 /usr/local/libexec/bulkhead
 sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbidden" \
@@ -355,13 +356,21 @@ else
   git_config_set core.hooksPath "$git_hooks_dir"
 fi
 
+echo "== Installing global agent instructions (~/.agents/AGENTS.md) =="
+# One set of instructions for every harness, so they can't drift apart.
+# Each harness that doesn't read ~/.agents/AGENTS.md itself gets a
+# pointer to it: Claude Code's CLAUDE.md imports it, and pi's AGENTS.md
+# is a symlink to it (below). Every harness's sandbox can read ~/.agents.
+mkdir -p "$HOME/.agents"
+install_unless_locally_newer "$SCRIPT_DIR/agents-AGENTS.md" "$HOME/.agents/AGENTS.md"
+
 if [ "$want_claude" = true ]; then
-  echo "== Installing Claude Code global instructions (CLAUDE.md) =="
+  echo "== Pointing Claude Code at the global agent instructions (CLAUDE.md) =="
   mkdir -p "$HOME/.claude"
   install_unless_locally_newer "$SCRIPT_DIR/claude-CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 
   echo "== Installing check-prose-style.sh (AI-writing-tell PreToolUse hook) =="
-  # Same install_unless_locally_newer treatment as claude-CLAUDE.md above:
+  # Same install_unless_locally_newer treatment as agents-AGENTS.md above:
   # an edit made straight to the installed copy isn't silently overwritten.
   mkdir -p "$HOME/.claude/hooks"
   install_unless_locally_newer "$SCRIPT_DIR/check-prose-style.sh" \
@@ -469,6 +478,15 @@ if [ -s "$INFER_KEY_FILE" ]; then
   # here. An old models.json stays until nopi first reaches the engine.
   install_rendered infer-models.template.sh /usr/local/bin/infer-models 755 INFER_PORT
   sudo install -m 755 "$SCRIPT_DIR/nopi" /usr/local/bin/
+  # pi reads global instructions from ~/.pi/agent/AGENTS.md, so point
+  # that at the shared ones, unless you've put your own file there.
+  pi_agents="$HOME/.pi/agent/AGENTS.md"
+  if [ ! -e "$pi_agents" ] && [ ! -L "$pi_agents" ]; then
+    mkdir -p "$(dirname "$pi_agents")"
+    ln -s "$HOME/.agents/AGENTS.md" "$pi_agents"
+  elif [ "$(readlink "$pi_agents" 2> /dev/null)" != "$HOME/.agents/AGENTS.md" ]; then
+    echo "WARNING: $pi_agents isn't a link to ~/.agents/AGENTS.md, so pi doesn't get the shared instructions." >&2
+  fi
   sudo install -d -m 755 /usr/local/libexec/bulkhead
   sudo install -m 644 "$SCRIPT_DIR/infer-models.jq" "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
   # pi's thinking defaults, unless you've set your own (pi saves the

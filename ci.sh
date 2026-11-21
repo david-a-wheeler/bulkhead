@@ -46,7 +46,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-workspace-prepare bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-workspace-prepare bulkhead-workspace-nono-args bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -73,7 +73,7 @@ shellcheck -x -s bash vm-bash-aliases-block.sh || fail=1
 render_template secrets-client.template.py "$tmp/secrets-client" SECRETS_SERVER_PORT
 render_template secrets-server.template.py "$tmp/secrets-server.py" \
   SECRETS_SERVER_PORT KEYCHAIN_PREFIX UTMCTL
-for f in "$tmp/secrets-client" "$tmp/secrets-server.py" extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py; do
+for f in "$tmp/secrets-client" "$tmp/secrets-server.py" extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py tests/net-probe.py; do
   python3 -m py_compile "$f" || failed "$f (py_compile)"
 done
 
@@ -212,6 +212,29 @@ mkdir -p "$fh/projects/p1/sub/.tmp"
 printf '%s\n' "$out" | grep -qx "$fhp/projects/p1.dossier/state/.*%.claude" ||
   failed "compartment private ~/.claude"
 printf '%s\n' "$out" | grep -qx -- '--ro-bind' || failed "compartment read-only CLAUDE.md"
+
+# nono's arguments: the inbox (read-only), outbox (write-only), and a
+# private loopback, unless local ports are open.
+d1="$fhp/projects/p1.dossier"
+[ -d "$d1/inbox" ] && [ -d "$d1/outbox" ] || failed "prepare made inbox and outbox"
+grep -q '^#' "$d1/policy/local-ports" && ! grep -q '^[^#]' "$d1/policy/local-ports" ||
+  failed "prepare made a commented local-ports"
+nargs() { run_ws "$fh/projects/p1" bulkhead-workspace-nono-args "$@" 2> /dev/null | tr '\n' '|'; }
+[ "$(nargs --profile x)" = "--read|$d1/inbox|--write|$d1/outbox|--isolate|net,loopback|" ] ||
+  failed "nono args: inbox, outbox, and isolation: $(nargs)"
+case "$(nargs --open-port 8089)" in *--isolate*) failed "nono args isolated despite the wrapper's port" ;; esac
+case "$(BULKHEAD_NO_ISOLATE=1 nargs)" in *--isolate*) failed "nono args isolated despite BULKHEAD_NO_ISOLATE" ;; esac
+cp "$d1/policy/local-ports" "$wst/local-ports"
+printf '8089\n 3000-3002  # a dev server\n' >> "$d1/policy/local-ports"
+[ "$(nargs)" = "--read|$d1/inbox|--write|$d1/outbox|--open-port|8089|--open-port|3000|--open-port|3001|--open-port|3002|" ] ||
+  failed "nono args: local ports: $(nargs)"
+for bad in 80x 0 65536 3-2 1-2-3 -5; do
+  cp "$wst/local-ports" "$d1/policy/local-ports"
+  echo "$bad" >> "$d1/policy/local-ports"
+  run_ws "$fh/projects/p1" bulkhead-workspace-nono-args > /dev/null 2>&1 &&
+    failed "nono args accepted the local port $bad"
+done
+cp "$wst/local-ports" "$d1/policy/local-ports"
 
 # Moving a workspace with its dossier updates the record and registry.
 mv "$fh/projects/p1" "$fh/projects/p1b"

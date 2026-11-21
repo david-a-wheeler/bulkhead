@@ -293,12 +293,19 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   workspace and sets up its dossier beside it (`DIR.dossier` for `DIR`;
   see `workspace-dossier-plan.md`), before any sandbox starts. The
   dossier holds what's about the workspace but mustn't be under its
-  agent's control (`logs/`, `policy/`) or mustn't arrive with its
-  contents (`state/`, the harness's private files). It refuses a
+  agent's control (`logs/`, `policy/`), mustn't arrive with its
+  contents (`state/`, the harness's private files), or passes between
+  you and the agent (`inbox/`, `outbox/`). It refuses a
   directory no agent may start in, notices a workspace moved with its
   dossier, and moves an old `.bulkhead` and old logs in. `--orphans`
   lists dossiers left behind (`vm-setup.sh` warns about
   them).
+- `bulkhead-workspace-nono-args`: prints the arguments `anon-access`
+  adds to every `nono run`: the dossier's `inbox/` (read-only) and
+  `outbox/` (write-only), and either an `--open-port` for each port in
+  the dossier's `policy/local-ports` or, with none open,
+  `--isolate net,loopback`, so agents can't talk to each other or to
+  the VM's local services.
 - `bulkhead-compartment`: runs a command in its directory's
   compartment using bubblewrap, so one project's agent can't leave
   anything for another's to read or run: each compartment gets a
@@ -407,7 +414,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   profile name; `nolabs-ai/claude` and every other pack below already
   declares `"extends": "default"`, so this one file covers all of them,
   not just `noclaude`. Same `install_unless_locally_newer` treatment as
-  `claude-CLAUDE.md` below: an edit made straight to the installed copy
+  `agents-AGENTS.md` below: an edit made straight to the installed copy
   isn't silently overwritten.
   It also holds the network policy every harness shares: nono's own
   `developer` network profile, plus our additions (one line per host).
@@ -459,16 +466,22 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `~/.bash_aliases` by default; supporting another shell would mean a
   separate file in that shell's own syntax, not just installing this one
   elsewhere.
-- `claude-CLAUDE.md`: global Claude Code instructions, installed to each
-  VM's `~/.claude/CLAUDE.md` (Claude Code runs in the VMs, not on the host,
-  so this isn't installed by host-setup.sh). If you've edited the installed
-  copy directly and it's newer than this file, vm-setup.sh warns instead of
-  overwriting it; see the printed command to pull your edit back in here.
+- `agents-AGENTS.md`: the global instructions every harness shares,
+  installed to each VM's `~/.agents/AGENTS.md` (agents run in the VMs,
+  not on the host, so `host-setup.sh` doesn't install it). If you've
+  edited the installed copy directly and it's newer than this file,
+  `vm-setup.sh` warns instead of overwriting it; see the printed command
+  to pull your edit back in here. Harnesses that don't read it directly
+  get a pointer: `claude-CLAUDE.md` for Claude Code, and a symlink from
+  `~/.pi/agent/AGENTS.md` for pi.
+- `claude-CLAUDE.md`: installed as `~/.claude/CLAUDE.md`; it only
+  imports `~/.agents/AGENTS.md` (Claude Code's `@` import), so there's
+  one copy of the instructions.
 - `check-prose-style.sh`: a Claude Code `PreToolUse` hook that blocks
   `Write`/`Edit`/`NotebookEdit` calls introducing common AI-writing tells
   (em dashes, banned filler phrases, canned stock phrases). Installed to
   each VM's `~/.claude/hooks/check-prose-style.sh` the same
-  `install_unless_locally_newer` way as `claude-CLAUDE.md` above, and
+  `install_unless_locally_newer` way as `agents-AGENTS.md` above, and
   wired into `~/.claude/settings.json`'s `hooks.PreToolUse` by
   `vm-setup.sh` (merged in via `jq`, so any other hand-edited settings
   survive; re-running never appends a duplicate entry).

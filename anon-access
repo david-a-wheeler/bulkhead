@@ -7,7 +7,12 @@
 # Ideally we'd only list "what we should pass on" (clear with env -i and then
 # set specific variables), but that's hard in this case, and this is
 # to simplify use and add defense-in-depth (this is not the only defense).
-#
+
+# First, check this directory's workspace and set up its dossier, so a
+# directory no agent may start in (e.g., ~ or ~/projects) is refused
+# before anything else happens. See bulkhead-workspace-prepare.
+"$(dirname "$0")/bulkhead-workspace-prepare" || exit 1
+
 # Hints on disabling GitHub access:
 # https://github.com/cli/cli/issues/13307
 # (GH_CONFIG_DIR is set to a useless temp dir, so it has no contents)
@@ -29,11 +34,6 @@
 # secret not created yet), gh treats an empty GH_TOKEN exactly like an
 # unset one (confirmed), so this just degrades to today's "gh doesn't
 # work" instead of failing this whole script.
-# First, check this directory's workspace and set up its dossier, so a
-# directory no agent may start in (e.g., ~ or ~/projects) is refused
-# before anything else happens. See bulkhead-workspace-prepare.
-"$(dirname "$0")/bulkhead-workspace-prepare" || exit 1
-
 public_token="$(secrets-client --context "anon-access: ${*:-interactive shell}" --get GH_PUBLIC_TOKEN 2>/dev/null)" || public_token=""
 
 # The nested "${SHELL:-/bin/sh}" fallback matters, not just "$SHELL":
@@ -77,6 +77,26 @@ if [ "${1:-}" = nono ] && [ "${2:-}" = run ]; then
   # sandboxed command doesn't inherit a path it can't write. If the
   # caller set NONO_LOG_FILE, nono uses that instead. We keep one old
   # log, rotated at launch once it passes 1 MB.
+  # The workspace's inbox, outbox, and local ports (or, with none, a
+  # private loopback); see bulkhead-workspace-nono-args. We add them
+  # after "nono run", keeping the rest of the command line in order.
+  shift 2
+  extra="$("$(dirname "$0")/bulkhead-workspace-nono-args" "$@")" || exit 1
+  n=$#
+  while IFS= read -r a; do
+    [ -z "$a" ] || set -- "$@" "$a"
+  done <<EXTRA
+$extra
+EXTRA
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    set -- "$@" "$1"
+    shift
+    i=$((i + 1))
+  done
+  set -- nono run "$@"
+  dossier="$("$(dirname "$0")/bulkhead-compartment-info" dossier)"
+  export BULKHEAD_INBOX="$dossier/inbox" BULKHEAD_OUTBOX="$dossier/outbox"
   if [ -z "${NONO_LOG_FILE:-}" ] &&
     logs="$("$(dirname "$0")/bulkhead-compartment-info" logs)" &&
     [ -d "$logs" ]; then

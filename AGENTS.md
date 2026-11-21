@@ -102,6 +102,11 @@ Python with PyYAML (gawk optional). Add any new plain script to its
 - Prefer existing, trusted tools over new code; avoid needing root.
 - Prose (docs, comments, commit messages) is concise and plain: no em
   dashes, no hype, no AI-writing filler. `check-prose-style.sh` enforces
-  common cases. `claude-CLAUDE.md` is the VMs' global instructions for
-  every project; it's here only so `vm-setup.sh` can install it.
+  common cases. `agents-AGENTS.md` is the VMs' global instructions for
+  every harness and project; it's here only so `vm-setup.sh` can
+  install it (as `~/.agents/AGENTS.md`).
+- Write agent instructions in `AGENTS.md` files, not a harness's own
+  file (e.g., `CLAUDE.md`). Where a harness doesn't read `AGENTS.md`,
+  give it a pointer (e.g., `claude-CLAUDE.md` imports
+  `~/.agents/AGENTS.md`), so there's one copy to keep right.
 - Don't push. The human decides what's ready to share.

@@ -1,0 +1,74 @@
+#!/bin/sh
+# bulkhead-workspace-nono-args: print, one per line, the arguments
+# anon-access adds to every "nono run" for the current directory's
+# workspace (see workspace-dossier-plan.md):
+#
+#   --read DOSSIER/inbox     files you give the agent; it can't change them
+#   --write DOSSIER/outbox   files the agent gives you; it can't read them
+#   --open-port PORT         for each port in DOSSIER/policy/local-ports
+#   --isolate net,loopback   when no local port is open at all
+#
+# Isolation gives the agent its own loopback (its own servers and tests
+# still work there) and its own abstract Unix sockets. Without it, nono
+# still refuses TCP and UDP on other local ports, but abstract Unix
+# sockets are shared by every process on the VM, so two agents could
+# use one to talk to each other. nono can't isolate while any local port
+# is open, so a port in local-ports, or one the harness's wrapper opens
+# (e.g., nopi's --open-port for the local AI engine), turns isolation
+# off, and we say so. BULKHEAD_NO_ISOLATE=1 turns it off too.
+#
+# Usage: bulkhead-workspace-nono-args [NONO-RUN-ARG...]
+# Pass the rest of the "nono run" command line, so we can see whether
+# it opens a port itself. Run it outside the sandbox (anon-access does).
+set -eu
+
+info="$(dirname "$0")/bulkhead-compartment-info"
+dossier="$("$info" dossier)"
+ports_file="$dossier/policy/local-ports"
+
+printf '%s\n' --read "$dossier/inbox" --write "$dossier/outbox"
+
+opened=""
+if [ -f "$ports_file" ]; then
+  while IFS= read -r line; do
+    line="${line%%#*}"
+    # Trim blanks.
+    line="$(printf '%s' "$line" | tr -d ' \t')"
+    [ -n "$line" ] || continue
+    case "$line" in
+      *[!0-9-]* | -* | *- | *-*-*)
+        echo "bulkhead: $ports_file: not a port or range: $line" >&2
+        exit 1
+        ;;
+      *-*) first="${line%-*}" last="${line#*-}" ;;
+      *) first="$line" last="$line" ;;
+    esac
+    if [ "$first" -lt 1 ] || [ "$last" -gt 65535 ] || [ "$first" -gt "$last" ]; then
+      echo "bulkhead: $ports_file: not a port or range (1-65535): $line" >&2
+      exit 1
+    fi
+    port="$first"
+    while [ "$port" -le "$last" ]; do
+      printf '%s\n' --open-port "$port"
+      port=$((port + 1))
+    done
+    opened="$opened $line"
+  done < "$ports_file"
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    --open-port | --open-port=* | --listen-port | --listen-port=* | \
+      --allow-connect-port | --allow-connect-port=*)
+      opened="$opened (the wrapper's $arg)"
+      ;;
+  esac
+done
+
+if [ -n "$opened" ]; then
+  echo "bulkhead: local ports are open (${opened# }), so this agent shares the VM's loopback and abstract Unix sockets with other agents." >&2
+elif [ -n "${BULKHEAD_NO_ISOLATE:-}" ]; then
+  echo "bulkhead: WARNING: BULKHEAD_NO_ISOLATE is set, so this agent shares the VM's loopback and abstract Unix sockets with other agents." >&2
+else
+  printf '%s\n' --isolate net,loopback
+fi

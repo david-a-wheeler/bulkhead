@@ -88,5 +88,35 @@ check "nono runs inside a compartment" "$r" ok
 r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'ls ../,compartment-test-a.dossier/logs > /dev/null 2>&1 && echo read || echo refused'")
 check "an agent can't read its workspace's dossier" "$r" refused
 
+# An agent with the arguments anon-access adds (inbox, outbox, and a
+# private loopback). COMMAND mustn't contain single quotes.
+run_agent() {
+  run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd \$(\"$repo/bulkhead-workspace-nono-args\" 2>/dev/null) -- sh -c '$2'"
+}
+echo hi > "$a.dossier/inbox/given"
+r=$(run_agent "$a" "cat $a.dossier/inbox/given 2>/dev/null || echo refused")
+check "an agent can read its inbox" "$r" hi
+r=$(run_agent "$a" "echo x > $a.dossier/inbox/new 2>/dev/null && echo wrote || echo refused")
+check "an agent can't write its inbox" "$r" refused
+r=$(run_agent "$a" "echo x > $a.dossier/outbox/proposal 2>/dev/null && echo wrote || echo refused")
+check "an agent can write its outbox" "$r" wrote
+r=$(run_agent "$a" "cat $a.dossier/outbox/proposal > /dev/null 2>&1 && echo read || echo refused")
+check "an agent can't read its outbox" "$r" refused
+cp "$repo/tests/net-probe.py" "$a/,net-probe.py"
+cp "$repo/tests/net-probe.py" "$b/,net-probe.py"
+r=$(run_agent "$a" "python3 ,net-probe.py connect22")
+check "an agent can't reach the VM's loopback services" "$r" refused
+r=$(run_agent "$a" "python3 ,net-probe.py loopback")
+check "an agent has its own loopback" "$r" ok
+name="bulkhead-test-$$"
+run_agent "$a" "python3 ,net-probe.py abstract-listen $name" > ,compartment-test.abs &
+sleep 2
+r=$(run_agent "$b" "python3 ,net-probe.py abstract-connect $name")
+check "another workspace's agent can't reach its abstract sockets" "$r" refused
+wait
+r=$(cat ,compartment-test.abs)
+check "an agent can bind an abstract socket" "$r" ok
+rm -f ,compartment-test.abs
+
 echo "$fails failed."
 [ "$fails" -eq 0 ]

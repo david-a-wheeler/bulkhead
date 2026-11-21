@@ -41,7 +41,9 @@ Each workspace `DIR` gets a sibling `DIR.dossier`, created at launch:
 | `DIR.dossier/workspace` | none | `DIR`'s real path when last launched |
 | `DIR.dossier/state/` | read-write, via bwrap (same as today) | what `DIR/.bulkhead` holds today |
 | `DIR.dossier/logs/` | none | `nono.log` and its one rotated copy |
-| `DIR.dossier/policy/` | none | your additions, e.g., a nono profile fragment |
+| `DIR.dossier/policy/` | none | your settings for it, e.g., `local-ports` |
+| `DIR.dossier/inbox/` | read-only (nono `--read`) | files you give the agent |
+| `DIR.dossier/outbox/` | write-only (nono `--write`) | files the agent gives you |
 
 `DIR.dossier` is mode 700. nono grants the workspace (`--allow-cwd`) and
 its profiles' paths, none of which cover a sibling, so "none" needs no
@@ -55,6 +57,52 @@ design, not per workspace.
 Why a sibling: when you move or delete `DIR`, `ls` shows `DIR.dossier`
 right beside it. The cost is that `ls ~/projects` doubles, and a loop
 over `~/projects/*` sees each dossier.
+
+## Inbox and outbox
+
+The inbox holds what you give an agent but don't want it to change,
+e.g., a task description, a spec, or reference data. The outbox holds
+what an agent gives you that doesn't belong in the workspace, e.g., a
+proposed PR description. The agent can create files there but can't
+read them back or delete them; it can still overwrite one it wrote,
+since write-only access includes writing. `anon-access` sets
+`BULKHEAD_INBOX` and `BULKHEAD_OUTBOX`, and `agents-AGENTS.md` tells
+agents about them.
+
+## Local ports
+
+Agents on one VM could collude, or reach the VM's own services, over
+local ports. Tested in a Claude session under nono 0.82: nono already
+refuses TCP connect and listen and UDP on loopback (except ports it's
+told to open), but *abstract* Unix sockets work, and their namespace
+belongs to the network namespace, which every agent shares. So two
+agents in different workspaces could talk through one.
+
+So `anon-access` adds `--isolate net,loopback` to every `nono run`:
+each agent gets its own network namespace, with its own loopback (its
+own servers and tests still work, on any port) and its own abstract
+sockets, and reaches the outside only through nono's proxy. nono can't
+isolate while it opens any local port, so ports are an explicit
+exception: list them in `DIR.dossier/policy/local-ports`, one port or
+range per line, and each becomes an `--open-port`, with isolation off
+for that agent. A port a harness's wrapper opens itself (e.g., `nopi`'s
+for the local AI engine) turns isolation off too.
+`bulkhead-workspace-nono-args` builds these arguments, and says when
+an agent isn't isolated. `BULKHEAD_NO_ISOLATE=1` turns isolation off
+if it ever won't start.
+
+That `nopi` can't be isolated is a real gap: the engine's port forces
+the shared loopback, and with it shared abstract sockets. A nono
+feature that forwards one host port into an isolated namespace would
+close it.
+
+## Snapshots (not yet)
+
+A snapshot of the workspace that its agent can't touch would let you
+undo an agent's damage. nono's rollback snapshots don't qualify: its
+`--rollback-dest` must be a directory the sandbox can already write,
+so an agent could change its own undo. We'd have to take our own,
+outside the sandbox, at launch.
 
 ## Why harness state moves
 
@@ -220,6 +268,13 @@ For the eventual lessons-learned write-up:
 - Don't put anything security-relevant where other users can create
   files first (`/tmp` and friends), and check that a directory you
   rely on is yours and not a symlink.
+- Test what a sandbox actually allows instead of assuming: nono
+  refused TCP and UDP on loopback, but abstract Unix sockets still
+  connected every agent on the VM.
+- A recovery mechanism the protected party can write (nono's rollback
+  destination) doesn't protect you from that party.
+- Keep one set of agent instructions (`AGENTS.md`) and give each
+  harness a pointer to it, so harnesses can't drift apart.
 - Write tests that run where CI runs: GitHub's `mktemp -d` is in
   `/tmp`, which the new refusals reject, so the tests use the repo's
   `.tmp` instead.
