@@ -46,7 +46,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-workspace-prepare bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -126,65 +126,161 @@ jq -e '.meta.name == "bulkhead-broad" and (.network.allow_domain | length > 1000
   nono-broad-profile.json > /dev/null || failed nono-broad-profile.json
 jq -e '.extends == "nolabs-ai/claude" and (.network.allow_domain | length > 0)' \
   nono-claude-profile.json > /dev/null || failed nono-claude-profile.json
-step "bulkhead-compartment --dry-run"
-# Keys and mounts, without needing bwrap: a fake HOME with projects/,
-# sensitive/, and a directory outside both.
-fh="$tmp/home"
-mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/.claude"
+step "workspaces (bulkhead-compartment-info, -workspace-prepare, -compartment --dry-run)"
+# A fake HOME with projects/, sensitive/, and directories outside both,
+# without needing bwrap. It's under the repo's .tmp, not $tmp: $tmp may
+# be in /tmp, where workspace-forbidden refuses every workspace.
+mkdir -p "$SCRIPT_DIR/.tmp"
+wst="$(mktemp -d "$SCRIPT_DIR/.tmp/ci-workspaces.XXXXXX")"
+trap 'rm -rf "${tmp:?}" "${wst:?}"' EXIT
+fh="$wst/home"
+mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$fh/.claude" "$fh/.ssh"
 : > "$fh/.claude/CLAUDE.md"
-compart() {
-  (cd "$1" && HOME="$fh" XDG_STATE_HOME="$fh/state" XDG_RUNTIME_DIR=/run/user/9 \
-    BULKHEAD_COMPARTMENT_PATHS="$OLDPWD/compartment-paths" \
-    "$OLDPWD/bulkhead-compartment" --dry-run cmd 'a b')
-}
 fhp="$(cd "$fh" && pwd -P)"
+wsenv() {
+  env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT HOME="$fh" XDG_RUNTIME_DIR=/run/user/9 \
+    BULKHEAD_COMPARTMENT_PATHS="$SCRIPT_DIR/compartment-paths" \
+    BULKHEAD_WORKSPACE_FORBIDDEN="$SCRIPT_DIR/workspace-forbidden" "$@"
+}
+# run_ws DIR COMMAND [ARG...]: run one of this repo's scripts in DIR.
+run_ws() {
+  (cd "$1" && shift && wsenv "$SCRIPT_DIR/$@")
+}
+cinfo() { wsenv ./bulkhead-compartment-info "$@"; }
+compart() { run_ws "$1" bulkhead-compartment --dry-run cmd 'a b'; }
+prep() { run_ws "$1" bulkhead-workspace-prepare; }
+registry="$fhp/.local/state/bulkhead/workspaces"
+
+# Keys, roots, and where the .meta goes.
+[ "$(cinfo key "$fh/projects/p1/sub")" = projects-p1 ] || failed "workspace key under ~/projects"
+[ "$(cinfo key "$fh/sensitive/s1")" = sensitive-s1 ] || failed "workspace key under ~/sensitive"
+[ "$(cinfo key "$fh/other")" = "dir$(printf '%s' "$fhp/other" | tr '/' '%')" ] ||
+  failed "workspace key elsewhere"
+[ "$(cinfo state "$fh/projects/p1/sub")" = "$fhp/projects/p1.meta/state" ] ||
+  failed "workspace state in its .meta"
+[ "$(cinfo logs "$fh/sensitive/s1")" = "$fhp/sensitive/s1.meta/logs" ] ||
+  failed "workspace logs in its .meta"
+cinfo bogus "$fh/other" 2> /dev/null && failed "compartment-info accepted a bad field"
+
+# Refusals: ~ and above it, the forbidden patterns, and an unwritable
+# workspace (the last only when not root, who can write anything).
+mkdir -p "$fh/projects/x.meta" "$fh/projects/p1/y.meta"
+for d in "$fh" "$fh/.." / "$fh/projects" "$fh/sensitive" "$fh/.ssh" "$fh/.claude" \
+  "$fh/projects/x.meta" "$fh/projects/p1/y.meta"; do
+  cinfo root "$d" > /dev/null 2>&1 && failed "workspace allowed in $d"
+  prep "$d" 2> /dev/null && failed "prepare allowed $d"
+done
+cinfo root "$fh/junk" > /dev/null || failed "workspace refused in ~/junk"
+mkdir -p "$fh/ro"
+chmod 555 "$fh/ro"
+if [ "$(id -u)" -ne 0 ]; then
+  prep "$fh/ro" 2> /dev/null && failed "prepare allowed an unwritable workspace"
+fi
+chmod 755 "$fh/ro"
+
+# prepare: makes the .meta, records and registers the workspace, and
+# says so only the first time.
+out="$(prep "$fh/projects/p1/sub" 2>&1)" || failed "prepare ran"
+case "$out" in *created*) ;; *) failed "prepare said it created the .meta" ;; esac
+for d in state logs policy; do
+  [ -d "$fh/projects/p1.meta/$d" ] || failed "prepare made .meta/$d"
+done
+[ "$(stat -c %a "$fh/projects/p1.meta")" = 700 ] || failed "prepare made .meta mode 700"
+[ "$(cat "$fh/projects/p1.meta/workspace")" = "$fhp/projects/p1" ] ||
+  failed "prepare recorded the workspace"
+grep -qFx "$fhp/projects/p1" "$registry" || failed "prepare registered the workspace"
+[ -z "$(prep "$fh/projects/p1" 2>&1)" ] || failed "prepare was quiet the second time"
+[ "$(grep -cFx "$fhp/projects/p1" "$registry")" = 1 ] || failed "prepare registered once"
+
+# A .meta that isn't a directory you own (here, a symlink) is refused.
+mkdir -p "$fh/projects/p3" "$wst/elsewhere"
+ln -s "$wst/elsewhere" "$fh/projects/p3.meta"
+prep "$fh/projects/p3" 2> /dev/null && failed "prepare used a symlinked .meta"
+
+# The dry run binds the private ~/.claude from the .meta's state.
 out="$(compart "$fh/projects/p1/sub")"
-[ "$(printf '%s\n' "$out" | head -n 1)" = "key: projects-p1" ] || failed "compartment key under ~/projects"
+[ "$(printf '%s\n' "$out" | head -n 1)" = "key: projects-p1" ] || failed "compartment key"
 printf '%s\n' "$out" | tail -n 3 | tr '\n' '|' | grep -qx -- '--|cmd|a b|' ||
   failed "compartment command passthrough"
-printf '%s\n' "$out" | grep -qx -- '--tmpfs' || failed "compartment private /tmp"
-printf '%s\n' "$out" | grep -qx "$fhp/projects/p1/.bulkhead/.*%.claude" ||
+printf '%s\n' "$out" | grep -qx -- '--tmpfs' || failed "compartment private /tmp, without a TMPDIR"
+mkdir -p "$fh/projects/p1/sub/.tmp"
+(cd "$fh/projects/p1/sub" && TMPDIR="$fh/projects/p1/sub/.tmp" wsenv \
+  "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd) | tr '\n' '|' |
+  grep -qF -- "|--bind|$fhp/projects/p1/sub/.tmp|/tmp|" || failed "compartment /tmp is its TMPDIR"
+(cd "$fh/projects/p1/sub" && TMPDIR="$fh" wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd) |
+  grep -qx -- '--tmpfs' || failed "compartment /tmp ignores a TMPDIR outside the directory"
+printf '%s\n' "$out" | grep -qx "$fhp/projects/p1.meta/state/.*%.claude" ||
   failed "compartment private ~/.claude"
 printf '%s\n' "$out" | grep -qx -- '--ro-bind' || failed "compartment read-only CLAUDE.md"
-[ "$(compart "$fh/sensitive/s1" | head -n 1)" = "key: sensitive-s1" ] ||
-  failed "compartment key under ~/sensitive"
-[ "$(compart "$fh/other" | head -n 1)" = "key: dir$(printf '%s' "$fhp/other" | tr '/' '%')" ] ||
-  failed "compartment key elsewhere"
-# A repo's own (tracked) .bulkhead is refused.
-mkdir -p "$fh/projects/p2/.bulkhead"
-: > "$fh/projects/p2/.bulkhead/x"
-git -C "$fh/projects/p2" init -q && git -C "$fh/projects/p2" add -f .bulkhead/x
-compart "$fh/projects/p2" > /dev/null 2>&1 && failed "compartment used a tracked .bulkhead"
-# bulkhead-compartment-info: same key from a subdirectory, state in the
-# project, and logs outside it (where no sandbox grant reaches).
-cinfo() { HOME="$fh" ./bulkhead-compartment-info "$@"; }
-[ "$(cinfo key "$fh/projects/p1/sub")" = projects-p1 ] || failed "compartment-info key"
-[ "$(cinfo state "$fh/projects/p1/sub")" = "$fhp/projects/p1/.bulkhead" ] ||
-  failed "compartment-info state"
-[ "$(cinfo logs "$fh/sensitive/s1")" = "$fhp/.local/state/bulkhead/logs/sensitive-s1" ] ||
-  failed "compartment-info logs"
-cinfo bogus "$fh" 2> /dev/null && failed "compartment-info refused a bad field"
+
+# Moving a workspace with its .meta updates the record and registry.
+mv "$fh/projects/p1" "$fh/projects/p1b"
+mv "$fh/projects/p1.meta" "$fh/projects/p1b.meta"
+run_ws "$fh/projects/p1b" bulkhead-workspace-prepare --orphans | grep -q . &&
+  failed "orphans listed a moved-together workspace"
+out="$(prep "$fh/projects/p1b" 2>&1)" || failed "prepare after a move"
+case "$out" in *"it's now for"*) ;; *) failed "prepare noticed the move" ;; esac
+[ "$(cat "$fh/projects/p1b.meta/workspace")" = "$fhp/projects/p1b" ] ||
+  failed "prepare updated the record after a move"
+grep -qFx "$fhp/projects/p1" "$registry" && failed "prepare dropped the old path"
+# Moving a workspace without its .meta leaves an orphan.
+prep "$fh/sensitive/s1" 2> /dev/null
+mv "$fh/sensitive/s1" "$fh/sensitive/s1b"
+[ "$(run_ws "$fh/other" bulkhead-workspace-prepare --orphans)" = "$fhp/sensitive/s1.meta" ] ||
+  failed "orphans listed a .meta left behind"
+
+# Nested workspaces outside ~/projects: under a registered one, its
+# subdirectories share it; above one, an agent is refused.
+prep "$fh/junk" 2> /dev/null || failed "prepare in ~/junk"
+[ "$(cinfo root "$fh/junk/sub")" = "$fhp/junk" ] || failed "a registered workspace holds its subdirectories"
+rm -rf "$fh/junk.meta"
+grep -svFx "$fhp/junk" "$registry" > "$registry.new" || :
+mv "$registry.new" "$registry"
+prep "$fh/junk/sub" 2> /dev/null || failed "prepare in ~/junk/sub"
+mkdir -p "$fh/junk/sub2"
+mv "$fh/junk/sub" "$fh/junk/sub2/sub"
+mv "$fh/junk/sub.meta" "$fh/junk/sub2/sub.meta"
+prep "$fh/junk/sub2/sub" 2> /dev/null
+cinfo root "$fh/junk" > /dev/null 2>&1 && failed "workspace allowed above another's .meta"
+
+# Migration: an old .bulkhead we made moves into the .meta, as do old
+# logs; one we didn't make (or that git tracks) stays, with a warning.
+mkdir -p "$fh/projects/p4/.bulkhead/home%x%.claude" "$fhp/.local/state/bulkhead/logs/projects-p4"
+echo '*' > "$fh/projects/p4/.bulkhead/.gitignore"
+echo t > "$fh/projects/p4/.bulkhead/home%x%.claude/t"
+echo l > "$fhp/.local/state/bulkhead/logs/projects-p4/nono.log"
+prep "$fh/projects/p4" 2> /dev/null || failed "prepare migrating"
+[ "$(cat "$fh/projects/p4.meta/state/home%x%.claude/t" 2> /dev/null)" = t ] ||
+  failed "prepare moved .bulkhead into the .meta"
+[ ! -e "$fh/projects/p4/.bulkhead" ] || failed "prepare removed the old .bulkhead"
+[ "$(cat "$fh/projects/p4.meta/logs/nono.log" 2> /dev/null)" = l ] ||
+  failed "prepare moved the old logs"
+mkdir -p "$fh/projects/p5/.bulkhead"
+echo '*' > "$fh/projects/p5/.bulkhead/.gitignore"
+: > "$fh/projects/p5/.bulkhead/x"
+git -C "$fh/projects/p5" init -q && git -C "$fh/projects/p5" add -f .bulkhead/x
+out="$(prep "$fh/projects/p5" 2>&1)"
+[ -z "$(ls -A "$fh/projects/p5.meta/state")" ] || failed "prepare moved a tracked .bulkhead"
+case "$out" in *WARNING*) ;; *) failed "prepare warned about a tracked .bulkhead" ;; esac
+
 # bulkhead-copy-claude-history copies a project's history in, without
 # overwriting, into the private ~/.claude that the dry run names.
-hist="$fh/.claude/projects/$(printf '%s' "$fhp/projects/p1" | sed 's/[^A-Za-z0-9]/-/g')"
+mkdir -p "$fh/projects/p6"
+hist="$fh/.claude/projects/$(printf '%s' "$fhp/projects/p6" | sed 's/[^A-Za-z0-9]/-/g')"
 mkdir -p "$hist/memory"
 echo old > "$hist/s1.jsonl"
 echo mem > "$hist/memory/MEMORY.md"
 copyhist() {
-  (cd "$fh/projects/p1" && env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT HOME="$fh" PATH="$OLDPWD:$PATH" \
-    BULKHEAD_COMPARTMENT_PATHS="$OLDPWD/compartment-paths" \
-    "$OLDPWD/bulkhead-copy-claude-history")
+  (cd "$fh/projects/p6" && wsenv PATH="$SCRIPT_DIR:$PATH" "$SCRIPT_DIR/bulkhead-copy-claude-history")
 }
-copyhist > /dev/null || failed "bulkhead-copy-claude-history ran"
-claude_src="$(compart "$fh/projects/p1" | grep -x "$fhp/projects/p1/.bulkhead/.*%.claude")"
-[ "$(cat "$claude_src/projects/${hist##*/}/memory/MEMORY.md" 2>/dev/null)" = mem ] ||
+copyhist > /dev/null 2>&1 || failed "bulkhead-copy-claude-history ran"
+claude_src="$(compart "$fh/projects/p6" | grep -x "$fhp/projects/p6.meta/state/.*%.claude")"
+[ "$(cat "$claude_src/projects/${hist##*/}/memory/MEMORY.md" 2> /dev/null)" = mem ] ||
   failed "bulkhead-copy-claude-history copied memory"
 echo new > "$claude_src/projects/${hist##*/}/s1.jsonl"
-copyhist > /dev/null
+copyhist > /dev/null 2>&1
 [ "$(cat "$claude_src/projects/${hist##*/}/s1.jsonl")" = new ] ||
   failed "bulkhead-copy-claude-history overwrote a file"
-[ "$(cat "$fh/projects/p1/.bulkhead/.gitignore")" = '*' ] ||
-  failed "bulkhead-copy-claude-history made .bulkhead's .gitignore"
 
 # nopi opens the engine's port from what infer-models --url prints.
 [ "$(sh "$tmp/infer-models" --url)" = "http://127.0.0.1:$INFER_PORT/v1" ] ||

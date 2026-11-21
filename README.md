@@ -284,37 +284,52 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   Part of a move toward small, single-purpose, any-shell-callable files
   instead of bash-only functions in `vm-bash-aliases-block.sh`; `noclaude`
   below is the first caller.
-  It runs the command through `bulkhead-compartment`, and for `nono run`
-  adds `--extends bulkhead-broad` outside `~/sensitive` and
-  `--log-file` with the compartment's log (see
-  `bulkhead-compartment-info`), so nono's warnings don't land on the
+  It first runs `bulkhead-workspace-prepare`, then runs the command
+  through `bulkhead-compartment`, and for `nono run` adds
+  `--extends bulkhead-broad` outside `~/sensitive` and `--log-file`
+  with the workspace's log, so nono's warnings don't land on the
   harness's screen.
-- `bulkhead-compartment`: runs a command in its directory's compartment
-  (`~/projects/NAME`, `~/sensitive/NAME`, or else the directory itself)
-  using bubblewrap, so one project's agent can't leave anything for
-  another's to read or run: each compartment gets a private `/tmp`,
-  `~/.claude` (transcripts, history, config), Claude's caches and
-  sockets, and so on, per `compartment-paths`. Shared setup (e.g.,
+- `bulkhead-workspace-prepare`: checks the current directory's
+  workspace and sets up its `.meta` beside it (`DIR.meta` for `DIR`;
+  see `compartment-meta-plan.md`), before any sandbox starts. The
+  `.meta` holds what's about the workspace but mustn't be under its
+  agent's control (`logs/`, `policy/`) or mustn't arrive with its
+  contents (`state/`, the harness's private files). It refuses a
+  directory no agent may start in, notices a workspace moved with its
+  `.meta`, and moves an old `.bulkhead` and old logs in. `--orphans`
+  lists `.meta` directories left behind (`vm-setup.sh` warns about
+  them).
+- `bulkhead-compartment`: runs a command in its directory's
+  compartment using bubblewrap, so one project's agent can't leave
+  anything for another's to read or run: each compartment gets a
+  private `/tmp` (its `$TMPDIR`), `~/.claude` (transcripts, history,
+  config), Claude's caches and sockets, and so on, per
+  `compartment-paths`, from its `.meta/state`. Shared setup (e.g.,
   `~/.claude/CLAUDE.md`, settings, skills, plugins) is mounted
-  read-only, so change it from outside a compartment. State lives in
-  the compartment directory's `.bulkhead` (so it survives a rename),
-  whose `.gitignore` hides it from git; a `.bulkhead` that git tracks
-  is refused, since a repo could plant one. It fails rather than run
-  without a compartment; `BULKHEAD_NO_COMPARTMENT=1` skips it.
-  `tests/compartment-test.sh` (run by hand, outside nono) checks it.
-- `bulkhead-compartment-info`: prints a directory's compartment key,
-  root, state directory, or log directory, so every script computes
-  them the same way. Logs go in
-  `~/.local/state/bulkhead/logs/KEY/`, outside every sandbox grant, so
-  an agent can't change or erase its own compartment's log; `nono.log`
-  there is rotated to `nono.log.1` at launch once it passes 1 MB.
+  read-only, so change it from outside a compartment. It fails rather
+  than run without a compartment; `BULKHEAD_NO_COMPARTMENT=1` skips
+  it. `tests/compartment-test.sh` (run by hand, outside nono) checks
+  it.
+- `bulkhead-compartment-info`: prints a directory's workspace key,
+  root, `.meta`, state directory, or log directory, so every script
+  computes them the same way. The workspace is `~/projects/NAME`,
+  `~/sensitive/NAME`, the nearest registered workspace holding the
+  directory, or else the directory itself. It refuses `~` and anything
+  above it, anything matching `workspace-forbidden`, and a directory
+  holding another workspace's `.meta`. `nono.log` is rotated to
+  `nono.log.1` at launch once it passes 1 MB.
+- `workspace-forbidden`: the data `bulkhead-compartment-info` reads:
+  shell patterns for directories no agent may start in (e.g.,
+  `~/projects`, `~/.*`, `*.meta`, `/tmp/*`). Installed in
+  `/usr/local/libexec/bulkhead/`.
 - `bulkhead-copy-claude-history`: copies a project's Claude Code
   history (transcripts and auto-memory) from the real `~/.claude` into
   its compartment, without overwriting, so `--resume` and memory carry
   over. Run it once per project, outside any compartment.
 - `compartment-paths`: the data `bulkhead-compartment` reads: which
-  paths are private per compartment, read-only shared, or a fresh
-  tmpfs. Installed in `/usr/local/libexec/bulkhead/`.
+  paths are private per compartment, read-only shared, a fresh tmpfs,
+  or the compartment's `$TMPDIR`. Installed in
+  `/usr/local/libexec/bulkhead/`.
 - `noclaude`: `exec anon-access nono run --profile bulkhead-claude
   --allow-cwd -- claude "$@"` (a handful of lines total). Running
   through `anon-access` gets the sandboxed agent every one of its

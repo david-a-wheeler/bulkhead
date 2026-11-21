@@ -3,9 +3,10 @@
 # keeps compartments apart, and that nono still runs inside one. Run it
 # by hand in a VM, outside any sandbox (bwrap can't run inside nono):
 #   tests/compartment-test.sh
-# It uses this repo's bulkhead-compartment and compartment-paths, makes
-# two scratch projects ~/projects/,compartment-test-a and -b, and
-# removes them (and so their compartments' state) when it's done.
+# It uses this repo's bulkhead-workspace-prepare, bulkhead-compartment,
+# compartment-paths, and workspace-forbidden, makes two scratch
+# projects ~/projects/,compartment-test-a and -b, and removes them, their
+# .meta directories, and their registry lines when it's done.
 set -eu
 
 if [ -n "${NONO_CAP_FILE:-}" ]; then
@@ -16,9 +17,15 @@ repo=$(cd "$(dirname "$0")/.." && pwd -P)
 a="$HOME/projects/,compartment-test-a"
 b="$HOME/projects/,compartment-test-b"
 marker=",compartment-test-$$"
+registry="$("$repo/bulkhead-compartment-info" registry)"
 cleanup() {
-  rm -rf "$a" "$b"
+  rm -rf "$a" "$b" "$a.meta" "$b.meta"
   rm -f "/tmp/$marker"
+  if [ -f "$registry" ]; then
+    grep -vFx -e "$(cd "$HOME" && pwd -P)/projects/,compartment-test-a" \
+      -e "$(cd "$HOME" && pwd -P)/projects/,compartment-test-b" "$registry" > "$registry.new" || :
+    mv -f "$registry.new" "$registry"
+  fi
 }
 trap cleanup EXIT
 mkdir -p "$a" "$b"
@@ -32,9 +39,12 @@ check() {
     fails=$((fails + 1))
   fi
 }
-# run_in DIR COMMAND: run a shell command in DIR's compartment.
+# run_in DIR COMMAND: run a shell command in DIR's compartment, as
+# anon-access would (prepare the workspace, then a TMPDIR in DIR).
 run_in() {
-  (cd "$1" && BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
+  (cd "$1" && export BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
+    BULKHEAD_WORKSPACE_FORBIDDEN="$repo/workspace-forbidden" TMPDIR="$1/.tmp" &&
+    mkdir -p "$TMPDIR" && "$repo/bulkhead-workspace-prepare" 2> /dev/null &&
     "$repo/bulkhead-compartment" sh -c "$2")
 }
 
@@ -49,7 +59,9 @@ rm -f ,compartment-test.err
 
 run_in "$a" "echo a > /tmp/$marker && echo a > ~/.claude/$marker && echo a > \$XDG_RUNTIME_DIR/cc-socks/$marker"
 r=$(run_in "$a" "cat /tmp/$marker ~/.claude/$marker 2>/dev/null | tr -d '\n'")
-check "a compartment's ~/.claude persists (and /tmp doesn't)" "$r" a
+check "a compartment's /tmp and ~/.claude persist" "$r" aa
+r=$(cat "$a/.tmp/$marker" 2>/dev/null)
+check "a compartment's /tmp is its TMPDIR" "$r" a
 for f in "/tmp/$marker" "\$HOME/.claude/$marker" "\$XDG_RUNTIME_DIR/cc-socks/$marker"; do
   r=$(run_in "$b" "[ -e $f ] && echo seen || echo unseen")
   check "another compartment can't see $f" "$r" unseen
@@ -64,13 +76,17 @@ if [ -e "$HOME/.claude/CLAUDE.md" ]; then
 fi
 r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"
-r=$(git -C "$a" init -q && git -C "$a" status --porcelain)
-check "git status ignores .bulkhead" "$r" ""
+r=$(git -C "$a" init -q && git -C "$a" status --porcelain | grep -v '^?? .tmp/$' || :)
+check "the workspace holds no harness state" "$r" ""
+r=$([ -d "$a.meta/state" ] && [ -d "$a.meta/logs" ] && echo made || echo missing)
+check "the workspace's .meta is beside it" "$r" made
 
 # nono inside the compartment, with the installed profiles.
 if run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'echo hi > ./,nono-ok'" &&
   [ -f "$a/,nono-ok" ]; then r=ok; else r=failed; fi
 check "nono runs inside a compartment" "$r" ok
+r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'ls ../,compartment-test-a.meta/logs > /dev/null 2>&1 && echo read || echo refused'")
+check "an agent can't read its workspace's .meta" "$r" refused
 
 echo "$fails failed."
 [ "$fails" -eq 0 ]

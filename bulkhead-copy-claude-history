@@ -29,15 +29,12 @@ if [ ! -d "$src" ]; then
   exit 1
 fi
 
+# This also refuses a directory no agent may start in.
+"$(dirname "$0")/bulkhead-workspace-prepare"
 comp="$("$(dirname "$0")/bulkhead-compartment-info" state)"
-[ -n "$comp" ] || { echo "bulkhead-copy-claude-history: no compartment found" >&2; exit 1; }
 # Same layout as bulkhead-compartment's "private ~/.claude".
 dst="$comp/$(printf '%s' "${HOME#/}/.claude" | tr '/' '%')/projects/$name"
 
-if [ ! -d "$comp" ]; then
-  mkdir -m 700 "$comp"
-  echo '*' > "$comp/.gitignore"
-fi
 mkdir -p "$dst"
 chmod 700 "$comp/$(printf '%s' "${HOME#/}/.claude" | tr '/' '%')"
 

@@ -4,17 +4,15 @@
 # project's agent can't read (or run). anon-access runs every command
 # through this; nono then sandboxes the command inside it.
 #
-# The compartment is ~/projects/NAME or ~/sensitive/NAME when the real
-# current directory is in one of them, else the directory itself (see
-# bulkhead-compartment-info). Its state lives in that directory's
-# .bulkhead, so it moves with a rename, and a .gitignore there hides it from git (and ripgrep). We use
-# bubblewrap (bwrap), unprivileged, to mount over the paths that
-# compartment-paths lists: e.g., a private /tmp and a private ~/.claude.
-# Everything else is the real filesystem, still limited by nono.
-#
-# A repo could ship its own .bulkhead (e.g., a ~/.claude/.claude.json
-# that pre-accepts Claude's folder-trust prompt), so we refuse one that
-# git tracks. We can't tell for a project that came from a tarball.
+# The compartment is the current directory's workspace (see
+# bulkhead-compartment-info, which refuses directories no agent may
+# start in). Its state lives in the workspace's .meta/state, beside the
+# workspace, not in it, so it can't arrive with the workspace's
+# contents (see compartment-meta-plan.md); bulkhead-workspace-prepare
+# (run by anon-access) creates it. We use bubblewrap (bwrap),
+# unprivileged, to mount over the paths that compartment-paths lists:
+# e.g., a private /tmp and a private ~/.claude. Everything else is the
+# real filesystem, still limited by nono.
 #
 # Usage: bulkhead-compartment [--dry-run] COMMAND [ARG...]
 # --dry-run prints the compartment's key and the bwrap arguments
@@ -41,10 +39,9 @@ paths_file="${BULKHEAD_COMPARTMENT_PATHS:-/usr/local/libexec/bulkhead/compartmen
 here="$(pwd -P)"
 info="$(dirname "$0")/bulkhead-compartment-info"
 key="$("$info" key)"
-root="$("$info" root)"
 comp="$("$info" state)"
-if [ -n "$(git -C "$root" ls-files -- .bulkhead 2>/dev/null)" ]; then
-  echo "bulkhead-compartment: $comp is in git; refusing to use it." >&2
+if ! "$dry_run" && [ ! -d "$comp" ]; then
+  echo "bulkhead-compartment: no $comp; run bulkhead-workspace-prepare first (anon-access does)." >&2
   exit 1
 fi
 
@@ -75,10 +72,6 @@ while read -r kind path; do
       src="$comp/$(printf '%s' "${path#/}" | tr '/' '%')"
       if ! "$dry_run"; then
         mkdir -p "$path"
-        if [ ! -d "$comp" ]; then
-          mkdir -m 700 "$comp"
-          echo '*' > "$comp/.gitignore"
-        fi
         [ -d "$src" ] || mkdir -m 700 "$src"
       fi
       set -- "$@" --bind "$src" "$path"
@@ -89,6 +82,15 @@ while read -r kind path; do
       ;;
     tmpfs)
       set -- "$@" --tmpfs "$path"
+      ;;
+    tmpdir)
+      # Only a TMPDIR in this directory, so TMPDIR=/tmp (say) can't
+      # bring the shared /tmp back.
+      td="$(cd "${TMPDIR:-/nonexistent}" 2> /dev/null && pwd -P)" || td=""
+      case "${td:-/nonexistent}/" in
+        "$here"/?*) set -- "$@" --bind "$td" "$path" ;;
+        *) set -- "$@" --tmpfs "$path" ;;
+      esac
       ;;
     *)
       echo "bulkhead-compartment: $paths_file: bad kind: $kind" >&2

@@ -1,7 +1,12 @@
 # Plan: workspaces and their .meta directories
 
-Status (2026-11-20): draft, not implemented. Builds on the compartments
-in `bulkhead-compartment` (see `,restart-notes.md` for their tests).
+Status (2026-11-20): implemented on the `workspace-meta` branch
+(`bulkhead-workspace-prepare`, `bulkhead-compartment-info`,
+`workspace-forbidden`); `ci.sh` passes, but `tests/compartment-test.sh`
+(outside nono) hasn't run yet. Builds on the compartments in
+`bulkhead-compartment` (see `,restart-notes.md` for their tests).
+"Decisions while implementing" says where the code differs from the
+first draft.
 
 ## The problem
 
@@ -133,6 +138,30 @@ called from there), and every harness gets them. `nopi`'s port would
 move to `policy/` later, once we know nono can take a profile
 fragment by path through `--extends` (to check).
 
+## Decisions while implementing
+
+- The registry lists workspace paths, not `.meta` paths, one per line;
+  the `.meta` is always the path plus `.meta`. A registered workspace
+  also becomes the root for its subdirectories (like `~/projects/NAME`),
+  so `~/junk/sub` shares `~/junk`'s compartment. Step 2 only refuses a
+  registered workspace whose `.meta` still exists.
+- A `.meta` must be a real directory you own (not a symlink), and
+  `/tmp`, `/var/tmp`, `/dev/shm`, and everything in them are
+  forbidden: another user could create `/tmp/x.meta` before you.
+- A refused directory fails in `anon-access` before anything else,
+  including the secrets dialog for `GH_PUBLIC_TOKEN`. That also means
+  any `anon-access` command (not just an agent) refuses `~`.
+- Each compartment's `/tmp` is now its `$TMPDIR` (`compartment-paths`
+  kind `tmpdir`), not a tmpfs: tools that hard-code `/tmp` then use
+  the per-directory temp area, and on disk, not in the VM's RAM. It's
+  bound only when `$TMPDIR` is inside the current directory, so a
+  `TMPDIR=/tmp` can't bring the shared `/tmp` back.
+- Migration only moves a `.bulkhead` that we made (its `.gitignore` is
+  `*`), that git doesn't track, into an empty `state/`; otherwise it
+  warns and leaves it. Exit every session in a workspace before its
+  first launch with this code, since migration moves the state they
+  use.
+
 ## Migration
 
 At launch, outside the sandbox: if `DIR.meta` doesn't exist and
@@ -182,3 +211,9 @@ For the eventual lessons-learned write-up:
   Checking for git-tracked files catches only one way files arrive.
 - Sandbox grants bound at start (nono's) mean "create it first, then
   launch"; a directory made later stays denied.
+- Don't put anything security-relevant where other users can create
+  files first (`/tmp` and friends), and check that a directory you
+  rely on is yours and not a symlink.
+- Write tests that run where CI runs: GitHub's `mktemp -d` is in
+  `/tmp`, which the new refusals reject, so the tests use the repo's
+  `.tmp` instead.

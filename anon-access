@@ -29,6 +29,11 @@
 # secret not created yet), gh treats an empty GH_TOKEN exactly like an
 # unset one (confirmed), so this just degrades to today's "gh doesn't
 # work" instead of failing this whole script.
+# First, check this directory's workspace and set up its .meta, so a
+# directory no agent may start in (e.g., ~ or ~/projects) is refused
+# before anything else happens. See bulkhead-workspace-prepare.
+"$(dirname "$0")/bulkhead-workspace-prepare" || exit 1
+
 public_token="$(secrets-client --context "anon-access: ${*:-interactive shell}" --get GH_PUBLIC_TOKEN 2>/dev/null)" || public_token=""
 
 # The nested "${SHELL:-/bin/sh}" fallback matters, not just "$SHELL":
@@ -66,15 +71,15 @@ if [ "${1:-}" = nono ] && [ "${2:-}" = run ]; then
   esac
   # nono logs to stderr by default, and its proxy's warnings (e.g.,
   # "WARN tls_intercept ...") then land on top of a harness's
-  # full-screen display. So we log to a file per compartment, outside
-  # every sandbox grant, so the agent can't change or erase its own
-  # log. We pass --log-file rather than export NONO_LOG_FILE, so the
+  # full-screen display. So we log to a file in the workspace's
+  # .meta/logs, outside every sandbox grant, so the agent can't change
+  # or erase its own log. We pass --log-file rather than export NONO_LOG_FILE, so the
   # sandboxed command doesn't inherit a path it can't write. If the
   # caller set NONO_LOG_FILE, nono uses that instead. We keep one old
   # log, rotated at launch once it passes 1 MB.
   if [ -z "${NONO_LOG_FILE:-}" ] &&
     logs="$("$(dirname "$0")/bulkhead-compartment-info" logs)" &&
-    mkdir -p "$logs" && chmod 700 "$logs"; then
+    [ -d "$logs" ]; then
     log="$logs/nono.log"
     if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt 1000000 ]; then
       mv -f "$log" "$log.1"

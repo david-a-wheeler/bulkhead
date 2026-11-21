@@ -1,0 +1,24 @@
+# workspace-forbidden: directories no agent may start in (see
+# compartment-meta-plan.md). vm-setup.sh installs this in
+# /usr/local/libexec/bulkhead/; bulkhead-compartment-info reads it.
+#
+# One shell "case" pattern per line, matched against the real path of
+# both the current directory and its workspace. A leading "~/" means
+# your home directory. bulkhead-compartment-info also refuses ~ and
+# everything above it, in code, since that can't be one pattern.
+
+# These hold every workspace (and so every .meta).
+~/projects
+~/sensitive
+# Your configuration, keys, and state (e.g., ~/.ssh, ~/.config).
+~/.*
+# A workspace's .meta is data about it that its agent mustn't control.
+*.meta
+*.meta/*
+# Shared with other users, who could plant a .meta first.
+/tmp
+/tmp/*
+/var/tmp
+/var/tmp/*
+/dev/shm
+/dev/shm/*
