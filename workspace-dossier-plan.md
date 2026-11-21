@@ -71,17 +71,27 @@ agents about them.
 
 ## Local ports
 
-Agents on one VM could collude, or reach the VM's own services, over
-local ports. Tested in a Claude session under nono 0.82: nono already
-refuses TCP connect and listen and UDP on loopback (except ports it's
-told to open), but *abstract* Unix sockets work, and their namespace
-belongs to the network namespace, which every agent shares. So two
-agents in different workspaces could talk through one.
+Agents on one VM could collude, reach the VM's own services, or learn
+what's running, over local sockets. Tested in a Claude session under
+nono 0.82:
+
+- nono refuses TCP connect and listen, and UDP, on loopback, except
+  ports it's told to open. So an agent can't even run its own test
+  server on localhost.
+- Connecting to an abstract Unix socket made outside the sandbox (the
+  X server's `@/tmp/.X11-unix/X0`) fails with `EPERM`: Landlock scopes
+  abstract sockets to the sandbox's own domain. Binding one works. Each
+  nono sandbox is its own domain, so one agent shouldn't be able to
+  connect to another's either (`tests/compartment-test.sh` checks).
+- But `/proc/self/net/tcp` and `/proc/self/net/unix` list every
+  listening port and abstract socket name on the VM. That's names, not
+  data, but it tells an agent what else is running.
 
 So `anon-access` adds `--isolate net,loopback` to every `nono run`:
-each agent gets its own network namespace, with its own loopback (its
-own servers and tests still work, on any port) and its own abstract
-sockets, and reaches the outside only through nono's proxy. nono can't
+each agent gets its own network namespace, so `/proc/self/net` shows
+only its own sockets, and it gets its own loopback, where its own
+servers and tests work on any port. It reaches the outside only
+through nono's proxy. nono can't
 isolate while it opens any local port, so ports are an explicit
 exception: list them in `DIR.dossier/policy/local-ports`, one port or
 range per line, and each becomes an `--open-port`, with isolation off
@@ -91,8 +101,9 @@ for the local AI engine) turns isolation off too.
 an agent isn't isolated. `BULKHEAD_NO_ISOLATE=1` turns isolation off
 if it ever won't start.
 
-That `nopi` can't be isolated is a real gap: the engine's port forces
-the shared loopback, and with it shared abstract sockets. A nono
+That `nopi` can't be isolated is a gap: the engine's port forces the
+shared network namespace, so a pi agent can list the VM's ports and
+sockets (but, per the tests above, not connect to them). A nono
 feature that forwards one host port into an isolated namespace would
 close it.
 
@@ -268,9 +279,11 @@ For the eventual lessons-learned write-up:
 - Don't put anything security-relevant where other users can create
   files first (`/tmp` and friends), and check that a directory you
   rely on is yours and not a symlink.
-- Test what a sandbox actually allows instead of assuming: nono
-  refused TCP and UDP on loopback, but abstract Unix sockets still
-  connected every agent on the VM.
+- Test what a sandbox actually allows instead of assuming, and test
+  the operation you're worried about: binding an abstract socket
+  worked, which I first took to mean agents could connect to each
+  other's, but connecting is scoped. What did leak was *viewing*:
+  `/proc/self/net` lists the VM's sockets.
 - A recovery mechanism the protected party can write (nono's rollback
   destination) doesn't protect you from that party.
 - Keep one set of agent instructions (`AGENTS.md`) and give each

@@ -63,7 +63,7 @@ if [ ! -e "$dossier/policy/local-ports" ]; then
 # Extra local TCP ports this workspace's agents may use (connect and
 # listen), one port (e.g., 8089) or range (e.g., 3000-3010) per line.
 # With none listed, each agent gets its own private loopback instead,
-# so agents can't talk to each other or to the VM's local services.
+# where it can use any port, and can't see the VM's other ports.
 # See bulkhead-workspace-nono-args.
 PORTS
 fi

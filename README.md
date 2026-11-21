@@ -304,8 +304,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   adds to every `nono run`: the dossier's `inbox/` (read-only) and
   `outbox/` (write-only), and either an `--open-port` for each port in
   the dossier's `policy/local-ports` or, with none open,
-  `--isolate net,loopback`, so agents can't talk to each other or to
-  the VM's local services.
+  `--isolate net,loopback`, so an agent can run its own local servers
+  but can't see the VM's other ports and sockets.
 - `bulkhead-compartment`: runs a command in its directory's
   compartment using bubblewrap, so one project's agent can't leave
   anything for another's to read or run: each compartment gets a

@@ -8,11 +8,12 @@
 #   --open-port PORT         for each port in DOSSIER/policy/local-ports
 #   --isolate net,loopback   when no local port is open at all
 #
-# Isolation gives the agent its own loopback (its own servers and tests
-# still work there) and its own abstract Unix sockets. Without it, nono
-# still refuses TCP and UDP on other local ports, but abstract Unix
-# sockets are shared by every process on the VM, so two agents could
-# use one to talk to each other. nono can't isolate while any local port
+# Isolation gives the agent its own network namespace: its own loopback
+# (where its own servers and tests work, on any port) and its own
+# /proc/self/net. Without it, nono still refuses TCP and UDP on other
+# local ports, and connections to abstract Unix sockets made outside
+# the sandbox, but /proc/self/net lists every listening port and
+# abstract socket on the VM. nono can't isolate while any local port
 # is open, so a port in local-ports, or one the harness's wrapper opens
 # (e.g., nopi's --open-port for the local AI engine), turns isolation
 # off, and we say so. BULKHEAD_NO_ISOLATE=1 turns it off too.
@@ -66,9 +67,9 @@ for arg in "$@"; do
 done
 
 if [ -n "$opened" ]; then
-  echo "bulkhead: local ports are open (${opened# }), so this agent shares the VM's loopback and abstract Unix sockets with other agents." >&2
+  echo "bulkhead: local ports are open (${opened# }), so this agent can see the VM's other local ports and sockets." >&2
 elif [ -n "${BULKHEAD_NO_ISOLATE:-}" ]; then
-  echo "bulkhead: WARNING: BULKHEAD_NO_ISOLATE is set, so this agent shares the VM's loopback and abstract Unix sockets with other agents." >&2
+  echo "bulkhead: WARNING: BULKHEAD_NO_ISOLATE is set, so this agent can see the VM's other local ports and sockets, and can't listen on any." >&2
 else
   printf '%s\n' --isolate net,loopback
 fi
