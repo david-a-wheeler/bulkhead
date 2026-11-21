@@ -426,6 +426,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   Installed by `vm-setup.sh` beside `default.json`.
 - `agent-network-plan.md`: the shared network policy's design, test
   results, and rollout steps.
+- `compartment-meta-plan.md`: plan for each workspace's sibling
+  `.meta` directory (logs, policy, and harness state an agent mustn't
+  fully control) and for refusing risky places to start an agent.
 - `nftables.template.conf`: VM egress firewall ruleset.
 - `bulkhead-reclaim-memory`, `bulkhead-reclaim-memory.template.service`,
   and `bulkhead-reclaim-memory.template.timer`: every 15 minutes, when
