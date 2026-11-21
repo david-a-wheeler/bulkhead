@@ -277,6 +277,12 @@ Both print a warning. Use them only to work around a breakage.
   agent's own server ports in `DIR.dossier/policy/local-ports`. A nono
   option to allow all loopback ports in a namespace it didn't make
   would close this.
+- An agent can't install or change shared setup from inside a
+  compartment, since it's read-only there. E.g., goose can't install a
+  plugin into `~/.agents/plugins`, and Claude can't add a skill to
+  `~/.claude/skills`. Do that from outside any compartment (e.g., run
+  the harness's install command in a plain shell), and every
+  compartment then sees it.
 - nono's error message for the AppArmor denial points to the wrong
   cause; it's worth reporting upstream.
 
