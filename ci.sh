@@ -50,7 +50,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -141,6 +141,35 @@ jq -e '.meta.name == "bulkhead-broad" and (.network.allow_domain | length > 1000
   nono-broad-profile.json > /dev/null || failed nono-broad-profile.json
 jq -e '.extends == "nolabs-ai/claude" and (.network.allow_domain | length > 0)' \
   nono-claude-profile.json > /dev/null || failed nono-claude-profile.json
+# Claude's login: nono captures the real tokens (oauth_capture), and the
+# shared credentials file, which Claude may write, holds the phantoms.
+jq -e '.filesystem.allow[0] as $creds | .credential_providers.claude_code.type == "oauth_capture" and
+    (.credential_providers.claude_code.credential_store.path | startswith($creds + "/")) and
+    (.credential_routes[0].provider == "claude_code")' \
+  nono-claude-profile.json > /dev/null || failed "nono-claude-profile.json oauth_capture"
+# No profile of ours grants claude-unsandboxed's directory, or nono's
+# state (which holds the real tokens), or anything above them.
+for p in $(jq -r '.filesystem // {} | to_entries[] | select(.key != "deny" and .key != "bypass_protection") | .value[]' nono-*-profile.json); do
+  # Literal "$HOME", as the profiles write it.
+  # shellcheck disable=SC2016
+  for secret in '$HOME/.local/state/bulkhead/claude-unsandboxed' '$HOME/.local/state/nono'; do
+    case "$secret/" in
+      "${p%/}"/*) failed "a nono profile grants $p, which holds $secret" ;;
+    esac
+  done
+done
+# nono itself can check the packs' grants too, where it and the packs
+# are installed (not in GitHub's CI).
+if command -v nono > /dev/null && nono profile list 2> /dev/null | grep -q 'nolabs-ai/pi'; then
+  for prof in ./nono-claude-profile.json ./nono-sh-profile.json nolabs-ai/pi; do
+    for secret in "$HOME/.local/state/bulkhead/claude-unsandboxed" "$HOME/.local/state/nono"; do
+      nono why --profile "$prof" --path "$secret" --op read 2> /dev/null | head -n 1 | grep -qx DENIED ||
+        failed "nono profile $prof grants $secret"
+    done
+  done
+else
+  echo "Skipping nono's own check of the profiles' grants: nono or its packs aren't installed."
+fi
 jq -e '.extends == "linux-host-compat" and .workdir.access == "readwrite" and
     ((.filesystem.bypass_protection // []) - .filesystem.read_file == []) and
     ([.filesystem.read_file[] | select(test("bash_history"))] == [])' \
@@ -362,6 +391,21 @@ git -C "$g" config remote.origin.url https://example.org/x
   failed "compart started with an unapproved git change"
 ccheck env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hookspath GIT_CONFIG_VALUE_0=/nonexistent > /dev/null &&
   failed "compart check passed with an unapproved git change"
+
+# compart claude refuses a shared login holding real tokens, since
+# agents could read them; nono's phantoms (nono_...) are fine.
+fcreds="$fh/.local/state/bulkhead/claude-credentials"
+mkdir -p "$fcreds"
+echo '{"claudeAiOauth": {"accessToken": "sk-ant-oat01-x", "refreshToken": "sk-ant-ort01-x"}}' > "$fcreds/.credentials.json"
+[ -z "$(cargs "$fh/projects/p1")" ] || failed "compart claude accepted a real login"
+(cd "$fh/projects/p1" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" claude 2>&1) |
+  grep -q 'holds a real Claude login' || failed "compart claude explained a real login"
+echo '{"claudeAiOauth": {"accessToken": "sk-ant-oat01-x", "refreshToken": "nono_0123"}}' > "$fcreds/.credentials.json"
+[ -n "$(cargs "$fh/projects/p1")" ] || failed "compart claude refused nono's phantom tokens"
+rm "$fcreds/.credentials.json"
+# claude-unsandboxed refuses inside a sandbox, before running claude.
+wsenv BULKHEAD_COMPARTMENT=projects-p1 PATH="$wst/bin:$PATH" ./claude-unsandboxed 2>&1 |
+  grep -q 'refused: you.re inside' || failed "claude-unsandboxed ran inside a compartment"
 
 # Moving a workspace with its dossier updates the record.
 mv "$fh/projects/p1" "$fh/projects/p1b"

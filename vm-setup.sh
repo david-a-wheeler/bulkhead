@@ -335,9 +335,10 @@ echo "== Installing compart (runs AI harnesses in compartments) =="
 # (installed above). compart runs anon-access, but install order
 # doesn't matter: nothing runs it until this script has finished.
 # noclaude and nopi are the old names for "compart claude" and
-# "compart pi", kept as shims.
+# "compart pi", kept as shims. claude-unsandboxed is the last-resort
+# failsafe for when nono itself won't run.
 sudo install -m 755 "$SCRIPT_DIR/compart" "$SCRIPT_DIR/noclaude" \
-  "$SCRIPT_DIR/nopi" /usr/local/bin/
+  "$SCRIPT_DIR/nopi" "$SCRIPT_DIR/claude-unsandboxed" /usr/local/bin/
 
 echo "== Configuring git niceties =="
 configure_git_niceties

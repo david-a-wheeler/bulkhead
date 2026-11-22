@@ -75,15 +75,28 @@ case "$harness" in
     # credentials directory, so one login works everywhere and a token
     # refresh in one reaches the others. bulkhead-claude points Claude
     # there (CLAUDE_SECURESTORAGE_CONFIG_DIR). It must exist before nono
-    # starts, or nono drops the grant; the first time, we copy in the
-    # login you already have.
-    creds="${XDG_STATE_HOME:-$HOME/.local/state}/bulkhead/claude-credentials"
+    # starts, or nono drops the grant.
+    #
+    # The file there must hold only nono's phantom tokens: when you log
+    # in (/login) under nono, its oauth_capture (see
+    # nono-claude-profile.json) keeps the real tokens in its own state,
+    # which no sandbox can read, and gives Claude stand-ins that work
+    # only through nono's proxy, and only for Anthropic's API. So an
+    # agent can't take your login elsewhere. A real refresh token
+    # (anything but nono_...) means a login from before this, or from
+    # outside nono, which every agent could read; we refuse it.
+    creds="$HOME/.local/state/bulkhead/claude-credentials"
     if [ ! -d "$creds" ]; then
       mkdir -p "$(dirname "$creds")"
       mkdir -m 700 "$creds"
-      if [ -f "$HOME/.claude/.credentials.json" ]; then
-        cp -p "$HOME/.claude/.credentials.json" "$creds/"
-      fi
+    fi
+    if [ -f "$creds/.credentials.json" ]; then
+      refresh="$(jq -r '.claudeAiOauth.refreshToken // empty' "$creds/.credentials.json" 2> /dev/null)" ||
+        die "can't read $creds/.credentials.json; delete it, then log in again with /login."
+      case "$refresh" in
+        '' | nono_*) ;;
+        *) die "$creds/.credentials.json holds a real Claude login, which agents could read. Delete it, revoke that login in your Claude account's settings, then run compart claude and log in again with /login (see compartments.md, \"Claude's login\")." ;;
+      esac
     fi
     profile=bulkhead-claude
     set -- -- claude "$@"

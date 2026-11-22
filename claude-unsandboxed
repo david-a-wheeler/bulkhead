@@ -1,0 +1,37 @@
+#!/bin/sh
+# claude-unsandboxed: the last-resort failsafe: run Claude Code with no
+# sandbox at all, when even nono won't run. If only compartments fail
+# (bwrap or pasta), use "BULKHEAD_NO_COMPARTMENT=1 compart claude"
+# instead, which keeps nono and its phantom-token login. See
+# compartments.md, "Escape hatches".
+#
+# Claude here can read and change all your files, so use it only to get
+# going again, and log out (/logout) when you're done.
+#
+# The shared login holds only nono's phantom tokens, which work only
+# through nono's proxy, so this needs a login of its own: a real one.
+# It keeps that, and all its other state, in its own config directory,
+# which no nono profile grants (ci.sh checks), so no sandbox can read
+# it. In particular, not ~/.claude, which every Claude sandbox can
+# reach. It links your global instructions (~/.claude/CLAUDE.md) in.
+# vm-setup.sh installs this.
+set -eu
+
+if [ -n "${BULKHEAD_COMPARTMENT:-}" ] || [ -n "${NONO_CAP_FILE:-}" ]; then
+  echo "claude-unsandboxed: refused: you're inside a compartment or nono sandbox; run it from a plain shell." >&2
+  exit 1
+fi
+dir="$HOME/.local/state/bulkhead/claude-unsandboxed"
+if [ ! -d "$dir" ]; then
+  mkdir -p "$(dirname "$dir")"
+  mkdir -m 700 "$dir"
+fi
+[ -e "$dir/CLAUDE.md" ] || [ ! -e "$HOME/.claude/CLAUDE.md" ] ||
+  ln -s "$HOME/.claude/CLAUDE.md" "$dir/CLAUDE.md"
+echo "claude-unsandboxed: WARNING: Claude runs with NO sandbox: it can read and change all your files. Log out (/logout) when you're done." >&2
+# Like anon-access, don't hand it your session handle or ssh agent.
+CLAUDE_CONFIG_DIR="$dir"
+export CLAUDE_CONFIG_DIR
+exec env -u CLAUDE_SECURESTORAGE_CONFIG_DIR -u BULKHEAD_AUTH_SESSION -u SSH_AUTH_SOCK \
+  -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN -u HEROKU_API_KEY \
+  claude "$@"

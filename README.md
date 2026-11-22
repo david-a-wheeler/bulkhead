@@ -475,6 +475,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   for the tools agents run (language runtimes, git's config), with a
   writable workspace, and bash's startup files (e.g., `~/.bashrc`)
   readable but not writable. So never put secrets in them.
+- `claude-unsandboxed`: the last-resort failsafe, for when nono itself
+  won't run: Claude Code with no sandbox, and its own real login in
+  `~/.local/state/bulkhead/claude-unsandboxed`, which no sandbox can
+  read. See `compartments.md`, "Escape hatches".
 - `nono-claude-profile.json`: the `bulkhead-claude` profile `compart claude`
   uses: `nolabs-ai/claude` plus only Claude Code's own hosts (its API
   and login), since other harnesses don't need them. It also undoes
@@ -482,8 +486,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   temp files go in `anon-access`'s per-directory one (which also
   keeps `nono why --self` working). It sets `DISABLE_TELEMETRY` and
   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, since the network policy
-  refuses that traffic anyway and each refusal fills nono's log.
-  Installed by `vm-setup.sh` beside `default.json`.
+  refuses that traffic anyway and each refusal fills nono's log. Its
+  `oauth_capture` keeps your real Claude tokens in nono's own state
+  and gives Claude only phantoms (see `compartments.md`, "Claude's
+  login"). Installed by `vm-setup.sh` beside `default.json`.
 - `agent-network-plan.md`: the shared network policy's design, test
   results, and rollout steps.
 - `compartments.md`: what each agent's compartment can and can't do,

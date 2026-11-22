@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "bulkhead-claude",
-    "description": "nolabs-ai/claude, plus any method on the hosts only Claude Code needs, per-directory temp files, shared credentials, and no telemetry or other nonessential traffic (the network policy refuses it anyway) (see agent-network-plan.md and bulkhead-compartment)"
+    "description": "nolabs-ai/claude, plus any method on the hosts only Claude Code needs, per-directory temp files, shared credentials (phantom tokens only; nono keeps the real ones), and no telemetry or other nonessential traffic (the network policy refuses it anyway) (see agent-network-plan.md and bulkhead-compartment)"
   },
   "extends": "nolabs-ai/claude",
   "filesystem": {
@@ -16,6 +16,33 @@
       {"domain": "platform.claude.com", "endpoints": [{"method": "*", "path": "/**"}]}
     ]
   },
+  "credential_providers": {
+    "claude_code": {
+      "type": "oauth_capture",
+      "token_endpoints": [
+        {
+          "host": "https://platform.claude.com",
+          "path": "/v1/oauth/token",
+          "response_fields": [
+            {"path": "access_token", "kind": "opaque", "format": "sk-ant-oat01-{}"},
+            {"path": "refresh_token", "kind": "opaque"},
+            {"path": "id_token", "kind": "jwt"}
+          ],
+          "request_body": "auto",
+          "request_nonce_fields": ["access_token", "refresh_token"]
+        }
+      ],
+      "api_hosts": ["https://api.anthropic.com"],
+      "credential_store": {
+        "type": "file_json",
+        "path": "$HOME/.local/state/bulkhead/claude-credentials/.credentials.json",
+        "phantom_fields": ["claudeAiOauth.accessToken", "claudeAiOauth.refreshToken"]
+      }
+    }
+  },
+  "credential_routes": [
+    {"name": "anthropic_oauth", "provider": "claude_code"}
+  ],
   "environment": {
     "set_vars": {
       "CLAUDE_CODE_TMPDIR": "$TMPDIR",

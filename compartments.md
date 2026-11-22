@@ -81,6 +81,9 @@ What a compartment does **not** protect against:
   the next boundary.
 - Claude's credentials are shared on purpose
   (`CLAUDE_SECURESTORAGE_CONFIG_DIR`), so one login works everywhere.
+  They're only nono's phantom tokens, though (see "Claude's login"),
+  so an agent can use your login through nono's proxy while it runs,
+  but can't take it elsewhere.
 - Broad GET to the web is a way to send data out (e.g., in a URL's
   query string). That's a policy choice for workspaces outside
   `~/sensitive`; put a workspace under `~/sensitive` when that matters.
@@ -699,14 +702,53 @@ alternatives in Ubuntu's repositories and rejected them:
 - **systemd-nspawn, LXD, and full containers:** they need root (or a
   privileged daemon) and, like podman, a separate root filesystem.
 
+## Claude's login
+
+When you log in (`/login`) in `compart claude`, nono's `oauth_capture`
+(in `nono-claude-profile.json`, following nono's own example for
+Claude Code) intercepts Claude's token endpoint
+(`https://platform.claude.com/v1/oauth/token`). It keeps the real
+access and refresh tokens in its own state (`~/.local/state/nono`,
+which no sandbox can read; `ci.sh` checks), and gives Claude phantom
+tokens instead, which Claude saves in the shared credentials file. When
+Claude calls `https://api.anthropic.com`, nono's proxy swaps the
+phantom for the real token; nowhere else does a phantom work. A
+refresh goes the same way, so the file never holds a real token. nono
+keeps the real tokens for up to 90 days; after that, log in again.
+
+This protects your login from being taken: an agent, or anything it
+downloads, can copy the phantoms, but they're useless outside nono's
+proxy. It doesn't stop an agent using your account through the proxy
+while it runs, as Claude itself does.
+
+`compart claude` refuses to start if the shared credentials file holds
+a real refresh token (anything not starting with `nono_`): a login from
+before this, or one copied in. Delete the file, revoke that login in
+your Claude account's settings (every agent could read it), and log in
+again in `compart claude`. Also delete `~/.claude/.credentials.json`
+outside any compartment, if it exists: compartments don't see it, but
+`BULKHEAD_NO_COMPARTMENT=1` would.
+
 ## Escape hatches
 
-- `BULKHEAD_NO_COMPARTMENT=1`: skip bwrap and pasta entirely. nono still
-  runs, but compartments share `/tmp`, `~/.claude`, and so on. Since
-  the default profile grants reading `/tmp`, the agent can then read
-  the VM's shared `/tmp`, too.
+- `BULKHEAD_NO_COMPARTMENT=1 compart claude` (or another harness):
+  skip bwrap and pasta entirely, if compartments won't start. nono
+  still runs, with its phantom-token login, but compartments share
+  `/tmp`, `~/.claude`, and so on. Since the default profile grants
+  reading `/tmp`, the agent can then read the VM's shared `/tmp`, too.
+  It prints a warning.
+- `claude-unsandboxed`: the last resort, if nono itself won't run.
+  It runs Claude Code with no sandbox at all, so it can read and
+  change all your files. The shared login's phantoms don't work
+  without nono, so it needs its own, real login, which it keeps with
+  the rest of its state in `~/.local/state/bulkhead/claude-unsandboxed`
+  (its `CLAUDE_CONFIG_DIR`). No nono profile grants that directory
+  (`ci.sh` checks), so no sandbox can read that login. It links your
+  `~/.claude/CLAUDE.md` in, strips the same session handle and tokens
+  `anon-access` does, and refuses to run inside a sandbox. Log out
+  (`/logout`) when you're done.
 
-It prints a warning. Use it only to work around a breakage.
+Use these only to work around a breakage.
 
 ## Known gaps
 
@@ -741,7 +783,10 @@ that pasta forwards nothing unless asked, and the command line
 port lists, and that `bulkhead-git-check` notices and explains new
 repository settings (filters, hooks, nested repositories, included
 files, and a planted `commondir`) and that `compart` won't start until
-you approve them. `tests/compartment-test.sh` runs
+you approve them. It also checks that `compart claude` refuses a real
+Claude login in the shared credentials file, and that no nono profile
+grants `claude-unsandboxed`'s directory or nono's token store.
+`tests/compartment-test.sh` runs
 real compartments; run it by hand in a VM, outside any sandbox (bwrap
 can't run inside nono). It checks the file isolation, the inbox and
 outbox, that an agent can't see or reach the VM's loopback services,
@@ -749,4 +794,5 @@ that a compartment keeps your uid and `TMPDIR`, that names resolve in
 the compartment, that a forwarded port works and an unforwarded one
 doesn't, that you can reach an exposed port and another compartment
 can't, that an agent reaches an allowed site through nono's proxy,
-and that abstract sockets stay apart.
+that an agent can't reach the host's secrets server (directly or
+through the proxy), and that abstract sockets stay apart.
