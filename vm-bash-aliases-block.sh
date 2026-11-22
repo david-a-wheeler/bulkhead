@@ -25,7 +25,14 @@ export PATH="$PATH:$HOME/.local/bin"
 # secrets-server.template.py for the other half of that) plus
 # SSH_AUTH_SOCK, HEROKU_API_KEY, and the GitHub Enterprise tokens - see
 # anon-access's own comment for the full list and why it's a blocklist.
-if [ -z "$BULKHEAD_AUTH_SESSION" ]; then
+#
+# Inside a compartment or other nono sandbox (e.g., compart sh, which
+# reads your ~/.bashrc), there's no session at all: we unset it, so
+# whatever runs there can't get secrets, and secrets-client says it's
+# because you're inside a compartment.
+if [ -n "${BULKHEAD_COMPARTMENT:-}" ] || [ -n "${NONO_CAP_FILE:-}" ]; then
+    unset BULKHEAD_AUTH_SESSION
+elif [ -z "$BULKHEAD_AUTH_SESSION" ]; then
     # shellcheck disable=SC2155  # head/xxd failing here just means an
     # empty or malformed session id, which the secrets server already
     # denies cleanly as "missing session" - not worth splitting the

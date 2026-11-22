@@ -50,10 +50,14 @@ case "$harness" in
   sh)
     # bulkhead-sh (nono-sh-profile.json) is nono's own linux-host-compat
     # plus what the harness packs add for the tools agents run
-    # (runtimes, git's config), with a writable workspace. Your shell's
-    # startup files stay denied (nono's deny_shell_configs), so expect
-    # it to start without them.
+    # (runtimes, git's config), with a writable workspace. Unlike any
+    # harness, it may read bash's startup files (e.g., ~/.bashrc), so
+    # your shell works as usual; no sandbox can write them. So never
+    # put secrets in them. nono denies writing ~/.bash_history, so we
+    # keep history in memory only.
     profile=bulkhead-sh
+    HISTFILE=""
+    export HISTFILE
     [ $# -gt 0 ] || set -- "${SHELL:-/bin/sh}"
     set -- -- "$@"
     ;;

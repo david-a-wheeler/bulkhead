@@ -69,6 +69,7 @@ An agent in a compartment **can't**:
 - Use your credentials: `anon-access` strips them from the environment
   (e.g., `BULKHEAD_AUTH_SESSION`, `SSH_AUTH_SOCK`, GitHub and Heroku
   tokens), and gives `gh` only a read-only public-repositories token.
+  `secrets-client` refuses inside a compartment, saying so.
 
 What a compartment does **not** protect against:
 
@@ -444,8 +445,24 @@ harness: under `bulkhead-sh` (nono's own `linux-host-compat`, plus the
 runtimes and git config the harness packs add, and a writable
 workspace), with your `$SHELL` if you give no COMMAND. Use it to see
 what an agent sees (e.g., `compart sh ls -A /tmp`), or to run a tool
-you don't trust. Your shell's startup files stay denied, so the shell
-starts without them.
+you don't trust.
+
+Unlike any harness, `compart sh` may read bash's startup files
+(`/etc/bash.bashrc`, `/etc/profile`, `~/.bashrc`, `~/.profile`,
+`~/.bash_aliases`, and friends), so your shell works as usual. nono's
+`deny_shell_configs` denies them to every harness, since they may hold
+secrets; `bulkhead-sh` lifts that for reading only
+(`bypass_protection` plus `read_file`). No sandbox can write them,
+since nothing grants writing in `~` or `/etc`. So **never put secrets
+in your shell's startup files**: keep them on the host (see
+`secrets-client`), where every release needs your approval. Bash's
+history stays in memory (`HISTFILE` is empty), since nono denies
+writing `~/.bash_history`.
+
+Inside any compartment or nono sandbox, `~/.bash_aliases` makes no
+`BULKHEAD_AUTH_SESSION` (it unsets it), and `secrets-client` refuses at
+once, saying you're inside compartment NAME, rather than asking the
+secrets server, which would refuse anyway.
 
 `compart` runs one harness's setup (see its `case`), then
 `bulkhead-workspace prepare`, which finds the current directory's

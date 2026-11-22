@@ -80,6 +80,17 @@ render_template secrets-server.template.py "$tmp/secrets-server.py" \
 for f in "$tmp/secrets-client" "$tmp/secrets-server.py" extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py tests/net-probe.py; do
   python3 -m py_compile "$f" || failed "$f (py_compile)"
 done
+# Inside a compartment (or nono), secrets-client refuses at once, saying
+# so, and ~/.bash_aliases makes no session.
+out="$(env BULKHEAD_COMPARTMENT=projects-x python3 "$tmp/secrets-client" --get GH_TOKEN 2>&1)" &&
+  failed "secrets-client ran inside a compartment"
+case "$out" in *"inside compartment projects-x"*) ;; *) failed "secrets-client's compartment refusal: $out" ;; esac
+env -u BULKHEAD_COMPARTMENT NONO_CAP_FILE=x python3 "$tmp/secrets-client" --get GH_TOKEN 2>&1 |
+  grep -q 'inside a nono sandbox' || failed "secrets-client's nono refusal"
+[ -z "$(env BULKHEAD_COMPARTMENT=projects-x BULKHEAD_AUTH_SESSION=session_1 bash -c '. ./vm-bash-aliases-block.sh; printf %s "${BULKHEAD_AUTH_SESSION-}"')" ] ||
+  failed "vm-bash-aliases-block.sh kept a session inside a compartment"
+[ -n "$(env -u BULKHEAD_COMPARTMENT -u NONO_CAP_FILE -u BULKHEAD_AUTH_SESSION bash -c '. ./vm-bash-aliases-block.sh; printf %s "${BULKHEAD_AUTH_SESSION-}"')" ] ||
+  failed "vm-bash-aliases-block.sh made no session outside a compartment"
 
 render_template infer-models.template.sh "$tmp/infer-models" INFER_PORT
 render_template infer-logs.template.sh "$tmp/infer-logs" INFER_PORT
@@ -130,7 +141,9 @@ jq -e '.meta.name == "bulkhead-broad" and (.network.allow_domain | length > 1000
   nono-broad-profile.json > /dev/null || failed nono-broad-profile.json
 jq -e '.extends == "nolabs-ai/claude" and (.network.allow_domain | length > 0)' \
   nono-claude-profile.json > /dev/null || failed nono-claude-profile.json
-jq -e '.extends == "linux-host-compat" and .workdir.access == "readwrite"' \
+jq -e '.extends == "linux-host-compat" and .workdir.access == "readwrite" and
+    ((.filesystem.bypass_protection // []) - .filesystem.read_file == []) and
+    ([.filesystem.read_file[] | select(test("bash_history"))] == [])' \
   nono-sh-profile.json > /dev/null || failed nono-sh-profile.json
 step "workspaces (bulkhead-workspace, bulkhead-compartment --dry-run, compart)"
 # A fake HOME with projects/, sensitive/, and directories outside both,

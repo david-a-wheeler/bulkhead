@@ -63,11 +63,32 @@ def get_default_gateway() -> str:
     return "192.168.64.1"
 
 
+def refuse_in_sandbox() -> None:
+  """Exits, saying why, inside a compartment or nono sandbox: nothing
+  there gets a session (see vm-bash-aliases-block.sh), so the server
+  would refuse anyway, with a less helpful reason.
+  """
+  compartment = os.environ.get("BULKHEAD_COMPARTMENT", "")
+  if compartment:
+    where = f"compartment {compartment}"
+  elif os.environ.get("NONO_CAP_FILE"):
+    where = "a nono sandbox"
+  else:
+    return
+  print(
+      f"secrets-client: refused: you're inside {where}, which never gets "
+      "secrets (see compartments.md); run this from a shell outside it.",
+      file=sys.stderr,
+  )
+  sys.exit(1)
+
+
 def fetch_secret(name: str, context: str) -> str:
   """Requests `name` from secrets-server.py; returns the token on
   success. Prints an error to stderr and exits nonzero on denial, not
   found, or unreachable.
   """
+  refuse_in_sandbox()
   payload = {
       "session": os.environ.get("BULKHEAD_AUTH_SESSION", ""),
       "path": os.getcwd(),

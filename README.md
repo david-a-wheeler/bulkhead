@@ -473,7 +473,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `nono-sh-profile.json`: the `bulkhead-sh` profile `compart sh` uses:
   nono's own `linux-host-compat`, plus the groups the harness packs add
   for the tools agents run (language runtimes, git's config), with a
-  writable workspace.
+  writable workspace, and bash's startup files (e.g., `~/.bashrc`)
+  readable but not writable. So never put secrets in them.
 - `nono-claude-profile.json`: the `bulkhead-claude` profile `compart claude`
   uses: `nolabs-ai/claude` plus only Claude Code's own hosts (its API
   and login), since other harnesses don't need them. It also undoes
@@ -500,7 +501,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   page reporting (UTM QEMU argument `VM_BALLOON_QEMU_ARG`);
   `host-setup.sh` and `vm-setup.sh` warn about any VM without one. Installed by `vm-setup.sh`.
 - `vm-bash-aliases-block.sh`: the managed block installed into each VM's
-  `~/.bash_aliases`: editor and `BULKHEAD_AUTH_SESSION`. Not a
+  `~/.bash_aliases`: editor and `BULKHEAD_AUTH_SESSION` (none inside a
+  compartment or nono sandbox, where `compart sh` may read it). Not a
   template (nothing left to substitute since the Claude Code wrapper moved
   out to its own file above). Bash-only for now: a shell like zsh doesn't source
   `~/.bash_aliases` by default; supporting another shell would mean a

@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "bulkhead-sh",
-    "description": "linux-host-compat (nono's own), plus the runtimes and git config the harness packs add, and a writable workspace, for compart sh (see compartments.md)"
+    "description": "linux-host-compat (nono's own), plus the runtimes and git config the harness packs add, a writable workspace, and read-only bash startup files, for compart sh (see compartments.md)"
   },
   "extends": "linux-host-compat",
   "groups": {
@@ -16,5 +16,32 @@
   },
   "workdir": {
     "access": "readwrite"
+  },
+  "filesystem": {
+    "read": [
+      "/etc/profile.d",
+      "/etc/bash_completion.d"
+    ],
+    "read_file": [
+      "/etc/bash.bashrc",
+      "/etc/profile",
+      "/etc/bash_completion",
+      "$HOME/.bashrc",
+      "$HOME/.profile",
+      "$HOME/.bash_profile",
+      "$HOME/.bash_login",
+      "$HOME/.bash_logout",
+      "$HOME/.bash_aliases",
+      "$HOME/.inputrc",
+      "$HOME/.dircolors",
+      "$HOME/.config/environment.d/50-bulkhead-git-safety.conf"
+    ],
+    "bypass_protection": [
+      "$HOME/.bashrc",
+      "$HOME/.profile",
+      "$HOME/.bash_profile",
+      "$HOME/.bash_login",
+      "$HOME/.bash_logout"
+    ]
   }
 }
