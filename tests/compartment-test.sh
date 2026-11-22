@@ -214,6 +214,23 @@ if run_in "$b" true --expose-port 010 2> /dev/null; then r=ran; else r=refused; 
 check "a compartment won't start with a bad exposed port" "$r" refused
 r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd --allow-domain example.com -- curl -s -o /dev/null -w %{http_code} --max-time 20 https://example.com/")
 check "an agent reaches an allowed site through nono's proxy" "$r" 200
+# The host's secrets server: you can reach it (it refuses a request
+# with no session, and logs that), but no agent can, neither directly
+# nor through nono's proxy (in broad mode, the widest). secrets-client
+# refuses inside a compartment anyway, but an agent could skip it.
+# config.sh reads config.local.sh from $SCRIPT_DIR.
+# shellcheck source=SCRIPTDIR/../config.sh
+port=$(SCRIPT_DIR="$repo" && . "$repo/config.sh" && echo "$SECRETS_SERVER_PORT")
+gw=$(ip route | awk '/default/ {print $3; exit}')
+secret_probe="curl -s --max-time 5 -X POST -d {} http://$gw:$port/secret"
+if [ -n "$gw" ] && $secret_probe | grep -q BULKHEAD_AUTH_SESSION; then
+  r=$(run_agent "$a" "python3 ,net-probe.py connect $port $gw")
+  check "an agent can't connect to the secrets server" "$r" refused
+  r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --extends bulkhead-broad --allow-cwd -- sh -c '$secret_probe | grep -q BULKHEAD_AUTH_SESSION && echo reached || echo refused'")
+  check "an agent can't reach the secrets server through nono's proxy" "$r" refused
+else
+  echo "skip: the secrets server (${gw:-no gateway}, port $port) isn't answering, so I can't check that agents can't reach it."
+fi
 name="bulkhead-test-$$"
 run_agent "$a" "python3 ,net-probe.py abstract-listen $name" > ,compartment-test.abs &
 sleep 2

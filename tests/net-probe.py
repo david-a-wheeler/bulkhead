@@ -5,7 +5,8 @@
 #
 # Usage: python3 net-probe.py OP [NAME]
 #   connect22         connect to the VM's sshd on 127.0.0.1:22
-#   connect PORT      connect to 127.0.0.1:PORT
+#   connect PORT [HOST]
+#                     connect to HOST (default 127.0.0.1) on PORT
 #   see22             find a listener on port 22 in /proc/self/net
 #   resolve NAME      look up host NAME
 #   loopback          listen on 127.0.0.1 and connect to ourselves
@@ -45,7 +46,8 @@ try:
     elif op == "connect":
         s = socket.socket()
         s.settimeout(2)
-        s.connect(("127.0.0.1", int(sys.argv[2])))
+        host = sys.argv[3] if len(sys.argv) > 3 else "127.0.0.1"
+        s.connect((host, int(sys.argv[2])))
     elif op == "see22":
         # Field 2 is local address:port in hex; state 0A is LISTEN.
         found = False
