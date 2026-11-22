@@ -402,9 +402,8 @@ over the paths `compartment-paths` lists, each as one of these kinds:
   `~/.claude/CLAUDE.md`,
   `settings.json`, `keybindings.json`, `agents`, `commands`, `hooks`,
   `skills`, and `plugins`.
-- `tmpdir`: `/tmp` becomes the workspace's `$TMPDIR` (on disk, inside
-  the workspace) if it's there, and a fresh tmpfs otherwise.
-- `tmpfs`: an empty in-memory directory for each run.
+- `tmpdir`: `/tmp` becomes the current directory's `.tmp` (on disk),
+  which is also the compartment's `TMPDIR`.
 
 bwrap also mounts `netns-resolv.conf` (see above) and sets
 `BULKHEAD_COMPARTMENT` to the compartment's key (`projects-NAME`,

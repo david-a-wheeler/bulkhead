@@ -203,13 +203,11 @@ out="$(compart_dry "$fh/projects/p1/sub")"
 [ "$(printf '%s\n' "$out" | head -n 1)" = "key: projects-p1" ] || failed "compartment key"
 printf '%s\n' "$out" | tail -n 3 | tr '\n' '|' | grep -qx -- '--|cmd|a b|' ||
   failed "compartment command passthrough"
-printf '%s\n' "$out" | grep -qx -- '--tmpfs' || failed "compartment private /tmp, without a TMPDIR"
-mkdir -p "$fh/projects/p1/sub/.tmp"
-(cd "$fh/projects/p1/sub" && TMPDIR="$fh/projects/p1/sub/.tmp" wsenv \
-  "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd) | tr '\n' '|' |
-  grep -qF -- "|--bind|$fhp/projects/p1/sub/.tmp|/tmp|" || failed "compartment /tmp is its TMPDIR"
+# /tmp and TMPDIR are the directory's .tmp, whatever TMPDIR was.
 (cd "$fh/projects/p1/sub" && TMPDIR="$fh" wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd) |
-  grep -qx -- '--tmpfs' || failed "compartment /tmp ignores a TMPDIR outside the directory"
+  tr '\n' '|' > "$tmp/dry"
+grep -qF -- "|--setenv|TMPDIR|$fhp/projects/p1/sub/.tmp|" "$tmp/dry" || failed "compartment TMPDIR is .tmp"
+grep -qF -- "|--bind|$fhp/projects/p1/sub/.tmp|/tmp|" "$tmp/dry" || failed "compartment /tmp is .tmp"
 printf '%s\n' "$out" | grep -qx "$fhp/projects/p1.dossier/state/.*%.claude" ||
   failed "compartment private ~/.claude"
 printf '%s\n' "$out" | grep -qx -- '--ro-bind' || failed "compartment read-only CLAUDE.md"

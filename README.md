@@ -330,8 +330,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   over. Run it once per project, outside any compartment. Transitional:
   it goes away once your old projects have their history.
 - `compartment-paths`: the data `bulkhead-compartment` reads: which
-  paths are private per compartment, read-only shared, a fresh tmpfs,
-  or the compartment's `$TMPDIR`. Installed in
+  paths are private per compartment, read-only shared, or the
+  compartment's `$TMPDIR` (the directory's `.tmp`). Installed in
   `/usr/local/libexec/bulkhead/`.
 - `netns-resolv.conf`: `/etc/resolv.conf` inside each compartment's
   network namespace; pasta forwards its address to the VM's resolver.

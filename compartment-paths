@@ -8,10 +8,8 @@
 #   ro       the real path, read-only (skipped if it doesn't exist), so
 #            your shared setup applies everywhere but no compartment can
 #            change it for the others
-#   tmpfs    an empty in-memory directory for each run
-#   tmpdir   $TMPDIR (anon-access's, in the current directory), so
-#            tools that ignore TMPDIR use it too, on disk, not in RAM;
-#            else (no TMPDIR there) like tmpfs
+#   tmpdir   the current directory's .tmp, which is also TMPDIR, so
+#            tools that ignore TMPDIR use it too, on disk, not in RAM
 #
 # Anything a harness writes that another compartment could read (or
 # run) belongs here. List every harness's paths in this one file.

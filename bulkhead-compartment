@@ -87,13 +87,15 @@ ncmd=$#
 # uid and gid; otherwise programs see uid 0 (e.g., Claude Code then
 # picks /tmp/claude-0 and refuses it).
 set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)" --dev-bind / /
-# pasta's AppArmor profile runs its command with "Ux", which has glibc
-# drop TMPDIR (among other variables) from the environment. Without
-# TMPDIR, nono expands $TMPDIR (as in bulkhead-claude) to /tmp, so set
-# it again (see compartments.md).
-if [ -n "${TMPDIR:-}" ]; then
-  set -- "$@" --setenv TMPDIR "$TMPDIR"
-fi
+# The compartment's temp directory is the directory's .tmp (on disk,
+# not in RAM), as /tmp and as TMPDIR. We always set TMPDIR: pasta's
+# AppArmor profile runs its command with "Ux", which has glibc drop
+# TMPDIR (among other variables) from the environment, and without it,
+# nono expands $TMPDIR (as in bulkhead-claude) to /tmp (see
+# compartments.md).
+tmp="$here/.tmp"
+"$dry_run" || mkdir -p "$tmp"
+set -- "$@" --setenv TMPDIR "$tmp"
 # The namespace's resolver: an address pasta maps to the VM's own.
 # We bind over the file /etc/resolv.conf resolves to (on Ubuntu,
 # systemd-resolved's stub file).
@@ -130,17 +132,8 @@ while read -r kind path; do
       [ -e "$path" ] || continue
       set -- "$@" --ro-bind "$path" "$path"
       ;;
-    tmpfs)
-      set -- "$@" --tmpfs "$path"
-      ;;
     tmpdir)
-      # Only a TMPDIR in this directory, so TMPDIR=/tmp (say) can't
-      # bring the shared /tmp back.
-      td="$(cd "${TMPDIR:-/nonexistent}" 2> /dev/null && pwd -P)" || td=""
-      case "${td:-/nonexistent}/" in
-        "$here"/?*) set -- "$@" --bind "$td" "$path" ;;
-        *) set -- "$@" --tmpfs "$path" ;;
-      esac
+      set -- "$@" --bind "$tmp" "$path"
       ;;
     *)
       echo "bulkhead-compartment: $paths_file: bad kind: $kind" >&2
