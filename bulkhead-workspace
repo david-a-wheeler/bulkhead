@@ -4,66 +4,102 @@
 # workspace's dossier. Every bulkhead script asks this, so they all
 # agree. Run it outside every sandbox.
 #
-# Usage: bulkhead-workspace COMMAND [DIR]
-# DIR defaults to the current directory. COMMAND is one of:
+# Usage: bulkhead-workspace key|root|dossier [DIR]
+#        bulkhead-workspace prepare [--yes] [DIR]
+#        bulkhead-workspace orphans
+# DIR defaults to the current directory.
 #   key       print the workspace's name: projects-NAME, sensitive-NAME,
 #             or dir%PATH (its path with "/" as "%")
 #   root      print the workspace's top directory
-#   dossier   print ROOT.dossier, beside it: data about the workspace
-#             that its agent mustn't fully control, or that mustn't
-#             arrive with the workspace's contents
+#   dossier   print its dossier: data about the workspace that its agent
+#             mustn't fully control, or that mustn't arrive with the
+#             workspace's contents
 #   prepare   create or update the dossier, then print its path. Safe to
 #             re-run. compart and anon-access run this before anything
 #             else: nono binds grants at start, so a directory made
-#             later stays denied.
-#   orphans   print each registered workspace's dossier whose workspace
-#             is gone (moved or deleted without it)
-#   registry  print the file listing every workspace that has had a
-#             dossier
+#             later stays denied. Outside ~/projects and ~/sensitive,
+#             it asks you (on the terminal) before creating a dossier,
+#             unless you give --yes; with no terminal, it refuses.
+#   orphans   print each dossier whose workspace is gone (moved or
+#             deleted without it)
 #
+# The workspace is ~/projects/NAME or ~/sensitive/NAME when DIR's real
+# path is in one of them, with its dossier beside it (NAME.dossier).
+# Else it's DIR itself, with its dossier in
+# ~/.local/state/bulkhead/dossiers/KEY, where no workspace can hold it.
 # The dossier holds state/ (the harness's private files, which
 # bulkhead-compartment binds over ~/.claude and the like), logs/ (e.g.,
 # nono's log; no agent access), policy/ (local-ports and expose-ports),
 # inbox/, outbox/, and workspace (the path it was made for).
 #
-# The workspace is ~/projects/NAME or ~/sensitive/NAME when DIR's real
-# path is in one of them; else the nearest registered workspace that
-# holds DIR; else DIR itself. Every command but orphans and registry
-# refuses (exits 1, saying why) DIR when DIR or its workspace matches a
-# pattern in workspace-forbidden ($BULKHEAD_WORKSPACE_FORBIDDEN, else
-# the installed copy), when the workspace is ~ or above it (an agent
-# there would be granted every workspace's dossier), or when the
-# workspace holds another workspace's dossier (its agent could change
-# that one). prepare also fails if you can't write the workspace or
-# create its dossier, or if the dossier isn't yours.
+# Every command but orphans refuses (exits 1, saying why) DIR when DIR
+# or its workspace matches a pattern in workspace-forbidden
+# ($BULKHEAD_WORKSPACE_FORBIDDEN, else the installed copy), or when the
+# workspace is ~ or above it (an agent there would be granted every
+# workspace's dossier). prepare also fails if you can't write the
+# workspace or create its dossier, or if the dossier isn't yours.
 set -eu
 
 usage() {
-  echo "Usage: bulkhead-workspace key|root|dossier|prepare|orphans|registry [DIR]" >&2
+  echo "Usage: bulkhead-workspace key|root|dossier|prepare [--yes] [DIR], or orphans" >&2
   exit 2
 }
 say() {
   echo "bulkhead: $*" >&2
 }
-[ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
+[ "$#" -ge 1 ] || usage
 cmd="$1"
-here="$(cd "${2:-.}" && pwd -P)"
+shift
+yes=false
+if [ "$cmd" = prepare ] && [ "${1:-}" = --yes ]; then
+  yes=true
+  shift
+fi
+[ "$#" -le 1 ] || usage
+here="$(cd "${1:-.}" && pwd -P)"
 home="$(cd "$HOME" && pwd -P)"
 # Not $XDG_STATE_HOME: nono-claude-profile.json grants one directory
 # under ~/.local/state/bulkhead, and this must stay outside it.
+central="$home/.local/state/bulkhead/dossiers"
+make_central() {
+  mkdir -p "$(dirname "$central")"
+  [ -d "$central" ] || mkdir -m 700 "$central"
+}
+
+# TRANSITIONAL: remove once every VM has run this. Dossiers outside
+# ~/projects and ~/sensitive used to sit beside their workspaces, listed
+# in a registry. Move each into $central, all at once, since a
+# workspace could hold another's old dossier; then the registry goes.
 registry="$home/.local/state/bulkhead/workspaces"
+if [ -f "$registry" ]; then
+  while IFS= read -r ws; do
+    case "$ws/" in
+      "$home"/projects/?*/* | "$home"/sensitive/?*/* | /) continue ;;
+    esac
+    old="$ws.dossier"
+    new="$central/dir$(printf '%s' "$ws" | tr '/' '%')"
+    [ -d "$old" ] && [ ! -L "$old" ] || continue
+    if [ -e "$new" ]; then
+      say "WARNING: didn't move $old to $new, which exists; look them over."
+      continue
+    fi
+    make_central
+    mv "$old" "$new"
+    say "moved $old to $new (see compartments.md)."
+  done < "$registry"
+  rm -f "$registry"
+fi
+
 case "$cmd" in
-  registry)
-    printf '%s\n' "$registry"
-    exit 0
-    ;;
   orphans)
-    [ -r "$registry" ] || exit 0
-    while IFS= read -r ws; do
-      if [ -n "$ws" ] && [ ! -d "$ws" ] && [ -d "$ws.dossier" ]; then
-        printf '%s\n' "$ws.dossier"
-      fi
-    done < "$registry"
+    for d in "$home"/projects/*.dossier "$home"/sensitive/*.dossier; do
+      [ ! -d "$d" ] || [ -d "${d%.dossier}" ] || printf '%s\n' "$d"
+    done
+    for d in "$central"/*; do
+      [ -d "$d" ] || continue
+      ws="$(cat "$d/workspace" 2> /dev/null || :)"
+      [ -n "$ws" ] && [ -d "$ws" ] || printf '%s\n' "$d"
+    done
     exit 0
     ;;
   key | root | dossier | prepare) ;;
@@ -83,23 +119,17 @@ case "$here/" in
     rest="${rest#*/}"
     key="$top-${rest%%/*}"
     root="$home/$top/${rest%%/*}"
+    dossier="$root.dossier"
+    beside=true
     ;;
   *)
-    root=""
-    if [ -r "$registry" ]; then
-      while IFS= read -r ws; do
-        [ -n "$ws" ] || continue
-        case "$here/" in
-          "$ws"/*) [ "${#ws}" -le "${#root}" ] || root="$ws" ;;
-        esac
-      done < "$registry"
-    fi
-    [ -n "$root" ] || root="$here"
+    root="$here"
     # "/" becomes "%" so the key is one path component.
     key="dir$(printf '%s' "$root" | tr '/' '%')"
+    dossier="$central/$key"
+    beside=false
     ;;
 esac
-dossier="$root.dossier"
 
 case "$home/" in
   "${root%/}"/*) refuse "$root holds your home directory, so an agent there could change every workspace's dossier." ;;
@@ -124,17 +154,6 @@ while IFS= read -r line; do
     esac
   done
 done < "$forbidden"
-if [ -r "$registry" ]; then
-  while IFS= read -r ws; do
-    [ -n "$ws" ] || continue
-    case "$ws/" in
-      "$root"/?*)
-        [ ! -d "$ws.dossier" ] ||
-          refuse "$root holds $ws.dossier, another workspace's dossier. Start in $ws instead, or move it out of $root."
-        ;;
-    esac
-  done < "$registry"
-fi
 
 case "$cmd" in
   key) printf '%s\n' "$key"; exit 0 ;;
@@ -146,6 +165,18 @@ esac
 [ -w "$root" ] || { say "can't write $root, so it can't be a workspace."; exit 1; }
 new=false
 if [ ! -e "$dossier" ] && [ ! -L "$dossier" ]; then
+  # Outside ~/projects and ~/sensitive, a new workspace is unusual, so
+  # ask, in case you started in the wrong place. No answer is "no".
+  if ! "$beside" && ! "$yes"; then
+    printf 'bulkhead: make %s a workspace, with its dossier in %s? [y/N] ' "$root" "$dossier" >&2
+    answer=""
+    read -r answer 2> /dev/null < /dev/tty || echo >&2
+    case "$answer" in
+      y | Y | yes | YES | Yes) ;;
+      *) say "not making $root a workspace."; exit 1 ;;
+    esac
+  fi
+  "$beside" || make_central
   mkdir -m 700 "$dossier" 2> /dev/null ||
     { say "can't create $dossier, which every workspace needs (see compartments.md)."; exit 1; }
   new=true
@@ -182,22 +213,11 @@ fi
 # Notice moves: DOSSIER/workspace records the workspace it was made for.
 recorded="$(cat "$dossier/workspace" 2> /dev/null || :)"
 if "$new"; then
-  say "created $dossier for this workspace. If you moved $root here from elsewhere, replace $dossier with its old dossier."
+  say "created $dossier for this workspace. If you moved $root here from elsewhere, replace $dossier with its old dossier (see bulkhead-workspace orphans)."
 elif [ "$recorded" != "$root" ]; then
   say "$dossier was for ${recorded:-an unrecorded path}; it's now for $root (you moved them together, I assume)."
 fi
 [ "$recorded" = "$root" ] || printf '%s\n' "$root" > "$dossier/workspace"
-
-# Register it, dropping the old path if that workspace is gone.
-old="$root"
-if [ -n "$recorded" ] && [ "$recorded" != "$root" ] && [ ! -d "$recorded" ]; then
-  old="$recorded"
-fi
-if ! grep -qsFx -- "$root" "$registry" || grep -qsFx -- "$old" "$registry"; then
-  mkdir -p "$(dirname "$registry")"
-  { grep -svFx -e "$root" -e "$old" "$registry" || :; printf '%s\n' "$root"; } > "$registry.new"
-  mv -f "$registry.new" "$registry"
-fi
 
 # TRANSITIONAL: remove the rest of prepare (up to printing the dossier)
 # once every VM has run it; it moves older layouts into the dossier.
@@ -220,7 +240,7 @@ if [ -d "$dotdir" ] && [ ! -L "$dotdir" ]; then
   fi
 fi
 # Old logs from ~/.local/state/bulkhead/logs/KEY.
-oldlogs="$(dirname "$registry")/logs/$key"
+oldlogs="$home/.local/state/bulkhead/logs/$key"
 if [ -d "$oldlogs" ]; then
   for f in "$oldlogs"/*; do
     if [ -e "$f" ] && [ ! -e "$dossier/logs/${f##*/}" ]; then mv "$f" "$dossier/logs/"; fi

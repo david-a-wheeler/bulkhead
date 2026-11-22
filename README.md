@@ -288,22 +288,23 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   through `bulkhead-compartment`, passing on any of its options (e.g.,
   `--forward-port`).
 - `bulkhead-workspace`: finds a directory's workspace and sets up its
-  dossier beside it (`DIR.dossier` for `DIR`; see `compartments.md`),
-  before any sandbox starts, so every script agrees on them. The
-  workspace is `~/projects/NAME`, `~/sensitive/NAME`, the nearest
-  registered workspace holding the directory, or else the directory
-  itself. It refuses `~` and anything above it, anything matching
-  `workspace-forbidden`, and a directory holding another workspace's
-  dossier. The dossier holds what's about the workspace but mustn't be
-  under its agent's control (`logs/`, `policy/`), mustn't arrive with
-  its contents (`state/`, the harness's private files), or passes
-  between you and the agent (`inbox/`, `outbox/`). `prepare` notices a
-  workspace moved with its dossier, and (for now) moves an old
-  `.bulkhead` and old logs in; `orphans` lists dossiers left behind
-  (`vm-setup.sh` warns about them). The dossier's `policy/local-ports`
-  (ports on the agent's own loopback) and `policy/expose-ports` (ports
-  you can also reach from the VM) are one port number per line;
-  `compart` reads them.
+  dossier (see `compartments.md`), before any sandbox starts, so every
+  script agrees on them. The workspace is `~/projects/NAME` or
+  `~/sensitive/NAME`, with its dossier beside it (`NAME.dossier`), or
+  else the directory itself, with its dossier in
+  `~/.local/state/bulkhead/dossiers`, after you confirm on the terminal
+  (or give `prepare --yes`). It refuses `~` and anything above it, and
+  anything matching `workspace-forbidden`. The dossier holds what's
+  about the workspace but mustn't be under its agent's control
+  (`logs/`, `policy/`), mustn't arrive with its contents (`state/`, the
+  harness's private files), or passes between you and the agent
+  (`inbox/`, `outbox/`). `prepare` notices a workspace moved with its
+  dossier, and (for now) moves older layouts in; `orphans` lists
+  dossiers whose workspace is gone (`vm-setup.sh` warns about them).
+  Move a workspace's dossier with it, using `mv`. The dossier's
+  `policy/local-ports` (ports on the agent's own loopback) and
+  `policy/expose-ports` (ports you can also reach from the VM) are one
+  port number per line; `compart` reads them.
 - `bulkhead-compartment`: runs a command in its directory's
   compartment using bubblewrap, so one project's agent can't leave
   anything for another's to read or run: each compartment gets a

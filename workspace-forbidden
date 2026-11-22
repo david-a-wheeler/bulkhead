@@ -10,12 +10,14 @@
 # These hold every workspace (and so every dossier).
 ~/projects
 ~/sensitive
-# Your configuration, keys, and state (e.g., ~/.ssh, ~/.config).
+# Your configuration, keys, and state (e.g., ~/.ssh, ~/.config), and
+# the central dossiers (~/.local/state/bulkhead/dossiers).
 ~/.*
 # A workspace's dossier is data about it that its agent mustn't control.
 *.dossier
 *.dossier/*
-# Shared with other users, who could plant a dossier first.
+# Shared with other users, who could plant files there first (e.g., a
+# workspace's .tmp).
 /tmp
 /tmp/*
 /var/tmp

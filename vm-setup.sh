@@ -315,12 +315,12 @@ sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbi
 orphans="$(/usr/local/bin/bulkhead-workspace orphans)"
 if [ -n "$orphans" ]; then
   cat >&2 <<EOF
-WARNING: these dossiers have no workspace beside them anymore:
+WARNING: these dossiers' workspaces are gone:
 $orphans
   Each holds a workspace's logs and harness state (e.g., Claude's
   transcripts and memory). If you moved the workspace, move its dossier
-  beside it (DIR.dossier for DIR); if you deleted it, delete the dossier and
-  its line in $(/usr/local/bin/bulkhead-workspace registry).
+  with mv (see compartments.md, "Moving a workspace"); if you deleted
+  it, delete the dossier.
 EOF
 fi
 

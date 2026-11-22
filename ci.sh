@@ -148,8 +148,8 @@ run_ws() {
 }
 cinfo() { wsenv ./bulkhead-workspace "$@"; }
 compart_dry() { run_ws "$1" bulkhead-compartment --dry-run cmd 'a b'; }
-prep() { run_ws "$1" bulkhead-workspace prepare > /dev/null; }
-registry="$fhp/.local/state/bulkhead/workspaces"
+prep() { run_ws "$1" bulkhead-workspace prepare --yes > /dev/null; }
+central="$fhp/.local/state/bulkhead/dossiers"
 
 # Keys, roots, and where the dossier goes.
 [ "$(cinfo key "$fh/projects/p1/sub")" = projects-p1 ] || failed "workspace key under ~/projects"
@@ -158,6 +158,8 @@ registry="$fhp/.local/state/bulkhead/workspaces"
   failed "workspace key elsewhere"
 [ "$(cinfo dossier "$fh/projects/p1/sub")" = "$fhp/projects/p1.dossier" ] ||
   failed "workspace dossier beside it"
+[ "$(cinfo dossier "$fh/other")" = "$central/dir$(printf '%s' "$fhp/other" | tr '/' '%')" ] ||
+  failed "workspace dossier elsewhere is central"
 cinfo bogus "$fh/other" 2> /dev/null && failed "bulkhead-workspace accepted a bad command"
 
 # Refusals: ~ and above it, the forbidden patterns, and an unwritable
@@ -168,6 +170,7 @@ for d in "$fh" "$fh/.." / "$fh/projects" "$fh/sensitive" "$fh/.ssh" "$fh/.claude
   cinfo root "$d" > /dev/null 2>&1 && failed "workspace allowed in $d"
   prep "$d" 2> /dev/null && failed "prepare allowed $d"
 done
+rmdir "$fh/projects/x.dossier"
 cinfo root "$fh/junk" > /dev/null || failed "workspace refused in ~/junk"
 mkdir -p "$fh/ro"
 chmod 555 "$fh/ro"
@@ -176,8 +179,8 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 chmod 755 "$fh/ro"
 
-# prepare: makes the dossier, records and registers the workspace, and
-# says so only the first time.
+# prepare: makes the dossier, records the workspace, and says so only
+# the first time.
 [ "$(run_ws "$fh/projects/p1/sub" bulkhead-workspace prepare 2> /dev/null)" = "$fhp/projects/p1.dossier" ] ||
   failed "prepare printed the dossier"
 rm -rf "$fh/projects/p1.dossier"
@@ -189,9 +192,15 @@ done
 [ "$(stat -c %a "$fh/projects/p1.dossier")" = 700 ] || failed "prepare made .dossier mode 700"
 [ "$(cat "$fh/projects/p1.dossier/workspace")" = "$fhp/projects/p1" ] ||
   failed "prepare recorded the workspace"
-grep -qFx "$fhp/projects/p1" "$registry" || failed "prepare registered the workspace"
 [ -z "$(prep "$fh/projects/p1" 2>&1)" ] || failed "prepare was quiet the second time"
-[ "$(grep -cFx "$fhp/projects/p1" "$registry")" = 1 ] || failed "prepare registered once"
+# Outside ~/projects and ~/sensitive, prepare asks first, and with no
+# terminal to ask on, it refuses. setsid gives it no terminal.
+(cd "$fh/other" && wsenv setsid -w "$SCRIPT_DIR/bulkhead-workspace" prepare > /dev/null 2>&1) &&
+  failed "prepare made a central dossier without asking"
+[ ! -e "$central/dir$(printf '%s' "$fhp/other" | tr '/' '%')" ] ||
+  failed "prepare refused but made the dossier anyway"
+(cd "$fh/projects/p1" && wsenv setsid -w "$SCRIPT_DIR/bulkhead-workspace" prepare > /dev/null 2>&1) ||
+  failed "prepare asked under ~/projects"
 
 # A dossier that isn't a directory you own (here, a symlink) is refused.
 mkdir -p "$fh/projects/p3" "$wst/elsewhere"
@@ -271,7 +280,7 @@ done
 cp "$wst/local-ports" "$d1/policy/local-ports"
 cp "$wst/expose-ports" "$d1/policy/expose-ports"
 
-# Moving a workspace with its dossier updates the record and registry.
+# Moving a workspace with its dossier updates the record.
 mv "$fh/projects/p1" "$fh/projects/p1b"
 mv "$fh/projects/p1.dossier" "$fh/projects/p1b.dossier"
 run_ws "$fh/projects/p1b" bulkhead-workspace orphans | grep -q . &&
@@ -280,26 +289,39 @@ out="$(prep "$fh/projects/p1b" 2>&1)" || failed "prepare after a move"
 case "$out" in *"it's now for"*) ;; *) failed "prepare noticed the move" ;; esac
 [ "$(cat "$fh/projects/p1b.dossier/workspace")" = "$fhp/projects/p1b" ] ||
   failed "prepare updated the record after a move"
-grep -qFx "$fhp/projects/p1" "$registry" && failed "prepare dropped the old path"
 # Moving a workspace without its dossier leaves an orphan.
 prep "$fh/sensitive/s1" 2> /dev/null
 mv "$fh/sensitive/s1" "$fh/sensitive/s1b"
 [ "$(run_ws "$fh/other" bulkhead-workspace orphans)" = "$fhp/sensitive/s1.dossier" ] ||
   failed "orphans listed a dossier left behind"
 
-# Nested workspaces outside ~/projects: under a registered one, its
-# subdirectories share it; above one, an agent is refused.
+# Outside ~/projects and ~/sensitive, each directory is its own
+# workspace, with a central dossier, so nesting puts no dossier in
+# another workspace.
 prep "$fh/junk" 2> /dev/null || failed "prepare in ~/junk"
-[ "$(cinfo root "$fh/junk/sub")" = "$fhp/junk" ] || failed "a registered workspace holds its subdirectories"
-rm -rf "$fh/junk.dossier"
-grep -svFx "$fhp/junk" "$registry" > "$registry.new" || :
-mv "$registry.new" "$registry"
 prep "$fh/junk/sub" 2> /dev/null || failed "prepare in ~/junk/sub"
-mkdir -p "$fh/junk/sub2"
-mv "$fh/junk/sub" "$fh/junk/sub2/sub"
-mv "$fh/junk/sub.dossier" "$fh/junk/sub2/sub.dossier"
-prep "$fh/junk/sub2/sub" 2> /dev/null
-cinfo root "$fh/junk" > /dev/null 2>&1 && failed "workspace allowed above another's .dossier"
+[ "$(cinfo root "$fh/junk/sub")" = "$fhp/junk/sub" ] || failed "a subdirectory elsewhere is its own workspace"
+[ -d "$central/dir$(printf '%s' "$fhp/junk" | tr '/' '%')/state" ] || failed "prepare made a central dossier"
+[ "$(stat -c %a "$central")" = 700 ] || failed "prepare made the central directory mode 700"
+[ ! -e "$fh/junk.dossier" ] && [ ! -e "$fh/junk/sub.dossier" ] || failed "prepare put a dossier beside ~/junk"
+# A central dossier whose workspace is gone is an orphan.
+mv "$fh/junk/sub" "$fh/junk/sub2"
+run_ws "$fh/other" bulkhead-workspace orphans | grep -qx "$central/dir$(printf '%s' "$fhp/junk/sub" | tr '/' '%')" ||
+  failed "orphans listed a central dossier left behind"
+mv "$fh/junk/sub2" "$fh/junk/sub"
+
+# TRANSITIONAL (remove with the registry move): a registered
+# workspace's old dossier beside it moves to the central directory,
+# whichever directory you start in, and the registry goes.
+mkdir -p "$fh/old/sub.dossier/state"
+echo "$fhp/old/sub" > "$fh/old/sub.dossier/workspace"
+mkdir -p "$fh/old/sub"
+printf '%s\n' "$fhp/projects/p1b" "$fhp/old/sub" > "$fhp/.local/state/bulkhead/workspaces"
+cinfo key "$fh/other" > /dev/null 2> /dev/null
+[ -d "$central/dir$(printf '%s' "$fhp/old/sub" | tr '/' '%')/state" ] && [ ! -e "$fh/old/sub.dossier" ] ||
+  failed "an old dossier moved to the central directory"
+[ ! -e "$fhp/.local/state/bulkhead/workspaces" ] || failed "the registry went away"
+[ -d "$fh/projects/p1b.dossier" ] || failed "a project's dossier stayed beside it"
 
 # TRANSITIONAL (remove with prepare's migration code): an old
 # .bulkhead we made moves into the dossier, as do old logs; one we

@@ -11,10 +11,11 @@ dossier's original plan and lessons learned.
 
 ## What a compartment can and can't do
 
-A workspace is `~/projects/NAME` or `~/sensitive/NAME` (or another
-directory you've registered); its dossier is the sibling directory
-`NAME.dossier`. Every directory inside a workspace shares its
-compartment.
+A workspace is `~/projects/NAME` or `~/sensitive/NAME`, with its
+dossier beside it (`NAME.dossier`), and every directory inside it
+shares its compartment. Elsewhere, a workspace is just the directory
+you start in, with its dossier in `~/.local/state/bulkhead/dossiers`
+(see "Where dossiers live").
 
 An agent in a compartment **can**:
 
@@ -94,10 +95,8 @@ so every script computes it the same way:
 
 - Anything under `~/projects/NAME` or `~/sensitive/NAME` belongs to
   that `NAME`.
-- Else, the nearest *registered* workspace (one that has had a dossier;
-  see below) that holds the directory. So once `~/junk` is a workspace,
-  `~/junk/sub` shares its compartment.
-- Else, the directory itself.
+- Else, the directory itself. So `~/junk` and `~/junk/sub` are separate
+  workspaces, with separate compartments.
 
 Its compartment's key is `projects-NAME`, `sensitive-NAME`, or
 `dir%PATH` (the path with `/` as `%`).
@@ -114,21 +113,22 @@ and `anon-access` refuse, before anything else, even the secrets dialog):
   `workspace-forbidden` (data: shell `case` patterns, one per line).
   It lists `~/projects` and `~/sensitive` themselves, `~/.*` (e.g.,
   `~/.ssh` and `~/.config`), any dossier, and `/tmp`, `/var/tmp`,
-  `/dev/shm`, and everything in them, where another user could create
-  a dossier before you.
+  `/dev/shm`, and everything in them, where another user could plant
+  files (e.g., a workspace's `.tmp`) before you.
 - `~` and every directory above it (in code; it's not one pattern).
-- A workspace that holds another registered workspace's dossier, since
-  its agent could change that dossier. E.g., if `~/junk/sub` has
-  `~/junk/sub.dossier`, `~/junk` can't be a separate workspace.
-  That's a `grep` of the registry, not a walk of the tree.
 
 `bulkhead-workspace prepare` also refuses a workspace you can't write,
 and a dossier that isn't a directory you own (e.g., a symlink).
+Outside `~/projects` and `~/sensitive`, before it creates a dossier,
+it asks on the terminal (`make DIR a workspace, ...? [y/N]`), in case
+you started in the wrong place, e.g., `~/Downloads`. Anything but yes
+refuses, and so does having no terminal (e.g., a script); `prepare
+--yes` skips the question.
 
 ### The dossier
 
-Each workspace `DIR` gets a sibling directory `DIR.dossier`, mode 700,
-for data that's *about* the workspace and mustn't be under its agent's
+Each workspace gets a dossier directory, mode 700 (see "Where dossiers
+live"), for data that's *about* the workspace and mustn't be under its agent's
 control: what the agent did, what it's allowed, and the harness's
 private state. `bulkhead-workspace prepare` (run by `anon-access`)
 creates it before any sandbox starts; it must exist first, since nono
@@ -144,14 +144,24 @@ binds its grants at start, so a directory made later stays denied.
 | `outbox/` | write-only (nono `--write`) | files the agent gives you |
 
 nono grants the workspace (`--allow-cwd`) and its profiles' paths, and
-none of those covers a sibling, so "none" needs no rule of its own.
+none of those covers a sibling or `~/.local/state/bulkhead/dossiers`,
+so "none" needs no rule of its own.
 `state/` holds one subdirectory per `private` path in
 `compartment-paths`, named by its path with `/` as `%`; bwrap binds each
 over its path. The shared Claude credentials aren't here
 (`~/.local/state/bulkhead/claude-credentials`): they're shared on
 purpose.
 
-Why a sibling, not a directory inside the workspace:
+### Where dossiers live
+
+- **Under `~/projects` and `~/sensitive`**, `NAME`'s dossier is the
+  sibling `NAME.dossier`.
+- **Elsewhere**, `DIR`'s dossier is
+  `~/.local/state/bulkhead/dossiers/KEY`, where `KEY` is `dir%PATH`
+  (`DIR`'s real path with `/` as `%`), e.g.,
+  `dir%srv%foo` for `/srv/foo`.
+
+A dossier is never inside its own workspace:
 
 - **What's inside a workspace can arrive with its contents**: a
   tarball, a zip, a submodule, or a branch you check out. If harness
@@ -160,30 +170,65 @@ Why a sibling, not a directory inside the workspace:
   already-accepted folder-trust prompt, or a `MEMORY.md` or transcript
   the agent trusts as its own notes. What these run stays in the
   sandbox, but each skips a point where you'd normally decide. A
-  sibling can't arrive that way, so the state comes only from the
-  harness.
+  dossier outside the workspace can't arrive that way, so the state
+  comes only from the harness.
 - **Ordinary tools would treat it as project files**: `git clean -fdx`
   would delete your transcripts, and archiving the project to share it
   would copy transcripts that may hold secrets you pasted.
-- **You see it**: `ls` shows `DIR.dossier` right beside `DIR`.
 
-The cost: **move or delete `DIR` and `DIR.dossier` together.**
-`bulkhead-workspace prepare` helps:
+Beside the workspace, you see it (`ls` shows `NAME.dossier` right
+beside `NAME`). But a dossier must also never be inside *another*
+workspace: that workspace's agent could then read this one's
+transcripts, change its policy, or plant a `MEMORY.md` in its private
+`~/.claude`, which is what compartments exist to stop. Under
+`~/projects` and `~/sensitive`, that can't happen: the only
+directories holding `~/projects/NAME.dossier` are `~/projects`, `~`,
+and above, and no agent may start there. Elsewhere it could: a dossier
+beside `~/junk/sub` is inside `~/junk`.
 
-- It records `DIR` in the dossier's `workspace` file and in a registry
-  (`~/.local/state/bulkhead/workspaces`, one workspace path per line,
-  outside every grant).
+So elsewhere, dossiers live in one central directory, under `~/.*`,
+where no agent may start. We used to put them beside their workspaces
+there too, with a registry of every workspace, so we could refuse a
+workspace that held another's dossier, and so a subdirectory of a
+registered workspace could share its compartment. That took about 40
+lines of code (finding the nearest registered workspace, the nested
+check, and keeping the registry up to date), and it trusted that our
+code had made every dossier: one you made by hand wasn't in the
+registry, so the check couldn't see it. The central directory makes
+the whole problem impossible instead, with no registry. The cost:
+outside `~/projects` and `~/sensitive`, you can't see the dossier
+beside the workspace, a subdirectory is a separate workspace, and the
+dossier doesn't follow the workspace when you move it (see below).
+
+### Moving a workspace
+
+A dossier doesn't move by itself, so **move or delete a workspace and
+its dossier together, with `mv`**:
+
+- Under `~/projects` and `~/sensitive`, move both:
+  `mv ~/projects/a ~/projects/b && mv ~/projects/a.dossier ~/projects/b.dossier`.
+- Elsewhere, the dossier's name comes from the workspace's path, so
+  rename it to the new path's key, e.g., for `/srv/a` to `/srv/b`:
+  `mv /srv/a /srv/b && mv ~/.local/state/bulkhead/dossiers/dir%srv%a ~/.local/state/bulkhead/dossiers/dir%srv%b`.
+
+`bulkhead-workspace prepare` helps you notice:
+
+- It records the workspace in the dossier's `workspace` file.
 - When it creates a dossier, it says so, so if you moved a workspace
-  without its dossier, you notice and can move the old one beside it.
+  without its dossier, you notice and can move the old one.
 - When a dossier's `workspace` names another path, it says so and
   updates it (you moved both).
-- `--orphans` lists dossiers whose workspace is gone, and `vm-setup.sh`
-  warns about them.
+- `bulkhead-workspace orphans` lists dossiers whose workspace is gone,
+  and `vm-setup.sh` warns about them.
 
-It also moves older layouts in: a workspace's `.bulkhead` (the old
-place for harness state) into `state/`, but only one we made (its
-`.gitignore` is `*`) that git doesn't track; it warns about any other.
-And it moves old logs from `~/.local/state/bulkhead/logs/KEY`.
+Transitional, until every VM has run it: it moves older layouts in.
+Each registered workspace's old dossier beside it, outside `~/projects`
+and `~/sensitive`, moves to the central directory, all at once (since
+one workspace could hold another's), and then the registry goes. A
+workspace's `.bulkhead` (the old place for harness state) moves into
+`state/`, but only one we made (its `.gitignore` is `*`) that git
+doesn't track; it warns about any other. And it moves old logs from
+`~/.local/state/bulkhead/logs/KEY`.
 
 ### Inbox and outbox
 
@@ -206,7 +251,7 @@ clash with, or be reached by, another compartment's. But nono still
 refuses any loopback port it isn't told to open, since it doesn't know
 the namespace is private. Two files in `policy/` list ports, one port
 number per line (e.g., `8089`); lines starting with `#`, and blank
-lines, don't count. So `echo 3000 >> DIR.dossier/policy/expose-ports`
+lines, don't count. So `echo 3000 >> ~/projects/NAME.dossier/policy/expose-ports`
 exposes a port. `bulkhead-workspace prepare` creates both, with only
 comments:
 
@@ -535,7 +580,7 @@ It prints a warning. Use it only to work around a breakage.
 
 - nono still refuses loopback ports that aren't opened, even though
   the namespace is private, because it doesn't know that. So list an
-  agent's own server ports in `DIR.dossier/policy/local-ports`. A nono
+  agent's own server ports in its dossier's `policy/local-ports`. A nono
   option to allow all loopback ports in a namespace it didn't make
   would close this.
 - No snapshots: nothing keeps a copy of the workspace that its agent
@@ -543,9 +588,6 @@ It prints a warning. Use it only to work around a breakage.
   qualify, since `--rollback-dest` must be a directory the sandbox can
   already write. We'd have to take our own, outside the sandbox, at
   launch.
-- The registry trusts that our code made every dossier. One you make
-  by hand isn't registered, so the "holds another workspace's
-  dossier" refusal can't see it.
 - An agent can't read its own `policy/`, so it can't see why something
   is allowed; `nono why --self` usually explains it.
 - An agent can't install or change shared setup from inside a

@@ -5,8 +5,8 @@
 #   tests/compartment-test.sh
 # It uses this repo's bulkhead-workspace, bulkhead-compartment,
 # compartment-paths, and workspace-forbidden, makes two scratch
-# projects ~/projects/,compartment-test-a and -b, and removes them, their
-# dossiers, and their registry lines when it's done.
+# projects ~/projects/,compartment-test-a and -b, and removes them and
+# their dossiers when it's done.
 set -eu
 
 if [ -n "${NONO_CAP_FILE:-}" ]; then
@@ -17,15 +17,9 @@ repo=$(cd "$(dirname "$0")/.." && pwd -P)
 a="$HOME/projects/,compartment-test-a"
 b="$HOME/projects/,compartment-test-b"
 marker=",compartment-test-$$"
-registry="$("$repo/bulkhead-workspace" registry)"
 cleanup() {
   rm -rf "$a" "$b" "$a.dossier" "$b.dossier"
   rm -f "/tmp/$marker"
-  if [ -f "$registry" ]; then
-    grep -vFx -e "$(cd "$HOME" && pwd -P)/projects/,compartment-test-a" \
-      -e "$(cd "$HOME" && pwd -P)/projects/,compartment-test-b" "$registry" > "$registry.new" || :
-    mv -f "$registry.new" "$registry"
-  fi
 }
 trap cleanup EXIT
 mkdir -p "$a" "$b"
