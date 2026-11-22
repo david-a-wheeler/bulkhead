@@ -77,7 +77,7 @@ for f in "/tmp/$marker" "\$HOME/.claude/$marker" "\$XDG_RUNTIME_DIR/cc-socks/$ma
   check "outside, $f isn't there" "$r" unseen
 done
 if [ -e "$HOME/.claude/CLAUDE.md" ]; then
-  r=$(run_in "$a" "echo x >> ~/.claude/CLAUDE.md 2>/dev/null && echo wrote || echo refused")
+  r=$(run_in "$a" "{ echo x >> ~/.claude/CLAUDE.md; } 2>/dev/null && echo wrote || echo refused")
   check "shared ~/.claude/CLAUDE.md is read-only" "$r" refused
   r=$(run_in "$a" "[ -s ~/.claude/CLAUDE.md ] && echo readable || echo missing")
   check "shared ~/.claude/CLAUDE.md is readable" "$r" readable
@@ -110,7 +110,7 @@ run_agent() {
 echo hi > "$a.dossier/inbox/given"
 r=$(run_agent "$a" "cat $a.dossier/inbox/given 2>/dev/null || echo refused")
 check "an agent can read its inbox" "$r" hi
-r=$(run_agent "$a" "echo x > $a.dossier/inbox/new 2>/dev/null && echo wrote || echo refused")
+r=$(run_agent "$a" "{ echo x > $a.dossier/inbox/new; } 2>/dev/null && echo wrote || echo refused")
 check "an agent can't write its inbox" "$r" refused
 r=$(run_agent "$a" "echo x > $a.dossier/outbox/proposal 2>/dev/null && echo wrote || echo refused")
 check "an agent can write its outbox" "$r" wrote
@@ -144,17 +144,81 @@ check "a compartment can't reach a VM port it isn't given" "$r" refused
 r=$(run_in "$a" --forward-port 18989 "python3 ,net-probe.py connect 18989")
 check "a compartment can reach a VM port it's given" "$r" ok
 kill "$server"
-# An exposed port: you can reach the agent's server from the VM, but
-# another compartment can't.
-echo 18990 >> "$a.dossier/policy/expose-ports"
-run_in "$a" "python3 -m http.server -b 127.0.0.1 18990 > /dev/null 2>&1 & sleep 4; kill \$!" &
-sleep 2
-# An HTTP reply, not just a connection: pasta may accept one itself.
-r=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:18990/ || :)
-check "you can reach a compartment's exposed port" "$r" 200
+# Exposed ports: you can reach the agent's servers from the VM, but
+# only at 127.0.0.1, only on the listed ports, and another compartment
+# can't. Two entries (one a range) check that every entry is
+# forwarded, not just the first.
+printf '18990\n18992-18993\n' > "$a.dossier/policy/expose-ports"
+echo 18991 > "$a.dossier/policy/local-ports"
+stop=",stop-serving"
+# http_get URL: print the reply's body and HTTP status (e.g.,
+# "127.0.0.1 200"), or "unreachable/N", where N is curl's exit status.
+# We want an HTTP reply, not just a connection: pasta may accept one
+# itself.
+http_get() {
+  out=$(curl -s --max-time 5 -w ' %{http_code}' "$1") || out="unreachable/$?"
+  echo "$out"
+}
+# unreachable URL: print "unreachable" if http_get can't reach URL.
+unreachable() {
+  case "$(http_get "$1")" in
+    unreachable/*) echo unreachable ;;
+    *) echo reached ;;
+  esac
+}
+# wait_ready FILE: wait up to 10 seconds for a net-probe.py serve
+# writing to FILE to say it's ready (or that it couldn't bind).
+wait_ready() {
+  n=0
+  while [ "$n" -lt 10 ] && ! grep -qx -e ready -e refused "$1" 2> /dev/null; do
+    sleep 1
+    n=$((n + 1))
+  done
+}
+rm -f "$a/$stop"
+run_in "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990 127.0.0.1:18991 0.0.0.0:18992 127.0.0.1:18993" > ,compartment-test.serve &
+wait_ready ,compartment-test.serve
+r=$(cat ,compartment-test.serve)
+check "a compartment can serve its exposed and local ports" "$r" ready
+r=$(http_get http://127.0.0.1:18990/)
+check "you can reach a compartment's exposed port" "${r##* }" 200
+check "an exposed port's clients appear to come from loopback" "${r% *}" 127.0.0.1
+r=$(http_get http://127.0.0.1:18993/)
+check "you can reach every exposed-ports entry (18993)" "${r##* }" 200
+r=$(http_get http://127.0.0.1:18992/)
+check "you can reach an exposed port the agent binds on 0.0.0.0" "${r##* }" 200
+r=$(unreachable http://127.0.0.1:18991/)
+check "you can't reach a local-ports port" "$r" unreachable
+vm_ip=$(ip -4 -o addr show scope global 2> /dev/null | awk '{ sub("/.*", "", $4); print $4; exit }')
+if [ -n "$vm_ip" ]; then
+  r=$(unreachable "http://$vm_ip:18990/")
+  check "an exposed port isn't on the VM's address $vm_ip" "$r" unreachable
+else
+  echo "skip: the VM has no global IPv4 address"
+fi
 r=$(run_in "$b" "python3 ,net-probe.py connect 18990")
 check "another compartment can't reach an exposed port" "$r" refused
+touch "$a/$stop"
 wait
+rm -f "$a/$stop"
+# The same through nono, with the --open-port that
+# bulkhead-workspace-nono-args adds, as a real agent would run.
+run_agent "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990" > ,compartment-test.serve &
+wait_ready ,compartment-test.serve
+r=$(cat ,compartment-test.serve)
+check "an agent can serve an exposed port" "$r" ready
+r=$(http_get http://127.0.0.1:18990/)
+check "you can reach an agent's exposed port" "${r##* }" 200
+touch "$a/$stop"
+wait
+rm -f "$a/$stop" ,compartment-test.serve
+r=$(curl -s -o /dev/null --max-time 2 http://127.0.0.1:18990/ && echo reached || echo unreachable)
+check "an exposed port closes when its compartment ends" "$r" unreachable
+# A bad port list must stop the launch, not silently drop the list.
+echo 010 > "$b.dossier/policy/expose-ports"
+if run_in "$b" true 2> /dev/null; then r=ran; else r=refused; fi
+check "a compartment won't start with a bad expose-ports" "$r" refused
+rm -f "$b.dossier/policy/expose-ports"
 r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd --allow-domain example.com -- curl -s -o /dev/null -w %{http_code} --max-time 20 https://example.com/")
 check "an agent reaches an allowed site through nono's proxy" "$r" 200
 name="bulkhead-test-$$"

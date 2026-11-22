@@ -339,7 +339,12 @@ pasta's defaults suit containers, not us, so we override them:
   `127.0.0.1:PORT` on the VM.
 - `--tcp-ports` and `--udp-ports` default to `auto`, which forwards
   ports the agent listens on out to the VM. We forward none, except
-  `--tcp-ports 127.0.0.1/PORTS` for the dossier's `expose-ports`.
+  `--tcp-ports 127.0.0.1/PORTS` for the dossier's `expose-ports`. Then
+  we add `--host-lo-to-ns-lo`, so these connections reach the
+  namespace's `127.0.0.1`, where agents' servers usually listen.
+  Without it, pasta sends them to the namespace's public address from
+  the `--map-host-loopback` address, and since that's `none`, it drops
+  them. It applies only to the ports `--tcp-ports` lists.
 - By default, connections to the namespace's gateway address go to the
   VM's loopback. `--map-host-loopback none` and `--map-guest-addr none`
   turn that off.

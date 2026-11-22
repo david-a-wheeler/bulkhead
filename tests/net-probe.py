@@ -11,9 +11,30 @@
 #   loopback          listen on 127.0.0.1 and connect to ourselves
 #   abstract-listen   bind abstract socket NAME and hold it 6 seconds
 #   abstract-connect  connect to abstract socket NAME
+#   serve STOP ADDR:PORT...
+#                     answer HTTP GETs on each ADDR:PORT with the
+#                     client's address; print "ready" once all are
+#                     bound, then serve until file STOP exists (or 60
+#                     seconds pass)
+import http.server
+import os
 import socket
 import sys
+import threading
 import time
+
+
+class EchoClient(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = self.client_address[0].encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
 
 op = sys.argv[1]
 try:
@@ -56,6 +77,16 @@ try:
         client = socket.socket(socket.AF_UNIX)
         client.settimeout(2)
         client.connect("\0" + sys.argv[2])
+    elif op == "serve":
+        for spec in sys.argv[3:]:
+            addr, port = spec.rsplit(":", 1)
+            server = http.server.ThreadingHTTPServer((addr, int(port)), EchoClient)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+        print("ready", flush=True)
+        deadline = time.monotonic() + 60
+        while not os.path.exists(sys.argv[2]) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        sys.exit(0)
     else:
         sys.exit("net-probe.py: unknown operation: " + op)
     print("ok")

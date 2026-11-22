@@ -163,7 +163,10 @@ else
   # forward to the namespace, so you (and other processes outside any
   # compartment) can reach the agent's servers. Other compartments
   # can't: their 127.0.0.1 is their own, and only a --forward-port
-  # leads to the VM's.
+  # leads to the VM's. --host-lo-to-ns-lo has pasta deliver these to
+  # the namespace's loopback, where agents' servers usually listen;
+  # otherwise it sends them to the namespace's public address, from
+  # the --map-host-loopback address, and with that "none" it drops them.
   exposed="$("$(dirname "$0")/bulkhead-workspace-ports" expose)"
   expose_spec=""
   for range in $exposed; do
@@ -171,6 +174,7 @@ else
   done
   set -- pasta --config-net --quiet \
     --tcp-ports "${expose_spec:+127.0.0.1/}${expose_spec:-none}" \
+    ${expose_spec:+--host-lo-to-ns-lo} \
     --udp-ports none --udp-ns none --tcp-ns "${forward:-none}" \
     --map-host-loopback none --map-guest-addr none \
     --dns-forward 169.254.53.53 ${dns_host:+--dns-host "$dns_host"} -- "$@"
