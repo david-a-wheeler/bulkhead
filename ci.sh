@@ -130,6 +130,8 @@ jq -e '.meta.name == "bulkhead-broad" and (.network.allow_domain | length > 1000
   nono-broad-profile.json > /dev/null || failed nono-broad-profile.json
 jq -e '.extends == "nolabs-ai/claude" and (.network.allow_domain | length > 0)' \
   nono-claude-profile.json > /dev/null || failed nono-claude-profile.json
+jq -e '.extends == "linux-host-compat" and .workdir.access == "readwrite"' \
+  nono-sh-profile.json > /dev/null || failed nono-sh-profile.json
 step "workspaces (bulkhead-workspace, bulkhead-compartment --dry-run, compart)"
 # A fake HOME with projects/, sensitive/, and directories outside both,
 # without needing bwrap. It's under the repo's .tmp, not $tmp: $tmp may
@@ -264,6 +266,13 @@ nono_head="nono|run|--profile|bulkhead-claude|--allow-cwd"
 inout="--log-file|$d1/logs/nono.log|--read|$d1/inbox|--write|$d1/outbox"
 [ "$(cargs "$fh/projects/p1" x)" = "$nono_head|--extends|bulkhead-broad|$inout|--|claude|x|" ] ||
   failed "compart: nono options: $(cargs "$fh/projects/p1" x)"
+# compart sh runs a command, or your $SHELL, under bulkhead-sh.
+(cd "$fh/projects/p1" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" sh ls -l 2> /dev/null) |
+  grep -qF -- "nono|run|--profile|bulkhead-sh|--allow-cwd|" || failed "compart sh: profile"
+(cd "$fh/projects/p1" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" sh ls -l 2> /dev/null) |
+  grep -q -- '|--|ls|-l|$' || failed "compart sh: command"
+(cd "$fh/projects/p1" && wsenv PATH="$wst/bin:$PATH" SHELL=/bin/myshell "$SCRIPT_DIR/compart" sh 2> /dev/null) |
+  grep -q -- '|--|/bin/myshell|$' || failed "compart sh: \$SHELL"
 case "$(cargs "$fh/sensitive/s1")" in
   *bulkhead-broad*) failed "compart used bulkhead-broad under ~/sensitive" ;;
 esac

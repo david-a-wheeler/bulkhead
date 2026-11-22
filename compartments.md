@@ -439,6 +439,14 @@ The sections below say how each one is set up.
 
 ### compart and anon-access
 
+`compart sh COMMAND...` runs COMMAND the same way, but with no
+harness: under `bulkhead-sh` (nono's own `linux-host-compat`, plus the
+runtimes and git config the harness packs add, and a writable
+workspace), with your `$SHELL` if you give no COMMAND. Use it to see
+what an agent sees (e.g., `compart sh ls -A /tmp`), or to run a tool
+you don't trust. Your shell's startup files stay denied, so the shell
+starts without them.
+
 `compart` runs one harness's setup (see its `case`), then
 `bulkhead-workspace prepare`, which finds the current directory's
 workspace and creates its dossier. It refuses a directory no agent may

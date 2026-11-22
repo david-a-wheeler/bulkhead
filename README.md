@@ -364,7 +364,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   and after the session. `compart check` runs a launch's checks
   (the dossier, port lists, and git settings), and checks that git's
   safety settings are in your environment and that no dossier is
-  orphaned, but starts nothing. `noclaude` and `nopi` are
+  orphaned, but starts nothing. `compart sh COMMAND...` runs COMMAND
+  in the workspace's compartment, under the same shared policy (with
+  `bulkhead-sh`), or your `$SHELL` with no COMMAND, e.g., to see what
+  an agent sees or to run a tool you don't trust. `noclaude` and `nopi` are
   the old names, kept as shims that run `compart claude` and
   `compart pi`.
 - `compart claude` runs `anon-access nono run --profile bulkhead-claude
@@ -467,6 +470,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   from IANA's TLD list; installed by `vm-setup.sh`.
 - `update-broad-profile.sh`: regenerates `nono-broad-profile.json`. Run
   it by hand now and then.
+- `nono-sh-profile.json`: the `bulkhead-sh` profile `compart sh` uses:
+  nono's own `linux-host-compat`, plus the groups the harness packs add
+  for the tools agents run (language runtimes, git's config), with a
+  writable workspace.
 - `nono-claude-profile.json`: the `bulkhead-claude` profile `compart claude`
   uses: `nolabs-ai/claude` plus only Claude Code's own hosts (its API
   and login), since other harnesses don't need them. It also undoes

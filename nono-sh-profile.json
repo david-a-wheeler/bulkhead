@@ -1,0 +1,20 @@
+{
+  "meta": {
+    "name": "bulkhead-sh",
+    "description": "linux-host-compat (nono's own), plus the runtimes and git config the harness packs add, and a writable workspace, for compart sh (see compartments.md)"
+  },
+  "extends": "linux-host-compat",
+  "groups": {
+    "include": [
+      "git_config",
+      "node_runtime",
+      "python_runtime",
+      "rust_runtime",
+      "unlink_protection",
+      "user_caches_linux"
+    ]
+  },
+  "workdir": {
+    "access": "readwrite"
+  }
+}
