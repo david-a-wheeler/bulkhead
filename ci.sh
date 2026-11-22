@@ -46,7 +46,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-workspace-prepare bulkhead-workspace-nono-args bulkhead-workspace-ports bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-workspace-prepare bulkhead-workspace-nono-args bulkhead-workspace-ports bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -147,7 +147,7 @@ run_ws() {
   (cd "$1" && shift && wsenv "$SCRIPT_DIR/$@")
 }
 cinfo() { wsenv ./bulkhead-compartment-info "$@"; }
-compart() { run_ws "$1" bulkhead-compartment --dry-run cmd 'a b'; }
+compart_dry() { run_ws "$1" bulkhead-compartment --dry-run cmd 'a b'; }
 prep() { run_ws "$1" bulkhead-workspace-prepare; }
 registry="$fhp/.local/state/bulkhead/workspaces"
 
@@ -198,7 +198,7 @@ ln -s "$wst/elsewhere" "$fh/projects/p3.dossier"
 prep "$fh/projects/p3" 2> /dev/null && failed "prepare used a symlinked .dossier"
 
 # The dry run binds the private ~/.claude from the dossier's state.
-out="$(compart "$fh/projects/p1/sub")"
+out="$(compart_dry "$fh/projects/p1/sub")"
 [ "$(printf '%s\n' "$out" | head -n 1)" = "key: projects-p1" ] || failed "compartment key"
 printf '%s\n' "$out" | tail -n 3 | tr '\n' '|' | grep -qx -- '--|cmd|a b|' ||
   failed "compartment command passthrough"
@@ -327,7 +327,7 @@ copyhist() {
   (cd "$fh/projects/p6" && wsenv PATH="$SCRIPT_DIR:$PATH" "$SCRIPT_DIR/bulkhead-copy-claude-history")
 }
 copyhist > /dev/null 2>&1 || failed "bulkhead-copy-claude-history ran"
-claude_src="$(compart "$fh/projects/p6" | grep -x "$fhp/projects/p6.dossier/state/.*%.claude")"
+claude_src="$(compart_dry "$fh/projects/p6" | grep -x "$fhp/projects/p6.dossier/state/.*%.claude")"
 [ "$(cat "$claude_src/projects/${hist##*/}/memory/MEMORY.md" 2> /dev/null)" = mem ] ||
   failed "bulkhead-copy-claude-history copied memory"
 echo new > "$claude_src/projects/${hist##*/}/s1.jsonl"
@@ -335,9 +335,16 @@ copyhist > /dev/null 2>&1
 [ "$(cat "$claude_src/projects/${hist##*/}/s1.jsonl")" = new ] ||
   failed "bulkhead-copy-claude-history overwrote a file"
 
-# nopi opens the engine's port from what infer-models --url prints.
+# compart pi opens the engine's port from what infer-models --url prints.
 [ "$(sh "$tmp/infer-models" --url)" = "http://127.0.0.1:$INFER_PORT/v1" ] ||
   failed "infer-models --url"
+
+step "compart (usage and unknown harnesses)"
+./compart --help | grep -q '^Usage: compart HARNESS' || failed "compart --help"
+for args in "" nope -x; do
+  # shellcheck disable=SC2086 # "" is meant to give no arguments.
+  ./compart $args > /dev/null 2>&1 && failed "compart ran with arguments '$args'"
+done
 
 step "host models (tests/test_host_models.sh)"
 # initial-models.yaml and the list's rules, llama-swap's config from it,

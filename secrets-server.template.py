@@ -526,7 +526,7 @@ class SecretsRequestHandler(BaseHTTPRequestHandler):
     (besides retrieve_secret/secret_exists/enumerate_guests above); a
     different backend (a non-GUI host, say) would only need to replace
     this method. Only ever fires for a request with a live
-    BULKHEAD_AUTH_SESSION, which noclaude strips before an AI agent gets
+    BULKHEAD_AUTH_SESSION, which compart claude strips before an AI agent gets
     near it, so this gates routine human operations, not an adversarial AI.
 
     default_authorize picks which button a bare Enter triggers: "Deny"

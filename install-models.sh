@@ -73,4 +73,4 @@ fi
 sudo /bin/launchctl kickstart -k "system/$INFER_LABEL"
 wait_for_engine
 echo "Installed the new config and restarted the engine."
-echo "Each VM's clients (e.g., nopi) see the change the next time they start."
+echo "Each VM's clients (e.g., compart pi) see the change the next time they start."

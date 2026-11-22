@@ -61,7 +61,7 @@
 # A specialist instead needs capabilities.out: [image], which keeps it
 # out of pi's list, and a ttl (seconds without a request before it
 # unloads) of at most 3600.
-# One generalist has metadata.default: true; it's nopi's default
+# One generalist has metadata.default: true; it's compart pi's default
 # (./manage-models.sh default NAME changes it).
 #
 # Sampling: llama-server uses the sampling settings a GGUF file

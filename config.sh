@@ -171,7 +171,7 @@ VM_RECLAIM_MAX_LOAD="1"
 VM_BALLOON_QEMU_ARG="-device virtio-balloon-pci,free-page-reporting=on"
 
 # nono agent packs vm-setup.sh installs (see `nono search <name>` for
-# others). One of these, nolabs-ai/claude, is what noclaude runs under.
+# others). One of these, nolabs-ai/claude, is what compart claude runs under.
 # Filesystem access every pack should have beyond what its own profile
 # grants (toolchain dirs, etc.) isn't configured here: edit
 # nono-default-profile.json instead, since every pack below extends

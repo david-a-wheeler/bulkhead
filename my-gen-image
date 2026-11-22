@@ -4,7 +4,7 @@
 #
 # Works from any client with a shell (pi, goose, claude, or you at a
 # terminal); it needs only curl, jq, and the INFER_MODELS and
-# INFER_API_KEY environment variables (nopi sets both). vm-setup.sh
+# INFER_API_KEY environment variables (compart pi sets both). vm-setup.sh
 # installs it in /usr/local/bin, and copies its skill
 # (agents/skills/my-gen-image) into ~/.agents, where Agent Skills
 # clients (e.g., pi) find it.

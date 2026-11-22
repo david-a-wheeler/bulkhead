@@ -35,7 +35,7 @@ suffixes here directly, see secrets-server.template.py's _resolve().
 Requires BULKHEAD_AUTH_SESSION to be set (see
 vm-bash-aliases-block.sh, which generates one for every human
 interactive shell). Without it, the server denies the request without
-ever consulting Keychain, same as any other caller. noclaude strips it
+ever consulting Keychain, same as any other caller. compart claude strips it
 before an AI agent ever runs, so a sandboxed agent can never use this
 to reach a real secret either.
 

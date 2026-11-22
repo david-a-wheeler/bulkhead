@@ -7,12 +7,12 @@
 # same file somewhere else. Not done, since bash is the only shell in use
 # on these VMs today.
 #
-# noclaude, anon-access, heroku-session, gh-session, and secrets-client
+# compart, anon-access, heroku-session, gh-session, and secrets-client
 # are plain executable files instead, installed straight to
 # /usr/local/bin by vm-setup.sh: any shell can run those without this
 # file at all, which is the direction new tools should go rather than
 # adding a bash function here. Not a template either, unlike this file:
-# no @@VAR@@ substitution left here once noclaude moved out.
+# no @@VAR@@ substitution left here once the Claude Code wrapper moved out.
 
 export VISUAL="vim"
 export EDITOR="vim"
@@ -20,7 +20,7 @@ export EDITOR="vim"
 # Claude Code's native installer puts the binary here.
 export PATH="$PATH:$HOME/.local/bin"
 
-# Human interactive shells get a session handle; noclaude runs through
+# Human interactive shells get a session handle; compart claude runs through
 # anon-access, which strips it (see vm-git-helper and
 # secrets-server.template.py for the other half of that) plus
 # SSH_AUTH_SOCK, HEROKU_API_KEY, and the GitHub Enterprise tokens - see

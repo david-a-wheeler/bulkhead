@@ -23,9 +23,9 @@ Each host has its own list of models, `models.local.yaml` (gitignored).
 It starts as a copy of the repo's `initial-models.yaml`, and from then
 on it's yours: `./manage-models.sh` adds, removes, and updates models
 (including the initial ones) and sets the default, and
-`./install-models.sh` has the engine serve the result. On a VM, `nopi
+`./install-models.sh` has the engine serve the result. On a VM, `compart pi
 --list-models` shows the generalists the engine serves now (specialists
-don't appear, since pi can only chat), and `nopi --model FOO` runs pi
+don't appear, since pi can only chat), and `compart pi --model FOO` runs pi
 against the model named FOO instead of the default.
 
 ## Usage
@@ -65,7 +65,7 @@ A few pieces depend on each other, so the first pass needs this order:
 
 After that: `ssh lftux`/`scp x lftux:` works from the host, and a human
 shell's `git push`/`git fetch` on a VM triggers a host approval prompt (a
-macOS dialog today) and succeeds; the same command run via `noclaude`
+macOS dialog today) and succeeds; the same command run via `compart claude`
 fails immediately instead (see architecture.md's Secrets Server section).
 
 Want Heroku access from a VM too? `./rotate-heroku-key.sh` (set
@@ -90,7 +90,7 @@ re-run `./host-setup.sh` once the VM's actually reachable.
 `host-setup.sh` creates the engine's API key in
 `~/.config/bulkhead/infer-api-key` on the Mac (see `local-ai-plan.md`).
 A VM can use the engine only if it has a copy of that file; `vm-setup.sh`
-sets up pi, `nopi`, and `infer-logs` only on a VM that has one.
+sets up pi, `compart pi`, and `infer-logs` only on a VM that has one.
 
 **To give a VM the key**, run this on the Mac, from this repo, after
 changing `mytux` to the VM's name:
@@ -116,7 +116,7 @@ rm -f ~/.config/bulkhead/infer-api-key
 every VM's old key stops working. Then give the new key to each VM that
 should keep using the engine, as above (including its `./vm-setup.sh`,
 which restarts `infer-logs` with the new key). Restart any running
-`nopi`, since it reads the key when it starts. On a VM you're cutting
+`compart pi`, since it reads the key when it starts. On a VM you're cutting
 off, delete its old copy: `rm ~/.config/bulkhead/infer-api-key`.
 
 ## Network egress is restricted
@@ -282,7 +282,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   no-confirmation naming convention), since `gh` refuses to run at all
   without some token, even for public data.
   Part of a move toward small, single-purpose, any-shell-callable files
-  instead of bash-only functions in `vm-bash-aliases-block.sh`; `noclaude`
+  instead of bash-only functions in `vm-bash-aliases-block.sh`; `compart claude`
   below is the first caller.
   It first runs `bulkhead-workspace-prepare`, then runs the command
   through `bulkhead-compartment`, and for `nono run` adds
@@ -319,7 +319,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   under pasta (from `passt`), so each run gets its own network
   namespace: its own loopback, a route out, and DNS through the VM's
   resolver, but no VM ports except those `anon-access` asks it to
-  forward (a harness wrapper's `--open-port`, e.g., `nopi`'s for the
+  forward (a harness wrapper's `--open-port`, e.g., `compart pi`'s for the
   local AI engine). It fails rather than run without a compartment;
   `BULKHEAD_NO_COMPARTMENT=1` skips it, and `BULKHEAD_NO_NETNS=1`
   skips only the network namespace. `tests/compartment-test.sh` (run by hand, outside nono) checks
@@ -347,10 +347,18 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `netns-resolv.conf`: `/etc/resolv.conf` inside each compartment's
   network namespace; pasta forwards its address to the VM's resolver.
   Installed in `/usr/local/libexec/bulkhead/`.
-- `noclaude`: `exec anon-access nono run --profile bulkhead-claude
-  --allow-cwd -- claude "$@"` (a handful of lines total). Running
+- `compart`: runs an AI harness in this workspace's compartment, e.g.,
+  `compart claude` or `compart pi --print 'Say hello'`. Each harness
+  gets a case that adds only what it alone needs (its nono profile,
+  setup, and extra nono options); every one ends in the same `exec
+  anon-access nono run --profile PROFILE --allow-cwd ...`, so adding a
+  harness (e.g., goose) means adding one case. `noclaude` and `nopi` are
+  the old names, kept as shims that run `compart claude` and
+  `compart pi`.
+- `compart claude` runs `anon-access nono run --profile bulkhead-claude
+  --allow-cwd -- claude "$@"`. Running
   through `anon-access` gets the sandboxed agent every one of its
-  protections (see above) for free, rather than `noclaude` maintaining
+  protections (see above) for free, rather than `compart` maintaining
   its own separate, easy-to-forget-to-update env var list; it also means
   `gh` works for public reads inside the sandbox, same as any other
   `anon-access` caller. `bulkhead-claude` (see `nono-claude-profile.json`)
@@ -360,7 +368,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   in sync with what Claude Code actually needs at runtime. Every
   compartment shares one Claude login: `bulkhead-claude` sets
   `CLAUDE_SECURESTORAGE_CONFIG_DIR` to
-  `~/.local/state/bulkhead/claude-credentials`, which `noclaude` creates
+  `~/.local/state/bulkhead/claude-credentials`, which `compart claude` creates
   (copying in `~/.claude/.credentials.json` the first time). Plain
   executable file, not a bash function: any shell can run it.
 - `infer-models.template.sh`: installed as `infer-models`, which asks
@@ -374,15 +382,15 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `extract-chat-template.py`: writes the chat template embedded in a
   GGUF to a `.jinja` file beside it, for a model's `--chat-template`
   (and its `# generated:` line).
-- `nopi`: runs pi like `noclaude` runs Claude Code, against the Mac's
+- `compart pi` runs pi like `compart claude` runs Claude Code, against the Mac's
   models, adding only the engine's port to the shared network allowlist
   (from `infer-models --url`). Each time, it turns `infer-models`' answer into pi's
   `models.json` with `pi-models.jq`, and starts pi with the default
-  model. `nopi --list-models` lists the models it would serve (the
+  model. `compart pi --list-models` lists the models it would serve (the
   generalists, by their ID in `models.local.yaml`), and
-  `nopi --model FOO` runs pi against the model named FOO for that
-  session, instead of the default. A wrapper for another client (e.g.,
-  goose) would do the same, with its own small jq file.
+  `compart pi --model FOO` runs pi against the model named FOO for that
+  session, instead of the default. Another client (e.g., goose) would
+  do the same, with its own small jq file.
 - `pi-prose-style.js`: a pi extension that checks the text pi writes
   with `check-prose-style`, as Claude Code's hook does, and blocks a
   write or edit that breaks the rules. `vm-setup.sh` installs it in
@@ -423,7 +431,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `~/.config/nono/profiles/default.json`, nono's own reserved "default"
   profile name; `nolabs-ai/claude` and every other pack below already
   declares `"extends": "default"`, so this one file covers all of them,
-  not just `noclaude`. Same `install_unless_locally_newer` treatment as
+  not just `compart claude`. Same `install_unless_locally_newer` treatment as
   `agents-AGENTS.md` below: an edit made straight to the installed copy
   isn't silently overwritten.
   It also holds the network policy every harness shares: nono's own
@@ -439,7 +447,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   applies under `~/sensitive`; elsewhere `anon-access` adds
   `bulkhead-broad` (below). For one more host for one run under
   `~/sensitive`, set `NONO_ALLOW_DOMAIN` (one host), e.g.,
-  `NONO_ALLOW_DOMAIN=docs.example.org noclaude`.
+  `NONO_ALLOW_DOMAIN=docs.example.org compart claude`.
 - `nono-broad-profile.json`: the `bulkhead-broad` profile, GET and HEAD
   to every host under every TLD (one `*.<tld>` entry each), which
   `anon-access` adds to every `nono run` outside `~/sensitive`, since
@@ -447,7 +455,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   from IANA's TLD list; installed by `vm-setup.sh`.
 - `update-broad-profile.sh`: regenerates `nono-broad-profile.json`. Run
   it by hand now and then.
-- `nono-claude-profile.json`: the `bulkhead-claude` profile `noclaude`
+- `nono-claude-profile.json`: the `bulkhead-claude` profile `compart claude`
   uses: `nolabs-ai/claude` plus only Claude Code's own hosts (its API
   and login), since other harnesses don't need them. It also undoes
   the pack's shared `TMPDIR` (`~/.claude/tmp/claude-$UID`), so Claude's
@@ -474,8 +482,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `host-setup.sh` and `vm-setup.sh` warn about any VM without one. Installed by `vm-setup.sh`.
 - `vm-bash-aliases-block.sh`: the managed block installed into each VM's
   `~/.bash_aliases`: editor and `BULKHEAD_AUTH_SESSION`. Not a
-  template (nothing left to substitute since `noclaude` moved out to its
-  own file above). Bash-only for now: a shell like zsh doesn't source
+  template (nothing left to substitute since the Claude Code wrapper moved
+  out to its own file above). Bash-only for now: a shell like zsh doesn't source
   `~/.bash_aliases` by default; supporting another shell would mean a
   separate file in that shell's own syntax, not just installing this one
   elsewhere.

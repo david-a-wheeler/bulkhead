@@ -1,6 +1,6 @@
 # check_llama_swap_config.py: checks llama-swap's config, as
 # infer_llama_swap_yaml (host-models.sh) renders it from
-# initial-models.yaml, for what pi and nopi need from it. Run by ci.sh,
+# initial-models.yaml, for what pi and compart pi need from it. Run by ci.sh,
 # since llama-swap isn't there to check it:
 #   python3 -I tests/check_llama_swap_config.py CONFIG.yaml
 # Each model's context matches its --ctx-size, max_tokens fits in it,

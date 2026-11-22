@@ -83,7 +83,7 @@ if [ "${1:-}" = nono ] && [ "${2:-}" = run ]; then
   # after "nono run", keeping the rest of the command line in order.
   shift 2
   extra="$("$(dirname "$0")/bulkhead-workspace-nono-args" "$@")" || exit 1
-  # A port the harness's wrapper opens (e.g., nopi's for the local AI
+  # A port the harness's wrapper opens (e.g., compart pi's for the local AI
   # engine) is a VM service, so bulkhead-compartment forwards it into
   # the agent's network namespace. The dossier's local-ports aren't:
   # they're for the agent's own servers.

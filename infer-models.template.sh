@@ -1,6 +1,6 @@
 #!/bin/sh
 # infer-models: print the models the Mac's local AI engine serves now, in
-# a form any client can use. A client's wrapper (e.g., nopi) runs it each
+# a form any client can use. A client's wrapper (e.g., compart pi) runs it each
 # time the client starts and turns its answer into the client's own
 # configuration, so changing the models on the Mac (see manage-models.sh
 # there) needs nothing done on any VM. It asks the engine (llama-swap's

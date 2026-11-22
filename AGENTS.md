@@ -22,7 +22,7 @@ Don't read the long docs up front; look things up as you need them:
 
 You're probably running inside one of those VMs, under nono, right now.
 So you can't run the host-side scripts (they're macOS-only), and you
-can't get secrets: `noclaude` strips `BULKHEAD_AUTH_SESSION` on purpose,
+can't get secrets: `compart claude` strips `BULKHEAD_AUTH_SESSION` on purpose,
 so `git push`, `gh-session`, and similar calls fail for you. That's the
 design working, not a bug to fix.
 
@@ -62,9 +62,9 @@ harness's wrapper or config:
   extends.
 - Launch behavior (stripping secrets, per-directory temp and caches,
   and the per-project compartment from `bulkhead-compartment`) goes in
-  the shared wrapper `anon-access`, which every harness wrapper calls.
+  the shared wrapper `anon-access`, which `compart` calls for every harness.
   A harness's per-project state goes in `compartment-paths` (data).
-- A harness's own wrapper (`noclaude`, `nopi`, ...) or small profile
+- A harness's own case in `compart` (e.g., `compart claude`) or small profile
   (e.g., `nono-claude-profile.json`) adds only what that harness alone
   needs, such as its model provider's hosts or the local engine's port,
   and says why.

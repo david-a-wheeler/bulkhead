@@ -1,7 +1,7 @@
 #!/bin/sh
 # test_host_models.sh: check host-models.sh and the programs it uses: that
 # initial-models.yaml follows the list's rules, and llama-swap's config
-# from it has what pi and nopi need; that infer_models_ok refuses each
+# from it has what pi and compart pi need; that infer_models_ok refuses each
 # kind of bad entry; that render_engine_config (host-install.sh) wants
 # every file a list names; and that infer-models and pi-models.jq handle
 # llama-swap's real listing, and infer-models refuses bad ones. Run by
@@ -38,7 +38,7 @@ render_template infer-models.template.sh "$tmp/infer-models.installed" INFER_POR
 sed "s|^FILTER=.*|FILTER=\"$SCRIPT_DIR/infer-models.jq\"|" "$tmp/infer-models.installed" > "$tmp/infer-models"
 
 infer_models_ok initial-models.yaml || failed "initial-models.yaml breaks its own rules"
-# llama-swap isn't here to check the config, so check what pi and nopi
+# llama-swap isn't here to check the config, so check what pi and compart pi
 # need from it (tests/check_llama_swap_config.py).
 infer_llama_swap_yaml sk-test /llama-server 8999 /sd-server 8998 initial-models.yaml \
   > "$tmp/llama-swap.yaml"

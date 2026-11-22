@@ -71,10 +71,10 @@
 # first (or, without a terminal, needs --yes). Its files stay in
 # MODELS_DIR until you prune them.
 #
-# default prints the default model's name: the one nopi uses unless you
+# default prints the default model's name: the one compart pi uses unless you
 # give --model. default NAME makes NAME (a generalist) the default
 # instead. Once the engine serves it (./install-models.sh), each client
-# on each VM uses it the next time it starts, e.g., nopi (which asks the
+# on each VM uses it the next time it starts, e.g., compart pi (which asks the
 # engine through infer-models).
 #
 # check checks the list's rules, and that MODELS_DIR has its files.
@@ -552,7 +552,7 @@ case "$command" in
     init_list
     infer_models_follow_rules
     [ -n "$(infer_models_default "$INFER_MODELS")" ] ||
-      echo "WARNING: no model is the default, so nopi won't pick one; set one with ./manage-models.sh default NAME." >&2
+      echo "WARNING: no model is the default, so compart pi won't pick one; set one with ./manage-models.sh default NAME." >&2
     infer_models_synced "$INFER_MODELS" ||
       die "models.local.yaml follows the rules, but MODELS_DIR doesn't have every file it names (above)."
     echo "models.local.yaml follows the rules, and MODELS_DIR has its files."
@@ -583,7 +583,7 @@ case "$command" in
     [ "$(infer_models_default "$INFER_MODELS.new")" = "$pos1" ] ||
       die "couldn't make $pos1 the default; set metadata.default: true for it by hand."
     mv "$INFER_MODELS.new" "$INFER_MODELS"
-    echo "$pos1 is now the default. Once the engine serves this, nopi uses it the"
+    echo "$pos1 is now the default. Once the engine serves this, compart pi uses it the"
     echo "next time it starts."
     offer_install
     exit 0
@@ -594,7 +594,7 @@ case "$command" in
     [ -n "$(model_lines in "$pos1" "$INFER_MODELS")" ] ||
       die "models.local.yaml has no model named $pos1."
     if [ "$(infer_models_default "$INFER_MODELS")" = "$pos1" ]; then
-      confirm "$pos1 is the default model. Without a default, nopi won't pick a model until you set one (./manage-models.sh default NAME)."
+      confirm "$pos1 is the default model. Without a default, compart pi won't pick a model until you set one (./manage-models.sh default NAME)."
     fi
     if [ "$(infer_model_roles "$INFER_MODELS" | wc -l)" -eq 1 ]; then
       confirm "$pos1 is the last model. With none, install-models.sh refuses to install anything until you add one, so the engine keeps serving what it has."
@@ -938,6 +938,6 @@ if [ -n "$sd_args" ]; then
 else
   echo "Added $serve to models.local.yaml; you may want to add its sampling"
   echo "defaults there. Once the engine serves it, pi lists it the next time"
-  echo "nopi starts."
+  echo "compart pi starts."
 fi
 offer_install

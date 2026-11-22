@@ -110,7 +110,7 @@ way it already makes the `:instruct` variant; no new code:
 
 `id_slot` has no `?`, so llama-swap always sets it and a client can't
 override it. pi already lists variants (`includeAliasesInList`), so
-`qwen3.8-27b:sub` would show up in nopi with no other change.
+`qwen3.8-27b:sub` would show up in compart pi with no other change.
 
 Sub-agents then have to use the `:sub` name. pi has no sub-agents of
 its own; its example extension (`examples/extensions/subagent` in pi's

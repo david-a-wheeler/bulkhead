@@ -208,7 +208,7 @@ echo "== Installing nono's default profile (nono-default-profile.json) =="
 # agents-AGENTS.md below, an edit made directly to the installed copy
 # (e.g. via nono's own profile tooling) shouldn't be silently clobbered.
 # nono-claude-profile.json (bulkhead-claude) adds only Claude Code's own
-# hosts; it's a profile rather than noclaude flags because nono ignores
+# hosts; it's a profile rather than compart claude flags because nono ignores
 # NONO_ALLOW_DOMAIN when the command line has --allow-domain.
 mkdir -p "$HOME/.config/nono/profiles"
 install_unless_locally_newer "$SCRIPT_DIR/nono-default-profile.json" \
@@ -221,7 +221,7 @@ install_unless_locally_newer "$SCRIPT_DIR/nono-broad-profile.json" \
   "$HOME/.config/nono/profiles/bulkhead-broad.json"
 
 echo "== Installing nono agent profiles (config.sh's NONO_AGENT_PROFILES) =="
-# One pack per supported harness (noclaude's --profile nolabs-ai/claude
+# One pack per supported harness (compart claude's --profile nolabs-ai/claude
 # is one of these); add another "namespace/name" to NONO_AGENT_PROFILES
 # to support a new one, nothing else here changes. A missing pack is
 # installed (obviously current, so no outdated check needed); an already
@@ -321,12 +321,15 @@ $orphans
 EOF
 fi
 
-echo "== Installing noclaude (sandboxed Claude Code wrapper) =="
-# Plain file, no templating needed: the sandbox policy every harness
+echo "== Installing compart (runs AI harnesses in compartments) =="
+# Plain files, no templating needed: the sandbox policy every harness
 # shares (files and network) comes from nono-default-profile.json
-# (installed above). It runs through anon-access, but install order
-# doesn't matter: nothing runs noclaude until this script has finished.
-sudo install -m 755 "$SCRIPT_DIR/noclaude" /usr/local/bin/
+# (installed above). compart runs anon-access, but install order
+# doesn't matter: nothing runs it until this script has finished.
+# noclaude and nopi are the old names for "compart claude" and
+# "compart pi", kept as shims.
+sudo install -m 755 "$SCRIPT_DIR/compart" "$SCRIPT_DIR/noclaude" \
+  "$SCRIPT_DIR/nopi" /usr/local/bin/
 
 echo "== Configuring git niceties =="
 configure_git_niceties
@@ -419,7 +422,7 @@ echo "== Managing ~/.bash_aliases block (editor, BULKHEAD_AUTH_SESSION) =="
 # Plain file, not rendered: no @@VAR@@ substitution left in it.
 install_managed_block "$SCRIPT_DIR/vm-bash-aliases-block.sh" "$HOME/.bash_aliases"
 
-echo "== Local AI: pi, nopi, and infer-logs (if this VM has the engine's API key) =="
+echo "== Local AI: pi, compart pi, and infer-logs (if this VM has the engine's API key) =="
 # See local-ai-plan.md. Only a VM with the engine's API key can use the
 # Mac's engine, so a VM without one skips all of this. To set one up,
 # run "mkdir -p ~/.config/bulkhead" here, then on the Mac:
@@ -478,12 +481,11 @@ if [ -s "$INFER_KEY_FILE" ]; then
   echo "pi $(jq -r .version "$pi_dir/package.json")"
 
   # infer-models (what the engine serves now, for any client, checked by
-  # infer-models.jq), and nopi,
+  # infer-models.jq), and compart pi,
   # which runs it each time pi starts and writes pi's models.json with
   # pi-models.jq. So changing the models on the Mac needs nothing done
-  # here. An old models.json stays until nopi first reaches the engine.
+  # here. An old models.json stays until compart pi first reaches the engine.
   install_rendered infer-models.template.sh /usr/local/bin/infer-models 755 INFER_PORT
-  sudo install -m 755 "$SCRIPT_DIR/nopi" /usr/local/bin/
   # pi reads global instructions from ~/.pi/agent/AGENTS.md, so point
   # that at the shared ones, unless you've put your own file there.
   pi_agents="$HOME/.pi/agent/AGENTS.md"
@@ -525,9 +527,9 @@ if [ -s "$INFER_KEY_FILE" ]; then
   mkdir -p "$HOME/.agents"
   cp -R "$SCRIPT_DIR/agents/." "$HOME/.agents/"
   if /usr/local/bin/infer-models > /dev/null; then
-    echo "The engine answers; nopi asks it for its models each time pi starts."
+    echo "The engine answers; compart pi asks it for its models each time pi starts."
   else
-    echo "WARNING: the local AI engine didn't answer through the tunnel; nopi needs" >&2
+    echo "WARNING: the local AI engine didn't answer through the tunnel; compart pi needs" >&2
     echo "it (on the Mac, see ./infer-access.sh)." >&2
   fi
   install_rendered infer-logs.template.sh /usr/local/bin/infer-logs 755 INFER_PORT
@@ -538,7 +540,7 @@ if [ -s "$INFER_KEY_FILE" ]; then
   systemctl --user enable infer-logs@proxy.service infer-logs@upstream.service
   # Restart, not just start, to pick up a new infer-logs.
   systemctl --user restart infer-logs@proxy.service infer-logs@upstream.service
-  echo "Once the Mac gives this VM access (./infer-access.sh shared), try: nopi --print 'Say hello in five words.'"
+  echo "Once the Mac gives this VM access (./infer-access.sh shared), try: compart pi --print 'Say hello in five words.'"
   echo "Engine logs: journalctl --user -u 'infer-logs@*'"
 else
   echo "Skipping: no $INFER_KEY_FILE (see the comment in vm-setup.sh to add one)."

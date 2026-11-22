@@ -1,7 +1,7 @@
 # Compartments
 
-Every agent you start through `anon-access` (e.g., with `noclaude` or
-`nopi`) runs in its workspace's *compartment*. A compartment keeps one
+Every agent you start through `anon-access` (e.g., with `compart claude` or
+`compart pi`) runs in its workspace's *compartment*. A compartment keeps one
 project's agent from reading, changing, or reaching what belongs to
 another project's agent, or to the VM itself. This file explains what
 a compartment gives you, how to use it (including each workspace's
@@ -37,7 +37,7 @@ An agent in a compartment **can**:
 - Run its own servers and tests on its own loopback, on ports you list
   in the dossier's `policy/local-ports`, or `policy/expose-ports` to
   let you reach them from the VM.
-- Reach a VM port its harness's wrapper needs (e.g., `nopi`'s local AI
+- Reach a VM port its harness's wrapper needs (e.g., `compart pi`'s local AI
   engine tunnel), and only that one.
 
 An agent in a compartment **can't**:
@@ -227,7 +227,7 @@ Warnings about `expose-ports`:
   port, not just you.
 - Other compartments can't, since their `127.0.0.1` is their own, with
   one exception: a port a harness wrapper forwards in (`--forward-port`,
-  e.g., `nopi`'s for the local AI engine, `INFER_PORT`). If you expose
+  e.g., `compart pi`'s for the local AI engine, `INFER_PORT`). If you expose
   that port, the other compartment's harness reaches this agent's
   server instead of the real service. Don't expose a port some VM
   service uses.
@@ -241,7 +241,7 @@ Warnings about `expose-ports`:
 `anon-access` starts every agent like this:
 
 ```
-noclaude → anon-access → pasta → bwrap → nono run → claude
+compart claude → anon-access → pasta → bwrap → nono run → claude
 ```
 
 Each layer does a different job, and each backs up the others:
@@ -300,7 +300,7 @@ command it adds:
 - What `bulkhead-workspace-nono-args` prints: `--read DOSSIER/inbox`,
   `--write DOSSIER/outbox`, and an `--open-port` for each port in
   `DOSSIER/policy/local-ports` and `expose-ports`.
-- For each `--open-port` the harness's wrapper passes (e.g., `nopi`'s
+- For each `--open-port` the harness's wrapper passes (e.g., `compart pi`'s
   for the AI engine), a `--forward-port` to `bulkhead-compartment`, so
   pasta forwards that VM port in. The dossier's `local-ports` aren't
   forwarded: they're for the agent's own servers. (`bulkhead-compartment`

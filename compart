@@ -1,0 +1,130 @@
+#!/bin/sh
+# compart: run an AI harness in this workspace's compartment (see
+# compartments.md) under nono, e.g., "compart claude" or
+# "compart pi --print 'Say hello'". anon-access does what every harness
+# needs (stripping secrets, the compartment, nono's shared options).
+# Each harness below adds only what it alone needs: its nono profile,
+# any setup before it starts, and any extra nono options. So adding a
+# harness (e.g., goose) means adding one case here.
+#
+# The sandbox policy every harness shares (files and network) is nono's
+# "default" profile, nono-default-profile.json here, which vm-setup.sh
+# installs and every nono pack extends. Outside ~/sensitive, anon-access
+# also adds bulkhead-broad (GET and HEAD to the whole web). For one more
+# host for one run, set NONO_ALLOW_DOMAIN (one host), e.g.,
+# NONO_ALLOW_DOMAIN=docs.example.org compart claude; in broad mode that
+# only matters under ~/sensitive, since bulkhead-broad's GET-only rules
+# still apply to it. vm-setup.sh installs this.
+
+set -eu
+
+LIB_DIR=/usr/local/libexec/bulkhead
+
+usage() {
+  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi"
+}
+
+die() {
+  echo "compart: $*" >&2
+  exit 1
+}
+
+[ $# -gt 0 ] || { usage >&2; exit 2; }
+harness="$1"
+shift
+case "$harness" in
+  claude)
+    # bulkhead-claude (nono-claude-profile.json) extends nolabs-ai/claude,
+    # nono's own maintained profile for Claude Code, with only Claude
+    # Code's own hosts, and puts Claude's temp files back in anon-access's
+    # per-directory TMPDIR.
+    #
+    # Each compartment has its own ~/.claude, but they share one
+    # credentials directory, so one login works everywhere and a token
+    # refresh in one reaches the others. bulkhead-claude points Claude
+    # there (CLAUDE_SECURESTORAGE_CONFIG_DIR). It must exist before nono
+    # starts, or nono drops the grant; the first time, we copy in the
+    # login you already have.
+    creds="${XDG_STATE_HOME:-$HOME/.local/state}/bulkhead/claude-credentials"
+    if [ ! -d "$creds" ]; then
+      mkdir -p "$(dirname "$creds")"
+      mkdir -m 700 "$creds"
+      if [ -f "$HOME/.claude/.credentials.json" ]; then
+        cp -p "$HOME/.claude/.credentials.json" "$creds/"
+      fi
+    fi
+    profile=bulkhead-claude
+    set -- -- claude "$@"
+    ;;
+  pi)
+    # pi runs against the Mac's local AI models, which llama-swap serves
+    # through this VM's SSH tunnel (see local-ai-plan.md), with no
+    # automatic network activity of its own (no model catalog refresh,
+    # version check, or telemetry). The API key comes from a file only
+    # you can read, and reaches pi only through its environment.
+    #
+    # Each time, we ask the engine what it serves now (infer-models), and
+    # write pi's list of models (~/.pi/agent/models.json, by
+    # pi-models.jq) if that changed, keeping the old one as
+    # models.json.bak. So a change on the Mac (see manage-models.sh
+    # there) reaches pi the next time you start it. The default is the
+    # one the Mac's list marks "default: true" (see ./manage-models.sh
+    # default there); a later --model overrides it. If the engine doesn't
+    # answer, pi uses the list it had. We also export infer-models'
+    # answer in INFER_MODELS, with the key in INFER_API_KEY, for tools pi
+    # runs that need them.
+    #
+    # vm-setup.sh installs pi where "npm install -g" would, and only on a
+    # VM with the engine's API key.
+    pi_dir=/usr/local/lib/node_modules/@earendil-works/pi-coding-agent
+    key_file="$HOME/.config/bulkhead/infer-api-key"
+    agent_dir="$HOME/.pi/agent"
+    [ -x /usr/local/bin/pi ] && [ -s "$key_file" ] ||
+      die "pi isn't set up on this VM (see vm-setup.sh's local AI section)."
+    default=""
+    if models="$(/usr/local/bin/infer-models)"; then
+      mkdir -p "$agent_dir"
+      new="$(mktemp "$agent_dir/models.json.XXXXXX")"
+      printf '%s' "$models" | jq -f "$LIB_DIR/pi-models.jq" > "$new" ||
+        { rm -f "$new"; exit 1; }
+      if cmp -s "$new" "$agent_dir/models.json"; then
+        rm -f "$new"
+      else
+        [ ! -f "$agent_dir/models.json" ] || cp "$agent_dir/models.json" "$agent_dir/models.json.bak"
+        mv "$new" "$agent_dir/models.json"
+      fi
+      default="$(printf '%s' "$models" | jq -r '.default // empty')"
+      [ -n "$default" ] ||
+        echo "compart pi: WARNING: the engine has no default model (see ./manage-models.sh default on the Mac)." >&2
+    else
+      models=""
+      echo "compart pi: WARNING: using pi's last list of models; INFER_MODELS is empty." >&2
+    fi
+    [ -z "$default" ] || set -- --model "$default" "$@"
+
+    INFER_API_KEY="$(cat "$key_file")"
+    INFER_MODELS="$models"
+    PI_OFFLINE=1
+    PI_SKIP_VERSION_CHECK=1
+    PI_TELEMETRY=0
+    export INFER_API_KEY INFER_MODELS PI_OFFLINE PI_SKIP_VERSION_CHECK PI_TELEMETRY
+
+    # The shared network allowlist has no model providers: pi only needs
+    # the engine's port on 127.0.0.1, where the tunnel ends.
+    url="$(/usr/local/bin/infer-models --url)"
+    port="${url#http://127.0.0.1:}"
+    port="${port%%/*}"
+    profile=nolabs-ai/pi
+    set -- --read "$pi_dir" --open-port "$port" -- /usr/local/bin/pi --provider mac-local "$@"
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "compart: unknown harness: $harness" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+exec anon-access nono run --profile "$profile" --allow-cwd "$@"
