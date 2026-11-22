@@ -1,13 +1,44 @@
 #!/bin/sh
-# Git hook that only runs the repository's own hook of the same name, if
-# it has one. A global core.hooksPath disables every hook in a
-# repository's .git/hooks, so vm-setup.sh links each client-side hook
-# name in that directory (except commit-msg, which does this itself) to
-# this file. It uses --git-common-dir, not --git-path, since --git-path
-# hooks follows core.hooksPath right back here.
+# Git hook that runs the repository's own hook of the same name, if it
+# has one and you've approved it. A global core.hooksPath disables
+# every hook in a repository's .git/hooks, so vm-setup.sh links each
+# client-side hook name in that directory to this file (commit-msg runs
+# it after its own check, setting BULKHEAD_HOOK_NAME). It uses
+# --git-common-dir, not --git-path, since --git-path hooks follows
+# core.hooksPath right back here.
+#
+# Why approval: an agent can write its workspace's .git, so it could
+# plant a hook there that runs, unsandboxed, the next time you commit.
+# So this runs a repository's hook only if its path and SHA-256 hash
+# are a line in ~/.config/bulkhead/approved-git-hooks (in sha256sum's
+# format, so "sha256sum HOOK >> FILE" approves one). No nono profile
+# grants that file, so an agent can't approve its own hook. Changing a
+# hook needs a new approval. An approved hook may still run what files
+# in the workspace say (e.g., pre-commit's .pre-commit-config.yaml), and
+# there's a brief window between the check and the run. See
+# compartments.md, "Git runs commands from local files".
 
 set -eu
 
-hook="$(git rev-parse --git-common-dir)/hooks/${0##*/}"
-[ -x "$hook" ] || exit 0
-exec "$hook" "$@"
+name="${BULKHEAD_HOOK_NAME:-${0##*/}}"
+unset BULKHEAD_HOOK_NAME
+dir="$(git rev-parse --git-common-dir)/hooks"
+[ -f "$dir/$name" ] && [ -x "$dir/$name" ] || exit 0
+hook="$(cd "$dir" && pwd -P)/$name"
+approved="${XDG_CONFIG_HOME:-$HOME/.config}/bulkhead/approved-git-hooks"
+
+sum() {
+  if command -v sha256sum > /dev/null; then
+    sha256sum "$1"
+  else
+    shasum -a 256 "$1"
+  fi
+}
+
+if [ -r "$approved" ] && grep -qxF -e "$(sum "$hook")" "$approved"; then
+  exec "$hook" "$@"
+fi
+echo "git-hook-passthrough: skipped $hook, since you haven't approved it." >&2
+echo "  If you trust it, approve it with:" >&2
+printf "  mkdir -p '%s' && sha256sum '%s' >> '%s'\n" \
+  "${approved%/*}" "$hook" "$approved" >&2

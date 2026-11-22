@@ -10,6 +10,10 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Your own git safety settings (make-git-safety-env) would beat the
+# scratch git configs the tests below make.
+unset GIT_CONFIG_COUNT
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp:?}"' EXIT
 
@@ -46,7 +50,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -517,8 +521,8 @@ result="$(jq -r '
 step "commit-msg git hook"
 # Builds the hooks directory vm-setup.sh installs, in a scratch repo
 # with its own global config, and checks that the hook rejects a bad
-# message, accepts a good one, ignores a "git commit -v" diff, and still
-# runs the repository's own hooks.
+# message, accepts a good one, ignores a "git commit -v" diff, and runs
+# the repository's own hooks only once you've approved them.
 (
   set -e
   mkdir -p "$tmp/bin" "$tmp/hooks"
@@ -554,14 +558,41 @@ step "commit-msg git hook"
   printf '#!/bin/sh\ntouch ran-pre-commit\n' > .git/hooks/pre-commit
   printf '#!/bin/sh\ntouch ran-commit-msg\n' > .git/hooks/commit-msg
   chmod +x .git/hooks/pre-commit .git/hooks/commit-msg
+  # Unapproved, the repository's own hooks don't run.
+  XDG_CONFIG_HOME="$tmp/xdg"
+  export XDG_CONFIG_HOME
+  echo b >> f
+  git commit -q -am 'Change f.' 2> "$tmp/hook-err"
+  if [ -e ran-pre-commit ] || [ -e ran-commit-msg ]; then
+    echo "FAILED: the repository's unapproved hooks ran" >&2
+    exit 1
+  fi
+  grep -q "haven't approved it" "$tmp/hook-err" ||
+    { echo "FAILED: no notice of a skipped hook" >&2; exit 1; }
+  # Approved, they do.
+  mkdir -p "$XDG_CONFIG_HOME/bulkhead"
+  sha256sum "$(pwd -P)/.git/hooks/pre-commit" "$(pwd -P)/.git/hooks/commit-msg" \
+    > "$XDG_CONFIG_HOME/bulkhead/approved-git-hooks"
   echo 'We leverage this.' >> f
   git add f
   GIT_EDITOR='sed -i 1s/^/Change.f./' git commit -q -v
   if [ ! -e ran-pre-commit ] || [ ! -e ran-commit-msg ]; then
-    echo "FAILED: the repository's own hooks didn't run" >&2
+    echo "FAILED: the repository's approved hooks didn't run" >&2
+    exit 1
+  fi
+  # Changed, a hook needs a new approval.
+  rm ran-pre-commit
+  printf '#!/bin/sh\ntouch ran-pre-commit\n# changed\n' > .git/hooks/pre-commit
+  echo c >> f
+  git commit -q -am 'Change f again.' 2> /dev/null
+  if [ -e ran-pre-commit ]; then
+    echo "FAILED: a changed hook ran without a new approval" >&2
     exit 1
   fi
 ) || fail=1
+
+step "git safety settings (tests/test_git_safety_env.sh)"
+tests/test_git_safety_env.sh || fail=1
 
 step "pi-prose-style.js"
 # Checks the pi extension against the checker, with a stand-in for pi.

@@ -345,10 +345,12 @@ echo "== Installing commit-msg git hook (check-prose-style --text) =="
 # still skips it: it's a style check, not a security control). A global
 # core.hooksPath disables every repository's own .git/hooks, so each
 # other client-side hook name links to git-hook-passthrough, which runs
-# the repository's hook of that name if it has one; commit-msg does the
-# same after its check. reference-transaction is left out, since a hook
-# there would run on every ref update. A repository that sets its own
-# core.hooksPath (e.g., husky) overrides this one and skips the check.
+# the repository's hook of that name if it has one and you've approved
+# it (in ~/.config/bulkhead/approved-git-hooks); commit-msg runs the
+# passthrough after its check. reference-transaction is left out, since a hook
+# there would run on every ref update. A repository can't set its own
+# core.hooksPath (e.g., husky does) once make-git-safety-env's settings
+# (below) are in your environment.
 sudo install -m 755 "$SCRIPT_DIR/check-prose-style.sh" /usr/local/bin/check-prose-style
 git_hooks_dir=/usr/local/libexec/bulkhead/git-hooks
 current_hooks_path="$(git config --global --get core.hooksPath || true)"
@@ -367,6 +369,23 @@ else
   done
   git_config_set core.hooksPath "$git_hooks_dir"
 fi
+
+echo "== Pinning git settings that run commands (environment.d, ~/.profile) =="
+# An agent can write its workspace's .git, so a repository's own config
+# could make git run a command the next time you run git there. These
+# settings override a repository's config for the keys they cover (see
+# make-git-safety-env and compartments.md). They take effect at your
+# next login; until then, run: set -a; . FILE; set +a
+git_safety_dir="${XDG_CONFIG_HOME:-$HOME/.config}/environment.d"
+git_safety_env="$git_safety_dir/50-bulkhead-git-safety.conf"
+mkdir -p "$git_safety_dir"
+"$SCRIPT_DIR/make-git-safety-env" > "$TMPDIR/git-safety.conf"
+if ! cmp -s "$TMPDIR/git-safety.conf" "$git_safety_env"; then
+  cp "$TMPDIR/git-safety.conf" "$git_safety_env"
+  echo "  Updated $git_safety_env; log in again to use it everywhere."
+fi
+rm -f "$TMPDIR/git-safety.conf"
+install_managed_block "$SCRIPT_DIR/vm-profile-block.sh" "$HOME/.profile"
 
 echo "== Installing global agent instructions (~/.agents/AGENTS.md) =="
 # One set of instructions for every harness, so they can't drift apart.

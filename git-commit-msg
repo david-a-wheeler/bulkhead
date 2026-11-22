@@ -16,8 +16,7 @@ if ! sed '/^. -\{24\} >8 -\{24\}$/,$d' "$1" | git stripspace --strip-comments \
 fi
 
 # A global core.hooksPath disables the repository's own hooks, so run
-# its commit-msg hook too, if it has one.
-local_hook="$(git rev-parse --git-common-dir)/hooks/commit-msg"
-if [ -x "$local_hook" ]; then
-  exec "$local_hook" "$@"
-fi
+# its commit-msg hook too, if it has one and you've approved it (see
+# git-hook-passthrough, which vm-setup.sh installs beside this file).
+export BULKHEAD_HOOK_NAME=commit-msg
+exec "$(dirname "$0")/passthrough" "$@"

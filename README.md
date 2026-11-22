@@ -483,6 +483,17 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `~/.bash_aliases` by default; supporting another shell would mean a
   separate file in that shell's own syntax, not just installing this one
   elsewhere.
+- `make-git-safety-env` and `vm-profile-block.sh`: settings that stop a
+  repository's own `.git/config` from changing which commands your git
+  runs (e.g., `core.fsmonitor`, or a credential helper that would get
+  your token). `vm-setup.sh` installs the first one's output as
+  `~/.config/environment.d/50-bulkhead-git-safety.conf` and the second
+  into `~/.profile`, which reads that file. See `compartments.md`, "Git
+  runs commands from local files".
+- `git-commit-msg` and `git-hook-passthrough`: your global git hooks.
+  The first checks commit messages with `check-prose-style`; the second
+  runs a repository's own hook only once you've approved it in
+  `~/.config/bulkhead/approved-git-hooks`.
 - `agents-AGENTS.md`: the global instructions every harness shares,
   installed to each VM's `~/.agents/AGENTS.md` (agents run in the VMs,
   not on the host, so `host-setup.sh` doesn't install it). If you've

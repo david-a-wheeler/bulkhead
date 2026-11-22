@@ -88,8 +88,10 @@ install_managed_block() {
     echo "$begin_marker"
     cat "$block_file"
     echo "$end_marker"
-  } > "$target"
-  rm -f "$tmp"
+  } > "$tmp.new"
+  # Leave the file alone when nothing changes.
+  cmp -s "$tmp.new" "$target" || cat "$tmp.new" > "$target"
+  rm -f "$tmp" "$tmp.new"
 }
 
 # Prints a file's mtime as a Unix timestamp. Tries GNU stat's syntax first

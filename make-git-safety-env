@@ -1,0 +1,125 @@
+#!/bin/sh
+# make-git-safety-env: prints environment settings that stop a
+# repository's own .git/config from changing which commands git runs
+# for you. vm-setup.sh installs the output as
+# ~/.config/environment.d/50-bulkhead-git-safety.conf, which your
+# desktop session reads, and ~/.profile reads it too (for ssh and
+# console logins).
+#
+# Why: an agent can write its workspace's .git, so it could set, e.g.,
+# core.fsmonitor there, and git would run that command, unsandboxed,
+# the next time you (or your shell prompt) run "git status" there. git
+# reads command-scope settings (GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, and
+# GIT_CONFIG_VALUE_n) after a repository's config, so they win; and
+# some environment variables (e.g., GIT_PAGER) beat the matching config
+# key. This can't cover every key: drivers have names a repository
+# picks (filter.NAME.smudge, diff.NAME.textconv, merge.NAME.driver).
+# See compartments.md, "Git runs commands from local files".
+#
+# The values come from your own git config (system and global, read
+# from /, so no repository's config) and environment, as they are when
+# this runs, so re-run vm-setup.sh after you change them (e.g., a
+# credential helper or your editor).
+#
+# The output must mean the same to systemd's environment.d parser and to
+# sh, so every value is single-quoted, and a value holding a quote, "$",
+# a backslash, or a newline is refused. environment.d rejects an empty
+# value, even quoted, so an empty one is written as ${HOME:+}, which
+# both expand to "".
+#
+# Usage: make-git-safety-env > FILE
+set -eu
+
+cd /
+# Read your own settings, not the ones a previous run pinned.
+unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_PAGER GIT_EDITOR \
+  GIT_SEQUENCE_EDITOR GIT_SSH_COMMAND GIT_ASKPASS
+
+safe() {
+  case "$1" in
+    *"'"* | *'$'* | *\\* | *'
+'*) return 1 ;;
+  esac
+}
+
+quoted() {
+  if [ -z "$1" ]; then
+    # shellcheck disable=SC2016 # it's for the file's reader to expand
+    printf '%s' '${HOME:+}'
+  else
+    printf "'%s'" "$1"
+  fi
+}
+
+echo "# Made by make-git-safety-env (see that file for why); vm-setup.sh"
+echo "# rewrites it, so don't edit it."
+
+# Environment variables that beat a repository's config key.
+setenv() {
+  if safe "$2"; then
+    printf '%s=%s\n' "$1" "$(quoted "$2")"
+  else
+    echo "make-git-safety-env: WARNING: not pinning $1: its value has a quote, \$, backslash, or newline." >&2
+  fi
+}
+setenv GIT_PAGER "$(git var GIT_PAGER)"
+setenv GIT_EDITOR "$(git var GIT_EDITOR)"
+setenv GIT_SEQUENCE_EDITOR "$(git var GIT_SEQUENCE_EDITOR)"
+if [ -z "${GIT_SSH:-}" ]; then
+  setenv GIT_SSH_COMMAND "$(git config --get core.sshCommand || echo ssh)"
+fi
+# Set but empty, git skips core.askPass and SSH_ASKPASS and asks on the
+# terminal.
+setenv GIT_ASKPASS "$(git config --get core.askPass || echo "${SSH_ASKPASS:-}")"
+
+# Command-scope config, which beats a repository's config.
+n=0
+pin() {
+  if safe "$1" && safe "$2"; then
+    printf 'GIT_CONFIG_KEY_%s=%s\nGIT_CONFIG_VALUE_%s=%s\n' \
+      "$n" "$(quoted "$1")" "$n" "$(quoted "$2")"
+    n=$((n + 1))
+  else
+    echo "make-git-safety-env: WARNING: not pinning $1: it has a quote, \$, backslash, or newline." >&2
+    return 1
+  fi
+}
+# Hooks: only your own hooks directory (git-hook-passthrough then runs
+# a repository's hook only if you've approved it). Unset, there's
+# nothing to pin it to, since the default is the repository's own.
+hooks_path="$(git config --get core.hooksPath || true)"
+[ -z "$hooks_path" ] || pin core.hooksPath "$hooks_path" || true
+# Runs on "git status", so on many shell prompts.
+pin core.fsmonitor false
+# An "ext::" remote runs a command on fetch and push.
+pin protocol.ext.allow never
+# Signing and verifying (e.g., a repository's log.showSignature).
+pin gpg.program "$(git config --get gpg.program || echo gpg)"
+pin gpg.ssh.program "$(git config --get gpg.ssh.program || echo ssh-keygen)"
+pin gpg.x509.program "$(git config --get gpg.x509.program || echo gpgsm)"
+# Credential helpers: git hands each one your password (on "store"), so
+# an empty value first drops every helper a repository adds; then we
+# add back yours, in order. If one can't be written, we pin none, so
+# yours keep working.
+helpers="$(git config --get-regexp '^credential\..*helper$' || true)"
+helpers_ok=true
+while read -r key value; do
+  [ -n "$key" ] || continue
+  if ! safe "$key" || ! safe "$value"; then
+    helpers_ok=false
+  fi
+done <<EOF
+$helpers
+EOF
+if "$helpers_ok"; then
+  pin credential.helper ''
+  while read -r key value; do
+    [ -n "$key" ] || continue
+    pin "$key" "$value"
+  done <<EOF
+$helpers
+EOF
+else
+  echo "make-git-safety-env: WARNING: not pinning credential helpers: one has a quote, \$, backslash, or newline." >&2
+fi
+echo "GIT_CONFIG_COUNT='$n'"

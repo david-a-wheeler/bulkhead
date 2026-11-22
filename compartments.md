@@ -85,6 +85,91 @@ What a compartment does **not** protect against:
   `~/sensitive`; put a workspace under `~/sensitive` when that matters.
 - An agent's own test servers need their ports listed in
   `local-ports` (see "Known gaps").
+- Git runs commands named in a repository's local files, so an agent
+  can make git run its code outside the compartment, the next time
+  *you* run git in its workspace. See "Git runs commands from local
+  files".
+
+### Git runs commands from local files
+
+An agent can write its workspace's `.git`, on purpose, so it can
+commit. (It can't push: the network policy refuses it.) But git runs
+commands named in `.git/config` (e.g., `core.fsmonitor`, `core.pager`,
+or a `filter.NAME.smudge` that a `.gitattributes` line selects) and in
+`.git/hooks`. So an agent could plant a command there that runs,
+unsandboxed, the next time you run git in that workspace, or your shell
+prompt does. git's own documentation (git(1), "SECURITY") says it isn't
+safe to run git in a `.git` directory from an untrusted source, and
+that's what this is.
+
+We can't stop the agent writing `.git`, so `vm-setup.sh` makes your git
+ignore the riskiest parts of a repository's own config and hooks. This
+is cheap insurance against surprise commands, not a boundary:
+
+- **Pinned settings.** git reads command-scope settings
+  (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, and `GIT_CONFIG_VALUE_n`)
+  after a repository's config, so they win, and a few environment
+  variables beat the matching key. `make-git-safety-env` writes them to
+  `~/.config/environment.d/50-bulkhead-git-safety.conf`, which your
+  desktop session reads, and `~/.profile` reads it too (for ssh and
+  console logins). They pin `core.hooksPath`, `core.fsmonitor`,
+  `protocol.ext.allow` (an `ext::` remote runs a command),
+  `gpg.program` and its relatives, the pager, the editors,
+  `GIT_SSH_COMMAND`, `GIT_ASKPASS`, and your credential helpers. The
+  last matters most: git hands every helper your password on "store",
+  so a planted one would get your GitHub token when you push. The pins
+  reset the list and add back yours. The values come from your own
+  config when `vm-setup.sh` runs, so re-run it after you change them;
+  they take effect at your next login. They reach agents too, which is
+  harmless: an agent can change its own environment anyway.
+- **Approved hooks.** `git-hook-passthrough` (which your global
+  `core.hooksPath` runs for every hook name) runs a repository's own
+  hook only if its path and SHA-256 hash are a line in
+  `~/.config/bulkhead/approved-git-hooks`, in `sha256sum`'s format. When
+  it skips one, it prints the command to approve it. No nono profile
+  grants that file, so an agent can't approve its own hook, and a
+  changed hook needs a new approval. Approving a framework's hook (e.g.,
+  pre-commit's or git-lfs's) trusts its config files too, which the
+  agent can change (e.g., `.pre-commit-config.yaml`). There's also a
+  brief window between the check and the run.
+
+What's still open, so check these before you run git after a session
+you didn't watch:
+
+- Drivers, whose names a repository picks: `filter.NAME.*`,
+  `diff.NAME.*`, and `merge.NAME.*`. (An empty `diff.external` doesn't
+  disable it; git fails every diff instead.) `git diff --no-ext-diff
+  --no-textconv` avoids the diff ones while you review.
+- Other keys with a repository's own names in them, e.g., a remote's
+  URL, `uploadpack`, or `pushurl`, `url.NAME.insteadOf`, and per-URL
+  `http.URL.*` settings (git prefers the most specific URL match, so a
+  pin can't beat them). These could send your push, and its
+  credentials, elsewhere.
+- Programs that don't get your login environment (e.g., cron).
+- Anything else that runs from the workspace (e.g., `Makefile`,
+  `ci.sh`, `package.json` scripts, or `.envrc`).
+
+E.g., `git config --local --list`, `git remote -v`, `ls .git/hooks`,
+`ls .git/commondir`, and `find . -name .git` (for a repository the
+agent created below the workspace).
+
+We tried and rejected these:
+
+- **Read-only `.git/config` and `.git/hooks`** (bwrap binds, with `.git`
+  bound onto itself so it can't be swapped). git honors a
+  `.git/commondir` file in any repository, not only in worktrees, and
+  then reads config and hooks from the directory it names. I tested
+  that: planting one made `git config user.name` return the planted
+  repository's value. A bind can't stop a file being created, and a
+  placeholder at that name makes git refuse to run. It also wouldn't
+  cover a repository the agent creates below the workspace. (The pins
+  above don't care where config comes from, so `commondir` doesn't
+  defeat them.)
+- **nono:** Landlock is allow-only, so nono can't make part of a
+  writable workspace read-only on Linux; it refuses to start instead.
+- **A read-only `.git`:** that works, but then the agent can't commit.
+- **`~/.gitconfig`:** a repository's config overrides it. git honors
+  only a few keys (e.g., `safe.directory`) solely from your own config.
 
 ## Workspaces and their dossiers
 
