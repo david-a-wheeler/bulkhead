@@ -4,6 +4,7 @@
   },
   "filesystem": {
     "read": [
+      "/tmp",
       "$HOME/.rbenv",
       "$HOME/.gitconfig",
       "$HOME/.agents",

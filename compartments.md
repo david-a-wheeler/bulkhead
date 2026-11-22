@@ -212,6 +212,10 @@ Files:
 
 - The workspace and the paths the profiles grant; the rest of home is
   denied.
+- `/tmp`, read and write. bwrap makes it the compartment's own, so
+  reading it can't reveal another compartment's files. nono alone
+  grants only write there, so tools that hard-code `/tmp` (ignoring
+  `TMPDIR`) couldn't read back their own files.
 - `inbox/` read-only, `outbox/` write-only, and nothing else in the
   dossier.
 
@@ -297,7 +301,9 @@ alternatives in Ubuntu's repositories and rejected them:
   namespace and can list its ports and sockets (but Landlock still
   refuses connections to them).
 - `BULKHEAD_NO_COMPARTMENT=1`: skip bwrap and pasta entirely. nono still
-  runs, but compartments share `/tmp`, `~/.claude`, and so on.
+  runs, but compartments share `/tmp`, `~/.claude`, and so on. Since
+  the default profile grants reading `/tmp`, the agent can then read
+  the VM's shared `/tmp`, too.
 
 Both print a warning. Use them only to work around a breakage.
 
