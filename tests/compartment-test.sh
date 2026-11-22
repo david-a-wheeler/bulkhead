@@ -144,6 +144,17 @@ check "a compartment can't reach a VM port it isn't given" "$r" refused
 r=$(run_in "$a" --forward-port 18989 "python3 ,net-probe.py connect 18989")
 check "a compartment can reach a VM port it's given" "$r" ok
 kill "$server"
+# An exposed port: you can reach the agent's server from the VM, but
+# another compartment can't.
+echo 18990 >> "$a.dossier/policy/expose-ports"
+run_in "$a" "python3 -m http.server -b 127.0.0.1 18990 > /dev/null 2>&1 & sleep 4; kill \$!" &
+sleep 2
+# An HTTP reply, not just a connection: pasta may accept one itself.
+r=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:18990/ || :)
+check "you can reach a compartment's exposed port" "$r" 200
+r=$(run_in "$b" "python3 ,net-probe.py connect 18990")
+check "another compartment can't reach an exposed port" "$r" refused
+wait
 r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd --allow-domain example.com -- curl -s -o /dev/null -w %{http_code} --max-time 20 https://example.com/")
 check "an agent reaches an allowed site through nono's proxy" "$r" 200
 name="bulkhead-test-$$"

@@ -291,7 +291,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   harness's screen.
 - `bulkhead-workspace-prepare`: checks the current directory's
   workspace and sets up its dossier beside it (`DIR.dossier` for `DIR`;
-  see `workspace-dossier-plan.md`), before any sandbox starts. The
+  see `compartments.md`), before any sandbox starts. The
   dossier holds what's about the workspace but mustn't be under its
   agent's control (`logs/`, `policy/`), mustn't arrive with its
   contents (`state/`, the harness's private files), or passes between
@@ -303,7 +303,11 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `bulkhead-workspace-nono-args`: prints the arguments `anon-access`
   adds to every `nono run`: the dossier's `inbox/` (read-only) and
   `outbox/` (write-only), and an `--open-port` for each port in the
-  dossier's `policy/local-ports` (ports on the agent's own loopback).
+  dossier's `policy/local-ports` (ports on the agent's own loopback)
+  and `policy/expose-ports` (ports you can also reach from the VM).
+- `bulkhead-workspace-ports`: reads and checks those two port lists,
+  for `bulkhead-workspace-nono-args` and `bulkhead-compartment` (which
+  has pasta forward the exposed ports from the VM's `127.0.0.1`).
 - `bulkhead-compartment`: runs a command in its directory's
   compartment using bubblewrap, so one project's agent can't leave
   anything for another's to read or run: each compartment gets a
@@ -455,10 +459,11 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `agent-network-plan.md`: the shared network policy's design, test
   results, and rollout steps.
 - `compartments.md`: what each agent's compartment can and can't do,
-  and how `anon-access`, pasta, bwrap, and nono build it.
-- `workspace-dossier-plan.md`: plan for each workspace's sibling
-  dossier directory (logs, policy, and harness state an agent mustn't
-  fully control) and for refusing risky places to start an agent.
+  each workspace's dossier (its layout, ports, inbox, and outbox) and
+  where an agent may not start, and how `anon-access`, pasta, bwrap,
+  and nono build it.
+- `archive/`: plans that are done, kept for their reasoning and
+  lessons (e.g., `workspace-dossier-plan.md`).
 - `nftables.template.conf`: VM egress firewall ruleset.
 - `bulkhead-reclaim-memory`, `bulkhead-reclaim-memory.template.service`,
   and `bulkhead-reclaim-memory.template.timer`: every 15 minutes, when

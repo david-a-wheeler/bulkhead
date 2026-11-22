@@ -1,6 +1,6 @@
 #!/bin/sh
 # bulkhead-compartment-info: print one fact about a directory's
-# workspace (see workspace-dossier-plan.md), so every script computes it
+# workspace (see compartments.md), so every script computes it
 # the same way. It refuses (exits 1, saying why) a directory no agent
 # should start in, whatever the field.
 #

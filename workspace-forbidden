@@ -1,5 +1,5 @@
 # workspace-forbidden: directories no agent may start in (see
-# workspace-dossier-plan.md). vm-setup.sh installs this in
+# compartments.md). vm-setup.sh installs this in
 # /usr/local/libexec/bulkhead/; bulkhead-compartment-info reads it.
 #
 # One shell "case" pattern per line, matched against the real path of

@@ -46,7 +46,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-workspace-prepare bulkhead-workspace-nono-args bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper noclaude check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-workspace-prepare bulkhead-workspace-nono-args bulkhead-workspace-ports bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -245,6 +245,26 @@ for bad in 80x 0 65536 3-2 1-2-3 -5; do
     failed "nono args accepted the local port $bad"
 done
 cp "$wst/local-ports" "$d1/policy/local-ports"
+grep -q '^#' "$d1/policy/expose-ports" && ! grep -q '^[^#]' "$d1/policy/expose-ports" ||
+  failed "prepare made a commented expose-ports"
+for bad in 010 3000-03001; do
+  echo "$bad" > "$d1/policy/local-ports"
+  run_ws "$fh/projects/p1" bulkhead-workspace-nono-args > /dev/null 2>&1 &&
+    failed "nono args accepted the local port $bad"
+done
+cp "$wst/local-ports" "$d1/policy/local-ports"
+# Exposed ports: agents may use them, and pasta forwards them from the
+# VM's 127.0.0.1 only.
+cp "$d1/policy/expose-ports" "$wst/expose-ports"
+printf '3000\n4000-4001 # dev servers\n' >> "$d1/policy/expose-ports"
+[ "$(nargs)" = "--read|$d1/inbox|--write|$d1/outbox|--open-port|3000|--open-port|4000|--open-port|4001|" ] ||
+  failed "nono args: exposed ports: $(nargs)"
+run_ws "$fh/projects/p1" bulkhead-compartment --dry-run cmd | tr '\n' '|' |
+  grep -qF -- "|--tcp-ports|127.0.0.1/3000,4000-4001|" || failed "compartment exposes ports"
+echo 80x >> "$d1/policy/expose-ports"
+run_ws "$fh/projects/p1" bulkhead-compartment --dry-run cmd > /dev/null 2>&1 &&
+  failed "compartment exposed a bad port"
+cp "$wst/expose-ports" "$d1/policy/expose-ports"
 
 # Moving a workspace with its dossier updates the record and registry.
 mv "$fh/projects/p1" "$fh/projects/p1b"

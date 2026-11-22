@@ -1,11 +1,10 @@
 # Plan: workspaces and their dossier directories
 
-Status (2026-11-20): implemented (`bulkhead-workspace-prepare`,
-`bulkhead-compartment-info`, `workspace-forbidden`); `ci.sh` passes,
-but `tests/compartment-test.sh` (outside nono) hasn't run yet. Builds on the compartments in
-`bulkhead-compartment` (see `,restart-notes.md` for their tests).
-"Decisions while implementing" says where the code differs from the
-first draft.
+Status (2026-11-21): archived. It's implemented, and `compartments.md`
+now documents what's live (the dossier's layout, how to use it, and how
+it's built). This is the original plan, kept for its reasoning and its
+lessons learned; parts are out of date (e.g., it says "today" about the
+layout before dossiers).
 
 ## The problem
 

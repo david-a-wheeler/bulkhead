@@ -295,11 +295,12 @@ sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRI
 # (bulkhead-workspace-prepare, which reads workspace-forbidden), then
 # runs everything through bulkhead-compartment (bubblewrap, in a
 # network namespace from pasta), which reads compartment-paths and
-# netns-resolv.conf. See workspace-dossier-plan.md.
+# netns-resolv.conf. See compartments.md.
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
   "$SCRIPT_DIR/bulkhead-compartment-info" \
   "$SCRIPT_DIR/bulkhead-workspace-prepare" \
   "$SCRIPT_DIR/bulkhead-workspace-nono-args" \
+  "$SCRIPT_DIR/bulkhead-workspace-ports" \
   "$SCRIPT_DIR/bulkhead-copy-claude-history" /usr/local/bin/
 sudo install -d -m 755 /usr/local/libexec/bulkhead
 sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbidden" \
