@@ -28,8 +28,6 @@
       "/etc/bash_completion",
       "$HOME/.bashrc",
       "$HOME/.profile",
-      "$HOME/.bash_profile",
-      "$HOME/.bash_login",
       "$HOME/.bash_logout",
       "$HOME/.bash_aliases",
       "$HOME/.inputrc",
@@ -39,8 +37,6 @@
     "bypass_protection": [
       "$HOME/.bashrc",
       "$HOME/.profile",
-      "$HOME/.bash_profile",
-      "$HOME/.bash_login",
       "$HOME/.bash_logout"
     ]
   }
