@@ -299,10 +299,11 @@ sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRI
 # (bulkhead-workspace, which reads workspace-forbidden), then runs
 # everything through bulkhead-compartment (bubblewrap, in a network
 # namespace from pasta), which reads compartment-paths and
-# netns-resolv.conf. See compartments.md. bulkhead-copy-claude-history
-# is transitional.
+# netns-resolv.conf. compart also runs bulkhead-git-check (which reads
+# git-config-entries.awk and git-config-risks). See compartments.md.
+# bulkhead-copy-claude-history is transitional.
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
-  "$SCRIPT_DIR/bulkhead-workspace" \
+  "$SCRIPT_DIR/bulkhead-workspace" "$SCRIPT_DIR/bulkhead-git-check" \
   "$SCRIPT_DIR/bulkhead-copy-claude-history" /usr/local/bin/
 # The helpers bulkhead-workspace replaced.
 for f in bulkhead-compartment-info bulkhead-workspace-prepare \
@@ -311,7 +312,8 @@ for f in bulkhead-compartment-info bulkhead-workspace-prepare \
 done
 sudo install -d -m 755 /usr/local/libexec/bulkhead
 sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbidden" \
-  "$SCRIPT_DIR/netns-resolv.conf" /usr/local/libexec/bulkhead/
+  "$SCRIPT_DIR/netns-resolv.conf" "$SCRIPT_DIR/git-config-entries.awk" \
+  "$SCRIPT_DIR/git-config-risks" /usr/local/libexec/bulkhead/
 orphans="$(/usr/local/bin/bulkhead-workspace orphans)"
 if [ -n "$orphans" ]; then
   cat >&2 <<EOF

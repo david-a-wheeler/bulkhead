@@ -296,7 +296,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   (or give `prepare --yes`). It refuses `~` and anything above it, and
   anything matching `workspace-forbidden`. The dossier holds what's
   about the workspace but mustn't be under its agent's control
-  (`logs/`, `policy/`), mustn't arrive with its contents (`state/`, the
+  (`logs/`, `policy/`, `git/`), mustn't arrive with its contents (`state/`, the
   harness's private files), or passes between you and the agent
   (`inbox/`, `outbox/`). `prepare` notices a workspace moved with its
   dossier, and (for now) moves older layouts in; `orphans` lists
@@ -321,6 +321,14 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   VM's `127.0.0.1` to the agent. It fails rather than run without a
   compartment; `BULKHEAD_NO_COMPARTMENT=1` skips it.
   `tests/compartment-test.sh` (run by hand, outside nono) checks it.
+- `bulkhead-git-check`: run by `compart` before and after each
+  session; shows you any change to the settings a workspace's git
+  repositories give git (config, includes, hooks, and where each
+  repository lives) since you approved them, says what each can do
+  (from `git-config-risks`), and asks you to approve it. Unapproved, a
+  session won't start. `git-config-entries.awk` turns git's config
+  listing into its lines. See `compartments.md`, "Git runs commands
+  from local files".
 - `workspace-forbidden`: the data `bulkhead-workspace` reads:
   shell patterns for directories no agent may start in (e.g.,
   `~/projects`, `~/.*`, `*.dossier`, `/tmp/*`). Installed in
@@ -340,15 +348,16 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `compart`: runs an AI harness in this workspace's compartment, e.g.,
   `compart claude` or `compart pi --print 'Say hello'`. Each harness
   gets a case that adds only what it alone needs (its nono profile,
-  setup, and extra nono options); every one ends in the same `exec
-  anon-access nono run --profile PROFILE --allow-cwd ...`, so adding a
+  setup, and extra nono options); every one ends in the same `anon-access
+  nono run --profile PROFILE --allow-cwd ...`, so adding a
   harness (e.g., goose) means adding one case. For every harness, it
   adds the workspace's nono options: `--extends bulkhead-broad` outside
   `~/sensitive`, `--log-file` with the workspace's log (so nono's
   warnings don't land on the harness's screen; `nono.log` is rotated to
   `nono.log.1` at launch once it passes 1 MB), the dossier's `inbox/`
   (read-only) and `outbox/` (write-only), and an `--open-port` for each
-  of its local and exposed ports. `noclaude` and `nopi` are
+  of its local and exposed ports. It runs `bulkhead-git-check` before
+  and after the session. `noclaude` and `nopi` are
   the old names, kept as shims that run `compart claude` and
   `compart pi`.
 - `compart claude` runs `anon-access nono run --profile bulkhead-claude

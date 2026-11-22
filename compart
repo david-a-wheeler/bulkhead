@@ -151,6 +151,10 @@ ports() {
 # own options and command. Ports are only digits (ports checks), so
 # splitting $local_ports and $expose_ports is safe.
 dossier="$("$(dirname "$0")/bulkhead-workspace" prepare)" || exit 1
+# An agent can plant git settings that run commands when you next run
+# git here, so we show you any change since you last approved them
+# (see bulkhead-git-check), before the session and again after it.
+"$(dirname "$0")/bulkhead-git-check" || exit 1
 local_ports="$(ports "$dossier/policy/local-ports")" || exit 1
 expose_ports="$(ports "$dossier/policy/expose-ports")" || exit 1
 # The workspace's local ports (and exposed ones, which its agents use
@@ -194,4 +198,12 @@ done
 for p in $forward; do
   set -- --forward-port "$p" "$@"
 done
-exec anon-access "$@"
+# We don't exec, so we can check git's settings when the session ends.
+# A trap (unlike ignoring a signal) doesn't pass on to the harness, so
+# Ctrl-C still reaches it, but doesn't stop us.
+trap : INT QUIT
+status=0
+anon-access "$@" || status=$?
+trap - INT QUIT
+"$(dirname "$0")/bulkhead-git-check" --after || :
+exit "$status"

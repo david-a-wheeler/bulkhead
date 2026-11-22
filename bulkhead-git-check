@@ -1,0 +1,176 @@
+#!/bin/sh
+# bulkhead-git-check: notice when the settings that a workspace's git
+# repositories give git change, and ask you to approve the change.
+# compart runs it before each session (refusing to start unless you
+# approve) and after (warning you if you don't). Run it yourself before
+# you run git in a workspace after a session you didn't watch. Run it
+# outside every sandbox. See compartments.md, "Git runs commands from
+# local files".
+#
+# Usage: bulkhead-git-check [--after] [--yes] [DIR]
+#   --after  the session is over: on a change you don't approve, warn
+#            you not to run git there, instead of refusing to start
+#   --yes    approve any change without asking
+# DIR defaults to the current directory. It exits 0 if nothing changed
+# or you approved the change, else 1.
+#
+# Why: an agent can write its workspace's .git, so it can plant
+# settings that run a command, or send your push elsewhere, the next
+# time you run git there, outside every sandbox. vm-setup.sh pins the
+# riskiest keys, but it can't pin keys whose names a repository picks
+# (e.g., filter.NAME.smudge or url.NAME.insteadOf). So we record what
+# you've approved in the dossier's git/approved, where no agent can
+# reach, and show you anything new.
+#
+# For each .git (directory or file) anywhere in the workspace, we
+# record where git keeps the repository, its local and worktree config
+# (as "git config --list --show-scope --includes" gives it, so files it
+# includes count too; see git-config-entries.awk), and the SHA-256
+# hash of each hook. Reading these runs nothing from the repository.
+# git-config-risks says what each kind of change can do. The first run
+# for a workspace records what's there without asking.
+set -eu
+
+LIB_DIR="${BULKHEAD_LIB_DIR:-/usr/local/libexec/bulkhead}"
+tab="$(printf '\t')"
+
+say() {
+  echo "bulkhead: $*" >&2
+}
+# Show a path or name on one line, with no control characters.
+shown() {
+  printf '%s' "$1" | LC_ALL=C tr -c '[:print:]' '?'
+}
+
+# Internal: find runs "bulkhead-git-check --repo ROOT OUTDIR GIT..." to
+# record each repository in OUTDIR, in a file named for its path, so
+# the result doesn't depend on the order find finds them in.
+if [ "${1:-}" = --repo ]; then
+  root="$2"
+  out="$3"
+  shift 3
+  for git in "$@"; do
+    dir="$(dirname "$git")"
+    rel="${dir#"$root"}"
+    rel="${rel#/}"
+    rel="$(shown "${rel:-.}")"
+    file="$out/$(printf '%s' "$dir" | sha256sum | cut -c1-64)"
+    # GIT_DIR, so git doesn't look above a .git that isn't a repository.
+    if ! where="$(cd "$dir" && GIT_DIR="$git" git rev-parse --path-format=absolute \
+      --git-dir --git-common-dir 2> /dev/null)"; then
+      printf '%s\terror\tnot a repository git can read\n' "$rel" > "$file"
+      continue
+    fi
+    gitdir="$(printf '%s\n' "$where" | sed -n 1p)"
+    common="$(printf '%s\n' "$where" | sed -n 2p)"
+    {
+      printf '%s\trepo\t%s\n' "$rel" "$rel"
+      for d in git-dir common-dir; do
+        if [ "$d" = git-dir ]; then p="$gitdir"; else p="$common"; fi
+        case "$p" in
+          "$root"/*) p="${p#"$root"/}" ;;
+        esac
+        printf '%s\t%s\t%s\n' "$rel" "$d" "$(shown "$p")"
+      done
+      if (cd "$dir" && GIT_DIR="$git" git config --list --show-scope --includes -z) > "$file.z" 2> /dev/null; then
+        tr '\0' '\001' < "$file.z" | awk -v repo="$rel" -f "$LIB_DIR/git-config-entries.awk"
+      else
+        printf '%s\terror\tgit can'"'"'t read its config\n' "$rel"
+      fi
+      rm -f "$file.z"
+      for h in "$common"/hooks/*; do
+        [ -f "$h" ] || continue
+        case "$h" in *.sample) continue ;; esac
+        printf '%s\thook\t%s %s\n' "$rel" "$(shown "${h##*/}")" "$(sha256sum < "$h" | cut -c1-64)"
+      done
+    } > "$file"
+  done
+  exit 0
+fi
+
+after=false
+yes=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --after) after=true ;;
+    --yes) yes=true ;;
+    -*) echo "Usage: bulkhead-git-check [--after] [--yes] [DIR]" >&2; exit 2 ;;
+    *) break ;;
+  esac
+  shift
+done
+[ $# -le 1 ] || { echo "Usage: bulkhead-git-check [--after] [--yes] [DIR]" >&2; exit 2; }
+workspace="$(dirname "$0")/bulkhead-workspace"
+root="$("$workspace" root "${1:-.}")"
+dossier="$("$workspace" dossier "${1:-.}")"
+[ -d "$dossier" ] || { say "$dossier doesn't exist; run bulkhead-workspace prepare first."; exit 1; }
+gdir="$dossier/git"
+[ -d "$gdir" ] || mkdir -m 700 "$gdir"
+approved="$gdir/approved"
+
+work="$(mktemp -d "$gdir/,check.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+trap 'exit 1' HUP INT TERM
+mkdir "$work/repos"
+# A directory find can't search could hide a repository, so that's a
+# change too.
+if ! find "$root" -name .git -prune -exec "$0" --repo "$root" "$work/repos" {} + 2> /dev/null; then
+  printf '.\terror\tcould not search all of the workspace\n' > "$work/repos/find-error"
+fi
+cat "$work/repos"/* > "$work/current" 2> /dev/null || : > "$work/current"
+
+if [ ! -f "$approved" ]; then
+  mv "$work/current" "$approved"
+  say "recorded the git settings of $root's repositories in $approved; I'll tell you when they change."
+  exit 0
+fi
+cmp -s "$approved" "$work/current" && exit 0
+
+# explain LINE: say what a changed line can do, per git-config-risks.
+explain() {
+  rest="${1#*"$tab"}"
+  kind="${rest%%"$tab"*}"
+  what="${rest#*"$tab"}"
+  [ "$kind" != config ] || what="${what%%=*}"
+  [ "$kind" != hook ] || what="${what%% *}"
+  while read -r pattern text; do
+    case "$pattern" in '' | '#'*) continue ;; esac
+    # Unquoted on purpose: $pattern is a pattern.
+    # shellcheck disable=SC2254
+    case "$kind:$what" in
+      $pattern) printf '             %s\n' "$text"; return ;;
+    esac
+  done < "$LIB_DIR/git-config-risks"
+}
+
+say "the git settings in $root changed since you approved them:"
+diff "$approved" "$work/current" | while IFS= read -r line; do
+  case "$line" in
+    '< '*) printf '  removed:   %s\n' "$(printf '%s' "${line#'< '}" | tr '\t' ' ')" ;;
+    '> '*)
+      printf '  added:     %s\n' "$(printf '%s' "${line#'> '}" | tr '\t' ' ')"
+      explain "${line#'> '}"
+      ;;
+  esac
+done >&2
+
+if "$yes"; then
+  answer=y
+else
+  printf 'bulkhead: did you expect these changes (approve them)? [y/N] ' >&2
+  answer=""
+  read -r answer 2> /dev/null < /dev/tty || echo >&2
+fi
+case "$answer" in
+  y | Y | yes | YES | Yes)
+    mv "$work/current" "$approved"
+    say "approved; recorded them in $approved."
+    exit 0
+    ;;
+esac
+if "$after"; then
+  say "WARNING: don't run git in $root until you've undone these changes, or run bulkhead-git-check there and approve them."
+else
+  say "not starting. Undo these changes, or run bulkhead-git-check there and approve them."
+fi
+exit 1

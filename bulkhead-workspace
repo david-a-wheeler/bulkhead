@@ -30,6 +30,7 @@
 # The dossier holds state/ (the harness's private files, which
 # bulkhead-compartment binds over ~/.claude and the like), logs/ (e.g.,
 # nono's log; no agent access), policy/ (local-ports and expose-ports),
+# git/ (the git settings you've approved; see bulkhead-git-check),
 # inbox/, outbox/, and workspace (the path it was made for).
 #
 # Every command but orphans refuses (exits 1, saying why) DIR when DIR
@@ -186,7 +187,7 @@ if [ -L "$dossier" ] || [ ! -d "$dossier" ] || [ "$(stat -c %u "$dossier")" != "
   exit 1
 fi
 chmod 700 "$dossier"
-for d in state logs policy inbox outbox; do
+for d in state logs policy git inbox outbox; do
   [ -d "$dossier/$d" ] || mkdir -m 700 "$dossier/$d"
 done
 # Only if missing, so your edits stay.

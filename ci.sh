@@ -50,7 +50,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -143,7 +143,7 @@ mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$f
 fhp="$(cd "$fh" && pwd -P)"
 wsenv() {
   env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT -u XDG_STATE_HOME -u NONO_LOG_FILE HOME="$fh" XDG_RUNTIME_DIR=/run/user/9 \
-    BULKHEAD_COMPARTMENT_PATHS="$SCRIPT_DIR/compartment-paths" \
+    BULKHEAD_COMPARTMENT_PATHS="$SCRIPT_DIR/compartment-paths" BULKHEAD_LIB_DIR="$SCRIPT_DIR" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$SCRIPT_DIR/workspace-forbidden" "$@"
 }
 # run_ws DIR COMMAND [ARG...]: run one of this repo's scripts in DIR.
@@ -283,6 +283,54 @@ for bad in 80x 0 010 65536 3000-3002 ' 8089' '8089 # web'; do
 done
 cp "$wst/local-ports" "$d1/policy/local-ports"
 cp "$wst/expose-ports" "$d1/policy/expose-ports"
+
+# bulkhead-git-check: the first run records a workspace's repositories'
+# settings; then any change (here, run with no terminal) makes it
+# refuse, explaining what it can do, until you approve it. setsid
+# drops the terminal, so it can't ask.
+[ -d "$d1/git" ] || failed "prepare made git/"
+TAB="$(printf '\t')"
+g="$fh/projects/g1"
+mkdir -p "$g"
+git init -q "$g"
+gcheck() { (cd "$g" && wsenv setsid -w "$SCRIPT_DIR/bulkhead-git-check" "$@" 2>&1); }
+gapproved="$fhp/projects/g1.dossier/git/approved"
+prep "$g" 2> /dev/null
+gcheck > /dev/null || failed "git check: first run"
+grep -qx ".${TAB}config${TAB}core.bare=false" "$gapproved" || failed "git check: recorded the config"
+gcheck > /dev/null || failed "git check: no change"
+git -C "$g" config filter.x.smudge "$(printf 'evil\nlocal\tfake')"
+out="$(gcheck)" && failed "git check: accepted a new filter"
+printf '%s\n' "$out" | grep -qF 'added:     . config filter.x.smudge=evil\nlocal\tfake' ||
+  failed "git check: showed the escaped filter: $out"
+printf '%s\n' "$out" | grep -q 'a filter driver: runs a command' || failed "git check: explained the filter"
+gcheck --after > /dev/null && failed "git check --after: accepted a new filter"
+gcheck --yes > /dev/null || failed "git check --yes"
+gcheck > /dev/null || failed "git check: after approval"
+# A nested repository, a planted hook, and a change in an included file.
+git init -q "$g/sub/inner"
+printf '#!/bin/sh\n' > "$g/.git/hooks/pre-commit"
+out="$(gcheck)" && failed "git check: accepted a new repository and hook"
+printf '%s\n' "$out" | grep -qF 'added:     sub/inner repo sub/inner' || failed "git check: saw the new repository"
+printf '%s\n' "$out" | grep -qF 'added:     . hook pre-commit ' || failed "git check: saw the new hook"
+git -C "$g" config include.path inc
+printf '[x]\n\ty = 1\n' > "$g/.git/inc"
+gcheck --yes > /dev/null
+printf '[x]\n\ty = 2\n' > "$g/.git/inc"
+gcheck | grep -qF 'added:     . config x.y=2' || failed "git check: saw a change in an included file"
+gcheck --yes > /dev/null
+# A planted commondir, and a .git file git can't use.
+git init -q --bare "$fh/projects/evil.git"
+echo ../../evil.git > "$g/.git/commondir"
+gcheck | grep -qF "added:     . common-dir $fhp/projects/evil.git" || failed "git check: saw a planted commondir"
+rm "$g/.git/commondir"
+echo 'gitdir: /nonexistent' > "$g/sub/.git"
+gcheck | grep -qF 'added:     sub error ' || failed "git check: saw an unusable .git"
+rm "$g/sub/.git"
+# compart won't start a session on an unapproved change.
+git -C "$g" config remote.origin.url https://example.org/x
+[ -z "$( (cd "$g" && wsenv PATH="$wst/bin:$PATH" setsid -w "$SCRIPT_DIR/compart" claude 2> /dev/null))" ] ||
+  failed "compart started with an unapproved git change"
 
 # Moving a workspace with its dossier updates the record.
 mv "$fh/projects/p1" "$fh/projects/p1b"

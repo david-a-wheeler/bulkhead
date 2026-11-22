@@ -133,19 +133,37 @@ is cheap insurance against surprise commands, not a boundary:
   agent can change (e.g., `.pre-commit-config.yaml`). There's also a
   brief window between the check and the run.
 
+- **Approved repository settings.** Pins can't cover keys whose names
+  a repository picks, so `compart` runs `bulkhead-git-check` before
+  each session and again when it ends. It records, for each `.git`
+  (directory or file) anywhere in the workspace, where git keeps the
+  repository (so a planted `.git` file or `.git/commondir` shows), its
+  local and worktree config as git reads it (`git config --list
+  --show-scope --includes`, so included files count), and each hook's
+  hash. Reading these runs nothing from the repository. It compares
+  that with what you approved, in the dossier's `git/approved`, which
+  no agent can reach. On a difference it lists what was added and
+  removed, says what each added line can do (from `git-config-risks`,
+  e.g., "a filter driver: runs a command when..."), and asks you to
+  approve it. If you don't, `compart` won't start a session, and after
+  one it warns you not to run git there. So a change can't go
+  unnoticed for long. The first run for a workspace records what's
+  there without asking. It skips `branch.NAME.remote` and
+  `branch.NAME.merge`, which change with every branch you track; it
+  keeps `remote.*`, which they name. Run `bulkhead-git-check` yourself
+  in a workspace before you run git there after a session you didn't
+  watch, since another session may still be running.
+
 What's still open, so check these before you run git after a session
 you didn't watch:
 
-- Drivers, whose names a repository picks: `filter.NAME.*`,
-  `diff.NAME.*`, and `merge.NAME.*`. (An empty `diff.external` doesn't
-  disable it; git fails every diff instead.) `git diff --no-ext-diff
-  --no-textconv` avoids the diff ones while you review.
-- Other keys with a repository's own names in them, e.g., a remote's
-  URL, `uploadpack`, or `pushurl`, `url.NAME.insteadOf`, and per-URL
-  `http.URL.*` settings (git prefers the most specific URL match, so a
-  pin can't beat them). These could send your push, and its
-  credentials, elsewhere.
-- Programs that don't get your login environment (e.g., cron).
+- Changes you approve without reading. The check can only show you.
+- A repository git finds without a `.git` (e.g., a bare one, if you
+  run git inside it).
+- Files that tools beside git read from the work tree (e.g., git-lfs's
+  `.lfsconfig`, which can set where LFS pushes go).
+- Programs that don't get your login environment (e.g., cron), which
+  miss the pins.
 - Anything else that runs from the workspace (e.g., `Makefile`,
   `ci.sh`, `package.json` scripts, or `.envrc`).
 
@@ -225,6 +243,7 @@ binds its grants at start, so a directory made later stays denied.
 | `state/` | read-write, through bwrap's binds only | the harness's private files (e.g., `~/.claude`) |
 | `logs/` | none | `nono.log` and its one rotated copy |
 | `policy/` | none | your settings for the workspace: `local-ports` and `expose-ports` |
+| `git/` | none | `approved`: the repositories' git settings you've approved (see `bulkhead-git-check`) |
 | `inbox/` | read-only (nono `--read`) | files you give the agent |
 | `outbox/` | write-only (nono `--write`) | files the agent gives you |
 
@@ -691,7 +710,10 @@ It prints a warning. Use it only to work around a breakage.
 arguments `bulkhead-compartment` builds (with `--dry-run`), including
 that pasta forwards nothing unless asked, and the command line
 `compart claude` builds (with a stand-in `anon-access`), including the
-port lists. `tests/compartment-test.sh` runs
+port lists, and that `bulkhead-git-check` notices and explains new
+repository settings (filters, hooks, nested repositories, included
+files, and a planted `commondir`) and that `compart` won't start until
+you approve them. `tests/compartment-test.sh` runs
 real compartments; run it by hand in a VM, outside any sandbox (bwrap
 can't run inside nono). It checks the file isolation, the inbox and
 outbox, that an agent can't see or reach the VM's loopback services,
