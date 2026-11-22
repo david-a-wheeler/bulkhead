@@ -361,7 +361,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `nono.log.1` at launch once it passes 1 MB), the dossier's `inbox/`
   (read-only) and `outbox/` (write-only), and an `--open-port` for each
   of its local and exposed ports. It runs `bulkhead-git-check` before
-  and after the session. `noclaude` and `nopi` are
+  and after the session. `compart check` runs a launch's checks
+  (the dossier, port lists, and git settings), and checks that git's
+  safety settings are in your environment and that no dossier is
+  orphaned, but starts nothing. `noclaude` and `nopi` are
   the old names, kept as shims that run `compart claude` and
   `compart pi`.
 - `compart claude` runs `anon-access nono run --profile bulkhead-claude

@@ -327,10 +327,19 @@ rm "$g/.git/commondir"
 echo 'gitdir: /nonexistent' > "$g/sub/.git"
 gcheck | grep -qF 'added:     sub error ' || failed "git check: saw an unusable .git"
 rm "$g/sub/.git"
+# compart check: passes here, and fails without git's safety settings.
+ccheck() { (cd "$g" && wsenv PATH="$wst/bin:$PATH" setsid -w "$@" "$SCRIPT_DIR/compart" check 2>&1); }
+mkdir -p "$fh/.config/environment.d"
+: > "$fh/.config/environment.d/50-bulkhead-git-safety.conf"
+out="$(ccheck env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hookspath GIT_CONFIG_VALUE_0=/nonexistent)" ||
+  failed "compart check: $out"
+ccheck env -u GIT_CONFIG_COUNT > /dev/null && failed "compart check passed without git's safety settings"
 # compart won't start a session on an unapproved change.
 git -C "$g" config remote.origin.url https://example.org/x
 [ -z "$( (cd "$g" && wsenv PATH="$wst/bin:$PATH" setsid -w "$SCRIPT_DIR/compart" claude 2> /dev/null))" ] ||
   failed "compart started with an unapproved git change"
+ccheck env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hookspath GIT_CONFIG_VALUE_0=/nonexistent > /dev/null &&
+  failed "compart check passed with an unapproved git change"
 
 # Moving a workspace with its dossier updates the record.
 mv "$fh/projects/p1" "$fh/projects/p1b"

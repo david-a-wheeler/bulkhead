@@ -150,9 +150,12 @@ is cheap insurance against surprise commands, not a boundary:
   unnoticed for long. The first run for a workspace records what's
   there without asking. It skips `branch.NAME.remote` and
   `branch.NAME.merge`, which change with every branch you track; it
-  keeps `remote.*`, which they name. Run `bulkhead-git-check` yourself
-  in a workspace before you run git there after a session you didn't
-  watch, since another session may still be running.
+  keeps `remote.*`, which they name. Run `compart check` in a workspace
+  before you run git there after a session you didn't watch, since
+  another session may still be running. It runs the same checks as a
+  launch (the dossier, its port lists, and this one), and also warns
+  if git's pins aren't in your environment (log in again after
+  `vm-setup.sh`) or a dossier's workspace is gone, and starts nothing.
 
 What's still open, so check these before you run git after a session
 you didn't watch:
