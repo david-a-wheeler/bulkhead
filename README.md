@@ -6,7 +6,11 @@ Currently supported: macOS host, Ubuntu Linux guest (via UTM). See
 
 The host can also run a local AI engine (llama-swap, sandboxed) that VMs
 reach through SSH tunnels; see [local-ai-plan.md](local-ai-plan.md). It
-serves two roles of model, and runs at most one of each at a time:
+serves two roles of model, and runs at most one of each at a time
+(see below). It's designed for zero data retention (ZDR): it never
+writes your prompts or its replies anywhere, and keeps them only in RAM,
+discarding them when the model unloads; see local-ai-plan.md's "Zero data retention
+(ZDR)" for what that covers and what it doesn't. The roles:
 
 - A **generalist** can chat (a llama-server model, e.g., Qwen3.8-27B).
   You'd normally keep one loaded; it unloads only after a day without

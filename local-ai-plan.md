@@ -651,6 +651,41 @@ The strict profile, if built:
   outside the allowed places, and reads of `/Users` and other sensitive
   paths. That's weaker, but still covers the goals that matter most.
 
+### Zero data retention (ZDR)
+
+The engine is designed for zero data retention (ZDR): it doesn't keep
+what you send it (prompts, files in them, and its replies). Remote
+providers that offer ZDR offer it as a policy you have to trust; here
+the design enforces it, and the next section ("Keeping data off the
+SSD") says how. In short:
+
+* The engine can't write files: its sandbox denies every write except
+  the Metal shader cache, `/dev/dtracehelper`, and `/dev/null`, and
+  llama-swap's output goes to `/dev/null`.
+* Nothing that persists state is on: no `--slot-save-path`, `/slots`
+  off, and llama-swap's captures of requests and replies off
+  (`captureBuffer: 0`, checked by `tests/check_llama_swap_config.py`).
+* The KV cache (a processed form of the whole context) is in wired
+  memory, which can't be swapped, and it's discarded when the model
+  unloads: on sleep, on a mode switch (which restarts the engine), on
+  a switch to another model, or after a day without requests.
+
+What ZDR here doesn't mean:
+
+* "Zero" means nothing on disk and nothing kept after the model
+  unloads; while a model is loaded, its KV cache stays in RAM so the
+  next turn is fast. The prompt cache (`--cache-ram`) is off for now;
+  if we turn it on, it's swappable memory (encrypted swap).
+* llama-swap's logs (metadata such as token counts and timing, no
+  prompt text) stay in its memory, and the VM collects them into its
+  journal.
+* Image generation's `/sdapi/v1/*` and `/sdcpp/v1/img_gen` endpoints
+  keep previews or results in memory for a while (see "Image
+  generation"); `/v1/images/*` keep neither.
+* It covers only the engine. The harness in the VM (e.g., pi) keeps
+  its own transcripts and session state there, on purpose, protected
+  by that VM's disk encryption.
+
 ### Keeping data off the SSD
 
 * The model weights and KV cache are in wired memory, which can't be
