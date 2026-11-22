@@ -296,20 +296,23 @@ echo "== Installing heroku-session, gh-session, and anon-access (secrets-client 
 # $PATH).
 sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRIPT_DIR/anon-access" /usr/local/bin/
 # anon-access checks each workspace and sets up its dossier
-# (bulkhead-workspace-prepare, which reads workspace-forbidden), then
-# runs everything through bulkhead-compartment (bubblewrap, in a
-# network namespace from pasta), which reads compartment-paths and
-# netns-resolv.conf. See compartments.md.
+# (bulkhead-workspace, which reads workspace-forbidden), then runs
+# everything through bulkhead-compartment (bubblewrap, in a network
+# namespace from pasta), which reads compartment-paths and
+# netns-resolv.conf. See compartments.md. bulkhead-copy-claude-history
+# is transitional.
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
-  "$SCRIPT_DIR/bulkhead-compartment-info" \
-  "$SCRIPT_DIR/bulkhead-workspace-prepare" \
-  "$SCRIPT_DIR/bulkhead-workspace-nono-args" \
-  "$SCRIPT_DIR/bulkhead-workspace-ports" \
+  "$SCRIPT_DIR/bulkhead-workspace" \
   "$SCRIPT_DIR/bulkhead-copy-claude-history" /usr/local/bin/
+# The helpers bulkhead-workspace replaced.
+for f in bulkhead-compartment-info bulkhead-workspace-prepare \
+  bulkhead-workspace-nono-args bulkhead-workspace-ports; do
+  [ ! -e "/usr/local/bin/$f" ] || sudo rm -f "/usr/local/bin/$f"
+done
 sudo install -d -m 755 /usr/local/libexec/bulkhead
 sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbidden" \
   "$SCRIPT_DIR/netns-resolv.conf" /usr/local/libexec/bulkhead/
-orphans="$(/usr/local/bin/bulkhead-workspace-prepare --orphans)"
+orphans="$(/usr/local/bin/bulkhead-workspace orphans)"
 if [ -n "$orphans" ]; then
   cat >&2 <<EOF
 WARNING: these dossiers have no workspace beside them anymore:
@@ -317,7 +320,7 @@ $orphans
   Each holds a workspace's logs and harness state (e.g., Claude's
   transcripts and memory). If you moved the workspace, move its dossier
   beside it (DIR.dossier for DIR); if you deleted it, delete the dossier and
-  its line in $(/usr/local/bin/bulkhead-compartment-info registry).
+  its line in $(/usr/local/bin/bulkhead-workspace registry).
 EOF
 fi
 

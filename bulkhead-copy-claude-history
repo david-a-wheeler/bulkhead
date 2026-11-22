@@ -1,4 +1,7 @@
 #!/bin/sh
+# TRANSITIONAL: remove once every project's history from before
+# compartments has been copied in.
+#
 # bulkhead-copy-claude-history: copy a project's Claude Code history
 # (transcripts, so --resume finds them, and its auto-memory) from the
 # real ~/.claude into the project's compartment (see
@@ -30,8 +33,7 @@ if [ ! -d "$src" ]; then
 fi
 
 # This also refuses a directory no agent may start in.
-"$(dirname "$0")/bulkhead-workspace-prepare"
-comp="$("$(dirname "$0")/bulkhead-compartment-info" state)"
+comp="$("$(dirname "$0")/bulkhead-workspace" prepare)/state"
 # Same layout as bulkhead-compartment's "private ~/.claude".
 dst="$comp/$(printf '%s' "${HOME#/}/.claude" | tr '/' '%')/projects/$name"
 

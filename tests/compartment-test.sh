@@ -3,7 +3,7 @@
 # keeps compartments apart, and that nono still runs inside one. Run it
 # by hand in a VM, outside any sandbox (bwrap can't run inside nono):
 #   tests/compartment-test.sh
-# It uses this repo's bulkhead-workspace-prepare, bulkhead-compartment,
+# It uses this repo's bulkhead-workspace, bulkhead-compartment,
 # compartment-paths, and workspace-forbidden, makes two scratch
 # projects ~/projects/,compartment-test-a and -b, and removes them, their
 # dossiers, and their registry lines when it's done.
@@ -17,7 +17,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd -P)
 a="$HOME/projects/,compartment-test-a"
 b="$HOME/projects/,compartment-test-b"
 marker=",compartment-test-$$"
-registry="$("$repo/bulkhead-compartment-info" registry)"
+registry="$("$repo/bulkhead-workspace" registry)"
 cleanup() {
   rm -rf "$a" "$b" "$a.dossier" "$b.dossier"
   rm -f "/tmp/$marker"
@@ -39,21 +39,18 @@ check() {
     fails=$((fails + 1))
   fi
 }
-# run_in DIR [--forward-port PORT] COMMAND: run a shell command in
-# DIR's compartment, as anon-access would (prepare the workspace, then
-# a TMPDIR in DIR).
+# run_in DIR COMMAND [BULKHEAD-COMPARTMENT-OPTION...]: run a shell
+# command in DIR's compartment, as anon-access would (prepare the
+# workspace, then a TMPDIR in DIR).
 run_in() {
   d="$1"
-  shift
+  c="$2"
+  shift 2
   (cd "$d" && export BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$repo/workspace-forbidden" \
     BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" TMPDIR="$d/.tmp" &&
-    mkdir -p "$TMPDIR" && "$repo/bulkhead-workspace-prepare" 2> /dev/null &&
-    if [ "$1" = --forward-port ]; then
-      "$repo/bulkhead-compartment" --forward-port "$2" sh -c "$3"
-    else
-      "$repo/bulkhead-compartment" sh -c "$1"
-    fi)
+    mkdir -p "$TMPDIR" && "$repo/bulkhead-workspace" prepare > /dev/null 2>&1 &&
+    "$repo/bulkhead-compartment" "$@" sh -c "$c")
 }
 
 if run_in "$a" true 2> ,compartment-test.err; then r=ok; else r=failed; fi
@@ -102,10 +99,15 @@ check "nono runs inside a compartment" "$r" ok
 r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'ls ../,compartment-test-a.dossier/logs > /dev/null 2>&1 && echo read || echo refused'")
 check "an agent can't read its workspace's dossier" "$r" refused
 
-# An agent with the arguments anon-access adds (inbox and outbox).
+# run_agent DIR COMMAND [PORT]: run a shell command as an agent, with
+# the options compart adds (inbox and outbox), plus an exposed PORT.
 # COMMAND mustn't contain single quotes.
 run_agent() {
-  run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd \$(\"$repo/bulkhead-workspace-nono-args\" 2>/dev/null) -- sh -c '$2'"
+  if [ -n "${3:-}" ]; then
+    run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd --read $1.dossier/inbox --write $1.dossier/outbox --open-port $3 -- sh -c '$2'" --expose-port "$3"
+  else
+    run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd --read $1.dossier/inbox --write $1.dossier/outbox -- sh -c '$2'"
+  fi
 }
 echo hi > "$a.dossier/inbox/given"
 r=$(run_agent "$a" "cat $a.dossier/inbox/given 2>/dev/null || echo refused")
@@ -141,15 +143,13 @@ server=$!
 sleep 1
 r=$(run_in "$a" "python3 ,net-probe.py connect 18989")
 check "a compartment can't reach a VM port it isn't given" "$r" refused
-r=$(run_in "$a" --forward-port 18989 "python3 ,net-probe.py connect 18989")
+r=$(run_in "$a" "python3 ,net-probe.py connect 18989" --forward-port 18989)
 check "a compartment can reach a VM port it's given" "$r" ok
 kill "$server"
 # Exposed ports: you can reach the agent's servers from the VM, but
-# only at 127.0.0.1, only on the listed ports, and another compartment
-# can't. Two entries (one a range) check that every entry is
-# forwarded, not just the first.
-printf '18990\n18992-18993\n' > "$a.dossier/policy/expose-ports"
-echo 18991 > "$a.dossier/policy/local-ports"
+# only at 127.0.0.1, only on the exposed ports, and another compartment
+# can't. Three exposed ports check that every one is forwarded, not
+# just the first.
 stop=",stop-serving"
 # http_get URL: print the reply's body and HTTP status (e.g.,
 # "127.0.0.1 200"), or "unreachable/N", where N is curl's exit status.
@@ -176,7 +176,8 @@ wait_ready() {
   done
 }
 rm -f "$a/$stop"
-run_in "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990 127.0.0.1:18991 0.0.0.0:18992 127.0.0.1:18993" > ,compartment-test.serve &
+run_in "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990 127.0.0.1:18991 0.0.0.0:18992 127.0.0.1:18993" \
+  --expose-port 18990 --expose-port 18992 --expose-port 18993 > ,compartment-test.serve &
 wait_ready ,compartment-test.serve
 r=$(cat ,compartment-test.serve)
 check "a compartment can serve its exposed and local ports" "$r" ready
@@ -184,11 +185,11 @@ r=$(http_get http://127.0.0.1:18990/)
 check "you can reach a compartment's exposed port" "${r##* }" 200
 check "an exposed port's clients appear to come from loopback" "${r% *}" 127.0.0.1
 r=$(http_get http://127.0.0.1:18993/)
-check "you can reach every exposed-ports entry (18993)" "${r##* }" 200
+check "you can reach every exposed port (18993)" "${r##* }" 200
 r=$(http_get http://127.0.0.1:18992/)
 check "you can reach an exposed port the agent binds on 0.0.0.0" "${r##* }" 200
 r=$(unreachable http://127.0.0.1:18991/)
-check "you can't reach a local-ports port" "$r" unreachable
+check "you can't reach a port that isn't exposed" "$r" unreachable
 vm_ip=$(ip -4 -o addr show scope global 2> /dev/null | awk '{ sub("/.*", "", $4); print $4; exit }')
 if [ -n "$vm_ip" ]; then
   r=$(unreachable "http://$vm_ip:18990/")
@@ -201,9 +202,9 @@ check "another compartment can't reach an exposed port" "$r" refused
 touch "$a/$stop"
 wait
 rm -f "$a/$stop"
-# The same through nono, with the --open-port that
-# bulkhead-workspace-nono-args adds, as a real agent would run.
-run_agent "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990" > ,compartment-test.serve &
+# The same through nono, with the --open-port that compart adds, as a
+# real agent would run.
+run_agent "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990" 18990 > ,compartment-test.serve &
 wait_ready ,compartment-test.serve
 r=$(cat ,compartment-test.serve)
 check "an agent can serve an exposed port" "$r" ready
@@ -214,11 +215,9 @@ wait
 rm -f "$a/$stop" ,compartment-test.serve
 r=$(curl -s -o /dev/null --max-time 2 http://127.0.0.1:18990/ && echo reached || echo unreachable)
 check "an exposed port closes when its compartment ends" "$r" unreachable
-# A bad port list must stop the launch, not silently drop the list.
-echo 010 > "$b.dossier/policy/expose-ports"
-if run_in "$b" true 2> /dev/null; then r=ran; else r=refused; fi
-check "a compartment won't start with a bad expose-ports" "$r" refused
-rm -f "$b.dossier/policy/expose-ports"
+# A bad port must stop the launch, not be silently dropped.
+if run_in "$b" true --expose-port 010 2> /dev/null; then r=ran; else r=refused; fi
+check "a compartment won't start with a bad exposed port" "$r" refused
 r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd --allow-domain example.com -- curl -s -o /dev/null -w %{http_code} --max-time 20 https://example.com/")
 check "an agent reaches an allowed site through nono's proxy" "$r" 200
 name="bulkhead-test-$$"

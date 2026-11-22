@@ -46,7 +46,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-compartment-info bulkhead-workspace-prepare bulkhead-workspace-nono-args bulkhead-workspace-ports bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -126,7 +126,7 @@ jq -e '.meta.name == "bulkhead-broad" and (.network.allow_domain | length > 1000
   nono-broad-profile.json > /dev/null || failed nono-broad-profile.json
 jq -e '.extends == "nolabs-ai/claude" and (.network.allow_domain | length > 0)' \
   nono-claude-profile.json > /dev/null || failed nono-claude-profile.json
-step "workspaces (bulkhead-compartment-info, -workspace-prepare, -compartment --dry-run)"
+step "workspaces (bulkhead-workspace, bulkhead-compartment --dry-run, compart)"
 # A fake HOME with projects/, sensitive/, and directories outside both,
 # without needing bwrap. It's under the repo's .tmp, not $tmp: $tmp may
 # be in /tmp, where workspace-forbidden refuses every workspace.
@@ -138,7 +138,7 @@ mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$f
 : > "$fh/.claude/CLAUDE.md"
 fhp="$(cd "$fh" && pwd -P)"
 wsenv() {
-  env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT HOME="$fh" XDG_RUNTIME_DIR=/run/user/9 \
+  env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT -u XDG_STATE_HOME -u NONO_LOG_FILE HOME="$fh" XDG_RUNTIME_DIR=/run/user/9 \
     BULKHEAD_COMPARTMENT_PATHS="$SCRIPT_DIR/compartment-paths" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$SCRIPT_DIR/workspace-forbidden" "$@"
 }
@@ -146,9 +146,9 @@ wsenv() {
 run_ws() {
   (cd "$1" && shift && wsenv "$SCRIPT_DIR/$@")
 }
-cinfo() { wsenv ./bulkhead-compartment-info "$@"; }
+cinfo() { wsenv ./bulkhead-workspace "$@"; }
 compart_dry() { run_ws "$1" bulkhead-compartment --dry-run cmd 'a b'; }
-prep() { run_ws "$1" bulkhead-workspace-prepare; }
+prep() { run_ws "$1" bulkhead-workspace prepare > /dev/null; }
 registry="$fhp/.local/state/bulkhead/workspaces"
 
 # Keys, roots, and where the dossier goes.
@@ -156,11 +156,9 @@ registry="$fhp/.local/state/bulkhead/workspaces"
 [ "$(cinfo key "$fh/sensitive/s1")" = sensitive-s1 ] || failed "workspace key under ~/sensitive"
 [ "$(cinfo key "$fh/other")" = "dir$(printf '%s' "$fhp/other" | tr '/' '%')" ] ||
   failed "workspace key elsewhere"
-[ "$(cinfo state "$fh/projects/p1/sub")" = "$fhp/projects/p1.dossier/state" ] ||
-  failed "workspace state in its dossier"
-[ "$(cinfo logs "$fh/sensitive/s1")" = "$fhp/sensitive/s1.dossier/logs" ] ||
-  failed "workspace logs in its dossier"
-cinfo bogus "$fh/other" 2> /dev/null && failed "compartment-info accepted a bad field"
+[ "$(cinfo dossier "$fh/projects/p1/sub")" = "$fhp/projects/p1.dossier" ] ||
+  failed "workspace dossier beside it"
+cinfo bogus "$fh/other" 2> /dev/null && failed "bulkhead-workspace accepted a bad command"
 
 # Refusals: ~ and above it, the forbidden patterns, and an unwritable
 # workspace (the last only when not root, who can write anything).
@@ -180,6 +178,9 @@ chmod 755 "$fh/ro"
 
 # prepare: makes the dossier, records and registers the workspace, and
 # says so only the first time.
+[ "$(run_ws "$fh/projects/p1/sub" bulkhead-workspace prepare 2> /dev/null)" = "$fhp/projects/p1.dossier" ] ||
+  failed "prepare printed the dossier"
+rm -rf "$fh/projects/p1.dossier"
 out="$(prep "$fh/projects/p1/sub" 2>&1)" || failed "prepare ran"
 case "$out" in *created*) ;; *) failed "prepare said it created the dossier" ;; esac
 for d in state logs policy; do
@@ -222,54 +223,60 @@ done
   grep -qF -- "|--tcp-ns|8089,8090|" || failed "compartment forwards ports"
 (cd "$fh/projects/p1/sub" && wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run \
   --forward-port 80x cmd) > /dev/null 2>&1 && failed "compartment forwarded a bad port"
-(cd "$fh/projects/p1/sub" && BULKHEAD_NO_NETNS=1 wsenv "$SCRIPT_DIR/bulkhead-compartment" \
-  --dry-run cmd 2> /dev/null) | grep -qx pasta && failed "compartment used pasta despite BULKHEAD_NO_NETNS"
+(cd "$fh/projects/p1/sub" && wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run \
+  --expose-port 3000 --expose-port 4000 cmd) | tr '\n' '|' |
+  grep -qF -- "|--tcp-ports|127.0.0.1/3000,4000|--host-lo-to-ns-lo|" || failed "compartment exposes ports"
+for bad in 80x 010 ''; do
+  (cd "$fh/projects/p1/sub" && wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run \
+    --expose-port "$bad" cmd) > /dev/null 2>&1 && failed "compartment exposed the port '$bad'"
+done
 
-# nono's arguments: the inbox (read-only), outbox (write-only), and
-# local ports.
+# compart's command line, with a stand-in anon-access that prints its
+# arguments: nono's options for the workspace (the inbox read-only, the
+# outbox write-only, and local ports), and bulkhead-compartment's.
 d1="$fhp/projects/p1.dossier"
 [ -d "$d1/inbox" ] && [ -d "$d1/outbox" ] || failed "prepare made inbox and outbox"
-grep -q '^#' "$d1/policy/local-ports" && ! grep -q '^[^#]' "$d1/policy/local-ports" ||
-  failed "prepare made a commented local-ports"
-nargs() { run_ws "$fh/projects/p1" bulkhead-workspace-nono-args "$@" 2> /dev/null | tr '\n' '|'; }
-[ "$(nargs --profile x)" = "--read|$d1/inbox|--write|$d1/outbox|" ] ||
-  failed "nono args: inbox and outbox: $(nargs)"
+for f in local-ports expose-ports; do
+  grep -q '^#' "$d1/policy/$f" && ! grep -q '^[^#]' "$d1/policy/$f" ||
+    failed "prepare made a commented $f"
+done
+mkdir -p "$wst/bin"
+printf '#!/bin/sh\nprintf "%%s|" "$@"\n' > "$wst/bin/anon-access"
+chmod 755 "$wst/bin/anon-access"
+# cargs DIR [CLAUDE-ARG...]: print compart claude's command line.
+cargs() {
+  d="$1"
+  shift
+  (cd "$d" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" claude "$@" 2> /dev/null)
+}
+nono_head="nono|run|--profile|bulkhead-claude|--allow-cwd"
+inout="--log-file|$d1/logs/nono.log|--read|$d1/inbox|--write|$d1/outbox"
+[ "$(cargs "$fh/projects/p1" x)" = "$nono_head|--extends|bulkhead-broad|$inout|--|claude|x|" ] ||
+  failed "compart: nono options: $(cargs "$fh/projects/p1" x)"
+case "$(cargs "$fh/sensitive/s1")" in
+  *bulkhead-broad*) failed "compart used bulkhead-broad under ~/sensitive" ;;
+esac
 cp "$d1/policy/local-ports" "$wst/local-ports"
-printf '8089\n 3000-3002  # a dev server\n' >> "$d1/policy/local-ports"
-[ "$(nargs)" = "--read|$d1/inbox|--write|$d1/outbox|--open-port|8089|--open-port|3000|--open-port|3001|--open-port|3002|" ] ||
-  failed "nono args: local ports: $(nargs)"
-for bad in 80x 0 65536 3-2 1-2-3 -5; do
-  cp "$wst/local-ports" "$d1/policy/local-ports"
-  echo "$bad" >> "$d1/policy/local-ports"
-  run_ws "$fh/projects/p1" bulkhead-workspace-nono-args > /dev/null 2>&1 &&
-    failed "nono args accepted the local port $bad"
-done
-cp "$wst/local-ports" "$d1/policy/local-ports"
-grep -q '^#' "$d1/policy/expose-ports" && ! grep -q '^[^#]' "$d1/policy/expose-ports" ||
-  failed "prepare made a commented expose-ports"
-for bad in 010 3000-03001; do
-  echo "$bad" > "$d1/policy/local-ports"
-  run_ws "$fh/projects/p1" bulkhead-workspace-nono-args > /dev/null 2>&1 &&
-    failed "nono args accepted the local port $bad"
-done
-cp "$wst/local-ports" "$d1/policy/local-ports"
-# Exposed ports: agents may use them, and pasta forwards them from the
-# VM's 127.0.0.1 only.
 cp "$d1/policy/expose-ports" "$wst/expose-ports"
-printf '3000\n4000-4001 # dev servers\n' >> "$d1/policy/expose-ports"
-[ "$(nargs)" = "--read|$d1/inbox|--write|$d1/outbox|--open-port|3000|--open-port|4000|--open-port|4001|" ] ||
-  failed "nono args: exposed ports: $(nargs)"
-run_ws "$fh/projects/p1" bulkhead-compartment --dry-run cmd | tr '\n' '|' |
-  grep -qF -- "|--tcp-ports|127.0.0.1/3000,4000-4001|" || failed "compartment exposes ports"
-echo 80x >> "$d1/policy/expose-ports"
-run_ws "$fh/projects/p1" bulkhead-compartment --dry-run cmd > /dev/null 2>&1 &&
-  failed "compartment exposed a bad port"
+printf '8089\n\n# a dev server\n3000' >> "$d1/policy/local-ports"
+echo 4000 >> "$d1/policy/expose-ports"
+[ "$(cargs "$fh/projects/p1")" = "--expose-port|4000|$nono_head|--extends|bulkhead-broad|$inout|--open-port|4000|--open-port|3000|--open-port|8089|--|claude|" ] ||
+  failed "compart: ports: $(cargs "$fh/projects/p1")"
+cp "$wst/expose-ports" "$d1/policy/expose-ports"
+for bad in 80x 0 010 65536 3000-3002 ' 8089' '8089 # web'; do
+  for f in local-ports expose-ports; do
+    cp "$wst/$f" "$d1/policy/$f"
+    printf '%s\n' "$bad" >> "$d1/policy/$f"
+    [ -z "$(cargs "$fh/projects/p1")" ] || failed "compart accepted '$bad' in $f"
+  done
+done
+cp "$wst/local-ports" "$d1/policy/local-ports"
 cp "$wst/expose-ports" "$d1/policy/expose-ports"
 
 # Moving a workspace with its dossier updates the record and registry.
 mv "$fh/projects/p1" "$fh/projects/p1b"
 mv "$fh/projects/p1.dossier" "$fh/projects/p1b.dossier"
-run_ws "$fh/projects/p1b" bulkhead-workspace-prepare --orphans | grep -q . &&
+run_ws "$fh/projects/p1b" bulkhead-workspace orphans | grep -q . &&
   failed "orphans listed a moved-together workspace"
 out="$(prep "$fh/projects/p1b" 2>&1)" || failed "prepare after a move"
 case "$out" in *"it's now for"*) ;; *) failed "prepare noticed the move" ;; esac
@@ -279,7 +286,7 @@ grep -qFx "$fhp/projects/p1" "$registry" && failed "prepare dropped the old path
 # Moving a workspace without its dossier leaves an orphan.
 prep "$fh/sensitive/s1" 2> /dev/null
 mv "$fh/sensitive/s1" "$fh/sensitive/s1b"
-[ "$(run_ws "$fh/other" bulkhead-workspace-prepare --orphans)" = "$fhp/sensitive/s1.dossier" ] ||
+[ "$(run_ws "$fh/other" bulkhead-workspace orphans)" = "$fhp/sensitive/s1.dossier" ] ||
   failed "orphans listed a dossier left behind"
 
 # Nested workspaces outside ~/projects: under a registered one, its
@@ -296,8 +303,9 @@ mv "$fh/junk/sub.dossier" "$fh/junk/sub2/sub.dossier"
 prep "$fh/junk/sub2/sub" 2> /dev/null
 cinfo root "$fh/junk" > /dev/null 2>&1 && failed "workspace allowed above another's .dossier"
 
-# Migration: an old .bulkhead we made moves into the dossier, as do old
-# logs; one we didn't make (or that git tracks) stays, with a warning.
+# TRANSITIONAL (remove with prepare's migration code): an old
+# .bulkhead we made moves into the dossier, as do old logs; one we
+# didn't make (or that git tracks) stays, with a warning.
 mkdir -p "$fh/projects/p4/.bulkhead/home%x%.claude" "$fhp/.local/state/bulkhead/logs/projects-p4"
 echo '*' > "$fh/projects/p4/.bulkhead/.gitignore"
 echo t > "$fh/projects/p4/.bulkhead/home%x%.claude/t"
@@ -316,8 +324,9 @@ out="$(prep "$fh/projects/p5" 2>&1)"
 [ -z "$(ls -A "$fh/projects/p5.dossier/state")" ] || failed "prepare moved a tracked .bulkhead"
 case "$out" in *WARNING*) ;; *) failed "prepare warned about a tracked .bulkhead" ;; esac
 
-# bulkhead-copy-claude-history copies a project's history in, without
-# overwriting, into the private ~/.claude that the dry run names.
+# TRANSITIONAL (remove with it): bulkhead-copy-claude-history copies
+# a project's history in, without overwriting, into the private
+# ~/.claude that the dry run names.
 mkdir -p "$fh/projects/p6"
 hist="$fh/.claude/projects/$(printf '%s' "$fhp/projects/p6" | sed 's/[^A-Za-z0-9]/-/g')"
 mkdir -p "$hist/memory"

@@ -60,9 +60,11 @@ harness's wrapper or config:
 - Sandbox policy (files, network, DNS) goes in nono's shared `default`
   profile (`nono-default-profile.json`), which every harness pack
   extends.
-- Launch behavior (stripping secrets, per-directory temp and caches,
-  and the per-project compartment from `bulkhead-compartment`) goes in
-  the shared wrapper `anon-access`, which `compart` calls for every harness.
+- Launch behavior goes in shared code: `compart`'s, after its harness
+  cases (the workspace's nono options), or the wrapper `anon-access`,
+  which `compart` calls for every harness (stripping secrets,
+  per-directory temp and caches, and the per-project compartment from
+  `bulkhead-compartment`).
   A harness's per-project state goes in `compartment-paths` (data).
 - A harness's own case in `compart` (e.g., `compart claude`) or small profile
   (e.g., `nono-claude-profile.json`) adds only what that harness alone

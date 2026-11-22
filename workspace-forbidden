@@ -1,10 +1,10 @@
 # workspace-forbidden: directories no agent may start in (see
 # compartments.md). vm-setup.sh installs this in
-# /usr/local/libexec/bulkhead/; bulkhead-compartment-info reads it.
+# /usr/local/libexec/bulkhead/; bulkhead-workspace reads it.
 #
 # One shell "case" pattern per line, matched against the real path of
 # both the current directory and its workspace. A leading "~/" means
-# your home directory. bulkhead-compartment-info also refuses ~ and
+# your home directory. bulkhead-workspace also refuses ~ and
 # everything above it, in code, since that can't be one pattern.
 
 # These hold every workspace (and so every dossier).

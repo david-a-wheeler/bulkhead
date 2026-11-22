@@ -284,30 +284,26 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   Part of a move toward small, single-purpose, any-shell-callable files
   instead of bash-only functions in `vm-bash-aliases-block.sh`; `compart claude`
   below is the first caller.
-  It first runs `bulkhead-workspace-prepare`, then runs the command
-  through `bulkhead-compartment`, and for `nono run` adds
-  `--extends bulkhead-broad` outside `~/sensitive` and `--log-file`
-  with the workspace's log, so nono's warnings don't land on the
-  harness's screen.
-- `bulkhead-workspace-prepare`: checks the current directory's
-  workspace and sets up its dossier beside it (`DIR.dossier` for `DIR`;
-  see `compartments.md`), before any sandbox starts. The
-  dossier holds what's about the workspace but mustn't be under its
-  agent's control (`logs/`, `policy/`), mustn't arrive with its
-  contents (`state/`, the harness's private files), or passes between
-  you and the agent (`inbox/`, `outbox/`). It refuses a
-  directory no agent may start in, notices a workspace moved with its
-  dossier, and moves an old `.bulkhead` and old logs in. `--orphans`
-  lists dossiers left behind (`vm-setup.sh` warns about
-  them).
-- `bulkhead-workspace-nono-args`: prints the arguments `anon-access`
-  adds to every `nono run`: the dossier's `inbox/` (read-only) and
-  `outbox/` (write-only), and an `--open-port` for each port in the
-  dossier's `policy/local-ports` (ports on the agent's own loopback)
-  and `policy/expose-ports` (ports you can also reach from the VM).
-- `bulkhead-workspace-ports`: reads and checks those two port lists,
-  for `bulkhead-workspace-nono-args` and `bulkhead-compartment` (which
-  has pasta forward the exposed ports from the VM's `127.0.0.1`).
+  It first runs `bulkhead-workspace prepare`, then runs the command
+  through `bulkhead-compartment`, passing on any of its options (e.g.,
+  `--forward-port`).
+- `bulkhead-workspace`: finds a directory's workspace and sets up its
+  dossier beside it (`DIR.dossier` for `DIR`; see `compartments.md`),
+  before any sandbox starts, so every script agrees on them. The
+  workspace is `~/projects/NAME`, `~/sensitive/NAME`, the nearest
+  registered workspace holding the directory, or else the directory
+  itself. It refuses `~` and anything above it, anything matching
+  `workspace-forbidden`, and a directory holding another workspace's
+  dossier. The dossier holds what's about the workspace but mustn't be
+  under its agent's control (`logs/`, `policy/`), mustn't arrive with
+  its contents (`state/`, the harness's private files), or passes
+  between you and the agent (`inbox/`, `outbox/`). `prepare` notices a
+  workspace moved with its dossier, and (for now) moves an old
+  `.bulkhead` and old logs in; `orphans` lists dossiers left behind
+  (`vm-setup.sh` warns about them). The dossier's `policy/local-ports`
+  (ports on the agent's own loopback) and `policy/expose-ports` (ports
+  you can also reach from the VM) are one port number per line;
+  `compart` reads them.
 - `bulkhead-compartment`: runs a command in its directory's
   compartment using bubblewrap, so one project's agent can't leave
   anything for another's to read or run: each compartment gets a
@@ -318,28 +314,21 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   read-only, so change it from outside a compartment. It runs bwrap
   under pasta (from `passt`), so each run gets its own network
   namespace: its own loopback, a route out, and DNS through the VM's
-  resolver, but no VM ports except those `anon-access` asks it to
-  forward (a harness wrapper's `--open-port`, e.g., `compart pi`'s for the
-  local AI engine). It fails rather than run without a compartment;
-  `BULKHEAD_NO_COMPARTMENT=1` skips it, and `BULKHEAD_NO_NETNS=1`
-  skips only the network namespace. `tests/compartment-test.sh` (run by hand, outside nono) checks
-  it.
-- `bulkhead-compartment-info`: prints a directory's workspace key,
-  root, dossier, state directory, or log directory, so every script
-  computes them the same way. The workspace is `~/projects/NAME`,
-  `~/sensitive/NAME`, the nearest registered workspace holding the
-  directory, or else the directory itself. It refuses `~` and anything
-  above it, anything matching `workspace-forbidden`, and a directory
-  holding another workspace's dossier. `nono.log` is rotated to
-  `nono.log.1` at launch once it passes 1 MB.
-- `workspace-forbidden`: the data `bulkhead-compartment-info` reads:
+  resolver, but no VM ports except each `--forward-port` (e.g.,
+  `compart pi`'s for the local AI engine). Each `--expose-port` (from
+  the dossier's `expose-ports`) has pasta forward that port from the
+  VM's `127.0.0.1` to the agent. It fails rather than run without a
+  compartment; `BULKHEAD_NO_COMPARTMENT=1` skips it.
+  `tests/compartment-test.sh` (run by hand, outside nono) checks it.
+- `workspace-forbidden`: the data `bulkhead-workspace` reads:
   shell patterns for directories no agent may start in (e.g.,
   `~/projects`, `~/.*`, `*.dossier`, `/tmp/*`). Installed in
   `/usr/local/libexec/bulkhead/`.
 - `bulkhead-copy-claude-history`: copies a project's Claude Code
   history (transcripts and auto-memory) from the real `~/.claude` into
   its compartment, without overwriting, so `--resume` and memory carry
-  over. Run it once per project, outside any compartment.
+  over. Run it once per project, outside any compartment. Transitional:
+  it goes away once your old projects have their history.
 - `compartment-paths`: the data `bulkhead-compartment` reads: which
   paths are private per compartment, read-only shared, a fresh tmpfs,
   or the compartment's `$TMPDIR`. Installed in
@@ -352,7 +341,13 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   gets a case that adds only what it alone needs (its nono profile,
   setup, and extra nono options); every one ends in the same `exec
   anon-access nono run --profile PROFILE --allow-cwd ...`, so adding a
-  harness (e.g., goose) means adding one case. `noclaude` and `nopi` are
+  harness (e.g., goose) means adding one case. For every harness, it
+  adds the workspace's nono options: `--extends bulkhead-broad` outside
+  `~/sensitive`, `--log-file` with the workspace's log (so nono's
+  warnings don't land on the harness's screen; `nono.log` is rotated to
+  `nono.log.1` at launch once it passes 1 MB), the dossier's `inbox/`
+  (read-only) and `outbox/` (write-only), and an `--open-port` for each
+  of its local and exposed ports. `noclaude` and `nopi` are
   the old names, kept as shims that run `compart claude` and
   `compart pi`.
 - `compart claude` runs `anon-access nono run --profile bulkhead-claude

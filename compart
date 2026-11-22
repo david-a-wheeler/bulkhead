@@ -1,11 +1,12 @@
 #!/bin/sh
 # compart: run an AI harness in this workspace's compartment (see
 # compartments.md) under nono, e.g., "compart claude" or
-# "compart pi --print 'Say hello'". anon-access does what every harness
-# needs (stripping secrets, the compartment, nono's shared options).
-# Each harness below adds only what it alone needs: its nono profile,
-# any setup before it starts, and any extra nono options. So adding a
-# harness (e.g., goose) means adding one case here.
+# "compart pi --print 'Say hello'". Each harness below adds only what it
+# alone needs: its nono profile, any setup before it starts, and any
+# extra nono options. So adding a harness (e.g., goose) means adding one
+# case here. Then, for every harness, we add the workspace's nono
+# options (from its dossier; see bulkhead-workspace), and run it all
+# through anon-access, which strips secrets and starts the compartment.
 #
 # The sandbox policy every harness shares (files and network) is nono's
 # "default" profile, nono-default-profile.json here, which vm-setup.sh
@@ -32,6 +33,8 @@ die() {
 [ $# -gt 0 ] || { usage >&2; exit 2; }
 harness="$1"
 shift
+# VM ports to forward into the compartment (see bulkhead-compartment).
+forward=""
 case "$harness" in
   claude)
     # bulkhead-claude (nono-claude-profile.json) extends nolabs-ai/claude,
@@ -115,6 +118,8 @@ case "$harness" in
     port="${url#http://127.0.0.1:}"
     port="${port%%/*}"
     profile=nolabs-ai/pi
+    # The engine is a VM service, so it must reach the compartment too.
+    forward="$port"
     set -- --read "$pi_dir" --open-port "$port" -- /usr/local/bin/pi --provider mac-local "$@"
     ;;
   -h | --help)
@@ -127,4 +132,66 @@ case "$harness" in
     exit 2
     ;;
 esac
-exec anon-access nono run --profile "$profile" --allow-cwd "$@"
+
+# Each line of a policy file is a port number, except blank lines and
+# those starting with "#". A bad line stops the launch.
+ports() {
+  [ -f "$1" ] || return 0
+  while IFS= read -r p || [ -n "$p" ]; do
+    case "$p" in
+      '' | '#'*) continue ;;
+      *[!0-9]* | 0*) die "$1: not a port number: $p" ;;
+    esac
+    [ "$p" -le 65535 ] || die "$1: not a port number (1-65535): $p"
+    echo "$p"
+  done < "$1"
+}
+
+# We prepend each option, so the command line ends with the harness's
+# own options and command. Ports are only digits (ports checks), so
+# splitting $local_ports and $expose_ports is safe.
+dossier="$("$(dirname "$0")/bulkhead-workspace" prepare)" || exit 1
+local_ports="$(ports "$dossier/policy/local-ports")" || exit 1
+expose_ports="$(ports "$dossier/policy/expose-ports")" || exit 1
+# The workspace's local ports (and exposed ones, which its agents use
+# too) are on the compartment's own loopback, but nono still refuses
+# any port not opened.
+for p in $local_ports $expose_ports; do
+  set -- --open-port "$p" "$@"
+done
+# The inbox holds files you give the agent (it can't change them); the
+# outbox, files the agent gives you (it can't read them back).
+export BULKHEAD_INBOX="$dossier/inbox" BULKHEAD_OUTBOX="$dossier/outbox"
+set -- --read "$BULKHEAD_INBOX" --write "$BULKHEAD_OUTBOX" "$@"
+# nono logs to stderr by default, and its proxy's warnings (e.g., "WARN
+# tls_intercept ...") then land on top of a harness's full-screen
+# display. So we log to the dossier's logs, outside every sandbox grant,
+# so the agent can't change or erase its own log. We pass --log-file
+# rather than export NONO_LOG_FILE, so the sandboxed command doesn't
+# inherit a path it can't write. If you set NONO_LOG_FILE, nono uses
+# that instead. We keep one old log, rotated at launch once it passes
+# 1 MB.
+if [ -z "${NONO_LOG_FILE:-}" ]; then
+  log="$dossier/logs/nono.log"
+  if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt 1000000 ]; then
+    mv -f "$log" "$log.1"
+  fi
+  set -- --log-file "$log" "$@"
+fi
+# Most work isn't sensitive, so by default we add the bulkhead-broad
+# profile (GET and HEAD to the whole web; see agent-network-plan.md).
+# Under ~/sensitive (by real path) we don't, so only the narrow
+# allowlist in nono's "default" profile applies.
+sensitive="$(cd "$HOME/sensitive" 2> /dev/null && pwd -P)" || sensitive=""
+case "$(pwd -P)/" in
+  "${sensitive:-/nonexistent}"/*) ;;
+  *) set -- --extends bulkhead-broad "$@" ;;
+esac
+set -- nono run --profile "$profile" --allow-cwd "$@"
+for p in $expose_ports; do
+  set -- --expose-port "$p" "$@"
+done
+for p in $forward; do
+  set -- --forward-port "$p" "$@"
+done
+exec anon-access "$@"

@@ -1,0 +1,231 @@
+#!/bin/sh
+# bulkhead-workspace: find a directory's workspace (see compartments.md),
+# refuse a directory no agent should start in, and set up the
+# workspace's dossier. Every bulkhead script asks this, so they all
+# agree. Run it outside every sandbox.
+#
+# Usage: bulkhead-workspace COMMAND [DIR]
+# DIR defaults to the current directory. COMMAND is one of:
+#   key       print the workspace's name: projects-NAME, sensitive-NAME,
+#             or dir%PATH (its path with "/" as "%")
+#   root      print the workspace's top directory
+#   dossier   print ROOT.dossier, beside it: data about the workspace
+#             that its agent mustn't fully control, or that mustn't
+#             arrive with the workspace's contents
+#   prepare   create or update the dossier, then print its path. Safe to
+#             re-run. compart and anon-access run this before anything
+#             else: nono binds grants at start, so a directory made
+#             later stays denied.
+#   orphans   print each registered workspace's dossier whose workspace
+#             is gone (moved or deleted without it)
+#   registry  print the file listing every workspace that has had a
+#             dossier
+#
+# The dossier holds state/ (the harness's private files, which
+# bulkhead-compartment binds over ~/.claude and the like), logs/ (e.g.,
+# nono's log; no agent access), policy/ (local-ports and expose-ports),
+# inbox/, outbox/, and workspace (the path it was made for).
+#
+# The workspace is ~/projects/NAME or ~/sensitive/NAME when DIR's real
+# path is in one of them; else the nearest registered workspace that
+# holds DIR; else DIR itself. Every command but orphans and registry
+# refuses (exits 1, saying why) DIR when DIR or its workspace matches a
+# pattern in workspace-forbidden ($BULKHEAD_WORKSPACE_FORBIDDEN, else
+# the installed copy), when the workspace is ~ or above it (an agent
+# there would be granted every workspace's dossier), or when the
+# workspace holds another workspace's dossier (its agent could change
+# that one). prepare also fails if you can't write the workspace or
+# create its dossier, or if the dossier isn't yours.
+set -eu
+
+usage() {
+  echo "Usage: bulkhead-workspace key|root|dossier|prepare|orphans|registry [DIR]" >&2
+  exit 2
+}
+say() {
+  echo "bulkhead: $*" >&2
+}
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
+cmd="$1"
+here="$(cd "${2:-.}" && pwd -P)"
+home="$(cd "$HOME" && pwd -P)"
+# Not $XDG_STATE_HOME: nono-claude-profile.json grants one directory
+# under ~/.local/state/bulkhead, and this must stay outside it.
+registry="$home/.local/state/bulkhead/workspaces"
+case "$cmd" in
+  registry)
+    printf '%s\n' "$registry"
+    exit 0
+    ;;
+  orphans)
+    [ -r "$registry" ] || exit 0
+    while IFS= read -r ws; do
+      if [ -n "$ws" ] && [ ! -d "$ws" ] && [ -d "$ws.dossier" ]; then
+        printf '%s\n' "$ws.dossier"
+      fi
+    done < "$registry"
+    exit 0
+    ;;
+  key | root | dossier | prepare) ;;
+  *) usage ;;
+esac
+forbidden="${BULKHEAD_WORKSPACE_FORBIDDEN:-/usr/local/libexec/bulkhead/workspace-forbidden}"
+
+refuse() {
+  say "no agent may start in $here: $1"
+  exit 1
+}
+
+case "$here/" in
+  "$home"/projects/?*/* | "$home"/sensitive/?*/*)
+    rest="${here#"$home"/}"
+    top="${rest%%/*}"
+    rest="${rest#*/}"
+    key="$top-${rest%%/*}"
+    root="$home/$top/${rest%%/*}"
+    ;;
+  *)
+    root=""
+    if [ -r "$registry" ]; then
+      while IFS= read -r ws; do
+        [ -n "$ws" ] || continue
+        case "$here/" in
+          "$ws"/*) [ "${#ws}" -le "${#root}" ] || root="$ws" ;;
+        esac
+      done < "$registry"
+    fi
+    [ -n "$root" ] || root="$here"
+    # "/" becomes "%" so the key is one path component.
+    key="dir$(printf '%s' "$root" | tr '/' '%')"
+    ;;
+esac
+dossier="$root.dossier"
+
+case "$home/" in
+  "${root%/}"/*) refuse "$root holds your home directory, so an agent there could change every workspace's dossier." ;;
+esac
+[ -r "$forbidden" ] || {
+  say "can't read $forbidden, so can't check $here."
+  exit 1
+}
+while IFS= read -r line; do
+  # The '~/' patterns are the file's literal text, not expansions.
+  # shellcheck disable=SC2088
+  case "$line" in
+    '' | '#'*) continue ;;
+    '~/'*) pattern="$home/${line#'~/'}" ;;
+    *) pattern="$line" ;;
+  esac
+  for dir in "$root" "$here"; do
+    # Unquoted on purpose: $pattern is a pattern.
+    # shellcheck disable=SC2254
+    case "$dir" in
+      $pattern) refuse "$dir matches \"$line\" in $forbidden." ;;
+    esac
+  done
+done < "$forbidden"
+if [ -r "$registry" ]; then
+  while IFS= read -r ws; do
+    [ -n "$ws" ] || continue
+    case "$ws/" in
+      "$root"/?*)
+        [ ! -d "$ws.dossier" ] ||
+          refuse "$root holds $ws.dossier, another workspace's dossier. Start in $ws instead, or move it out of $root."
+        ;;
+    esac
+  done < "$registry"
+fi
+
+case "$cmd" in
+  key) printf '%s\n' "$key"; exit 0 ;;
+  root) printf '%s\n' "$root"; exit 0 ;;
+  dossier) printf '%s\n' "$dossier"; exit 0 ;;
+esac
+
+# prepare.
+[ -w "$root" ] || { say "can't write $root, so it can't be a workspace."; exit 1; }
+new=false
+if [ ! -e "$dossier" ] && [ ! -L "$dossier" ]; then
+  mkdir -m 700 "$dossier" 2> /dev/null ||
+    { say "can't create $dossier, which every workspace needs (see compartments.md)."; exit 1; }
+  new=true
+fi
+if [ -L "$dossier" ] || [ ! -d "$dossier" ] || [ "$(stat -c %u "$dossier")" != "$(id -u)" ]; then
+  say "$dossier isn't a directory you own; refusing to use it."
+  exit 1
+fi
+chmod 700 "$dossier"
+for d in state logs policy inbox outbox; do
+  [ -d "$dossier/$d" ] || mkdir -m 700 "$dossier/$d"
+done
+# Only if missing, so your edits stay.
+if [ ! -e "$dossier/policy/local-ports" ]; then
+  cat > "$dossier/policy/local-ports" <<'PORTS'
+# Extra local TCP ports this workspace's agents may use (connect and
+# listen), one port number per line (e.g., 8089). Lines starting with
+# "#", and blank lines, don't count. With none listed, each agent gets
+# its own private loopback instead, where it can use any port, and
+# can't see the VM's other ports. See compartments.md.
+PORTS
+fi
+if [ ! -e "$dossier/policy/expose-ports" ]; then
+  cat > "$dossier/policy/expose-ports" <<'PORTS'
+# Local TCP ports this workspace's agents may listen on that you can
+# reach from the VM, at 127.0.0.1:PORT (e.g., a dev server you open in
+# a browser), one port number per line (e.g., 3000). Lines starting
+# with "#", and blank lines, don't count. Agents may use these ports
+# too, as if in local-ports. Other compartments can't reach them; other
+# processes on the VM can. See compartments.md.
+PORTS
+fi
+
+# Notice moves: DOSSIER/workspace records the workspace it was made for.
+recorded="$(cat "$dossier/workspace" 2> /dev/null || :)"
+if "$new"; then
+  say "created $dossier for this workspace. If you moved $root here from elsewhere, replace $dossier with its old dossier."
+elif [ "$recorded" != "$root" ]; then
+  say "$dossier was for ${recorded:-an unrecorded path}; it's now for $root (you moved them together, I assume)."
+fi
+[ "$recorded" = "$root" ] || printf '%s\n' "$root" > "$dossier/workspace"
+
+# Register it, dropping the old path if that workspace is gone.
+old="$root"
+if [ -n "$recorded" ] && [ "$recorded" != "$root" ] && [ ! -d "$recorded" ]; then
+  old="$recorded"
+fi
+if ! grep -qsFx -- "$root" "$registry" || grep -qsFx -- "$old" "$registry"; then
+  mkdir -p "$(dirname "$registry")"
+  { grep -svFx -e "$root" -e "$old" "$registry" || :; printf '%s\n' "$root"; } > "$registry.new"
+  mv -f "$registry.new" "$registry"
+fi
+
+# TRANSITIONAL: remove the rest of prepare (up to printing the dossier)
+# once every VM has run it; it moves older layouts into the dossier.
+# Move an old .bulkhead's state in, but only one we made (its
+# .gitignore is "*") that git doesn't track: anything else may have
+# arrived with the workspace's contents, which is why state moved.
+dotdir="$root/.bulkhead"
+if [ -d "$dotdir" ] && [ ! -L "$dotdir" ]; then
+  if [ -z "$(ls -A "$dossier/state")" ] &&
+    [ "$(cat "$dotdir/.gitignore" 2> /dev/null)" = '*' ] &&
+    [ -z "$(git -C "$root" ls-files -- .bulkhead 2> /dev/null)" ]; then
+    rm -f "$dotdir/.gitignore"
+    for f in "$dotdir"/* "$dotdir"/.[!.]* "$dotdir"/..?*; do
+      if [ -e "$f" ] || [ -L "$f" ]; then mv "$f" "$dossier/state/"; fi
+    done
+    rmdir "$dotdir"
+    say "moved $dotdir's contents into $dossier/state."
+  else
+    say "WARNING: $dotdir isn't used anymore, and I didn't move it into $dossier/state; look it over, then remove it."
+  fi
+fi
+# Old logs from ~/.local/state/bulkhead/logs/KEY.
+oldlogs="$(dirname "$registry")/logs/$key"
+if [ -d "$oldlogs" ]; then
+  for f in "$oldlogs"/*; do
+    if [ -e "$f" ] && [ ! -e "$dossier/logs/${f##*/}" ]; then mv "$f" "$dossier/logs/"; fi
+  done
+  rmdir "$oldlogs" "$(dirname "$oldlogs")" 2> /dev/null || :
+fi
+
+printf '%s\n' "$dossier"

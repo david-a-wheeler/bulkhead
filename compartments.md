@@ -1,6 +1,6 @@
 # Compartments
 
-Every agent you start through `anon-access` (e.g., with `compart claude` or
+Every agent you start with `compart` (e.g., `compart claude` or
 `compart pi`) runs in its workspace's *compartment*. A compartment keeps one
 project's agent from reading, changing, or reaching what belongs to
 another project's agent, or to the VM itself. This file explains what
@@ -37,7 +37,7 @@ An agent in a compartment **can**:
 - Run its own servers and tests on its own loopback, on ports you list
   in the dossier's `policy/local-ports`, or `policy/expose-ports` to
   let you reach them from the VM.
-- Reach a VM port its harness's wrapper needs (e.g., `compart pi`'s local AI
+- Reach a VM port its harness needs (e.g., `compart pi`'s local AI
   engine tunnel), and only that one.
 
 An agent in a compartment **can't**:
@@ -89,8 +89,8 @@ What a compartment does **not** protect against:
 
 ### Choosing the workspace
 
-`bulkhead-compartment-info` decides which workspace a directory belongs
-to, so every script computes it the same way:
+`bulkhead-workspace` decides which workspace a directory belongs to,
+so every script computes it the same way:
 
 - Anything under `~/projects/NAME` or `~/sensitive/NAME` belongs to
   that `NAME`.
@@ -107,8 +107,8 @@ Its compartment's key is `projects-NAME`, `sensitive-NAME`, or
 Everything runs as you, so the sandbox's grants are the only thing
 keeping an agent away from data, and an agent gets its whole workspace.
 Starting in `~` or `~/projects` would quietly grant every workspace and
-every dossier. So `bulkhead-compartment-info` refuses (and so
-`anon-access` refuses, before anything else, even the secrets dialog):
+every dossier. So `bulkhead-workspace` refuses (and so `compart`
+and `anon-access` refuse, before anything else, even the secrets dialog):
 
 - A directory, or a workspace, matching a pattern in
   `workspace-forbidden` (data: shell `case` patterns, one per line).
@@ -122,7 +122,7 @@ every dossier. So `bulkhead-compartment-info` refuses (and so
   `~/junk/sub.dossier`, `~/junk` can't be a separate workspace.
   That's a `grep` of the registry, not a walk of the tree.
 
-`bulkhead-workspace-prepare` also refuses a workspace you can't write,
+`bulkhead-workspace prepare` also refuses a workspace you can't write,
 and a dossier that isn't a directory you own (e.g., a symlink).
 
 ### The dossier
@@ -130,7 +130,7 @@ and a dossier that isn't a directory you own (e.g., a symlink).
 Each workspace `DIR` gets a sibling directory `DIR.dossier`, mode 700,
 for data that's *about* the workspace and mustn't be under its agent's
 control: what the agent did, what it's allowed, and the harness's
-private state. `bulkhead-workspace-prepare` (run by `anon-access`)
+private state. `bulkhead-workspace prepare` (run by `anon-access`)
 creates it before any sandbox starts; it must exist first, since nono
 binds its grants at start, so a directory made later stays denied.
 
@@ -168,7 +168,7 @@ Why a sibling, not a directory inside the workspace:
 - **You see it**: `ls` shows `DIR.dossier` right beside `DIR`.
 
 The cost: **move or delete `DIR` and `DIR.dossier` together.**
-`bulkhead-workspace-prepare` helps:
+`bulkhead-workspace prepare` helps:
 
 - It records `DIR` in the dossier's `workspace` file and in a registry
   (`~/.local/state/bulkhead/workspaces`, one workspace path per line,
@@ -190,7 +190,7 @@ And it moves old logs from `~/.local/state/bulkhead/logs/KEY`.
 Put files in `inbox/` that you want an agent to read but not change,
 e.g., a task description, a spec, or reference data. An agent puts
 files in `outbox/` that are for you but don't belong in the workspace,
-e.g., a proposed PR description. `anon-access` sets `BULKHEAD_INBOX` and
+e.g., a proposed PR description. `compart` sets `BULKHEAD_INBOX` and
 `BULKHEAD_OUTBOX`, and the global instructions (`agents-AGENTS.md`)
 tell agents about them.
 
@@ -205,8 +205,10 @@ Each compartment has its own loopback, so an agent's servers can't
 clash with, or be reached by, another compartment's. But nono still
 refuses any loopback port it isn't told to open, since it doesn't know
 the namespace is private. Two files in `policy/` list ports, one port
-(e.g., `8089`) or range (e.g., `3000-3010`) per line, with `#`
-comments; `bulkhead-workspace-prepare` creates both, commented out:
+number per line (e.g., `8089`); lines starting with `#`, and blank
+lines, don't count. So `echo 3000 >> DIR.dossier/policy/expose-ports`
+exposes a port. `bulkhead-workspace prepare` creates both, with only
+comments:
 
 - `local-ports`: ports the agent may use on its own loopback (connect
   and listen), e.g., for its tests' servers. Nothing outside the
@@ -216,17 +218,17 @@ comments; `bulkhead-workspace-prepare` creates both, commented out:
   browser. pasta listens on the VM's `127.0.0.1` only and forwards to
   the agent's server.
 
-`bulkhead-workspace-ports` reads and checks both (it refuses anything
-but plain decimal ports from 1 to 65535). `bulkhead-workspace-nono-args`
-turns both into nono's `--open-port`, and `bulkhead-compartment` turns
-`expose-ports` into pasta's `--tcp-ports 127.0.0.1/PORTS`.
+`compart` reads and checks both (a line that isn't a port from 1 to
+65535, without leading zeros, stops the launch). It turns both into
+nono's `--open-port`, and `expose-ports` into `bulkhead-compartment`'s
+`--expose-port`, which becomes pasta's `--tcp-ports 127.0.0.1/PORTS`.
 
 Warnings about `expose-ports`:
 
 - Every process on the VM outside a compartment can reach an exposed
   port, not just you.
 - Other compartments can't, since their `127.0.0.1` is their own, with
-  one exception: a port a harness wrapper forwards in (`--forward-port`,
+  one exception: a port a harness needs forwarded in (`--forward-port`,
   e.g., `compart pi`'s for the local AI engine, `INFER_PORT`). If you expose
   that port, the other compartment's harness reaches this agent's
   server instead of the real service. Don't expose a port some VM
@@ -238,7 +240,7 @@ Warnings about `expose-ports`:
 
 ## How it's built
 
-`anon-access` starts every agent like this:
+`compart` starts every agent like this:
 
 ```
 compart claude → anon-access → pasta → bwrap → nono run → claude
@@ -248,7 +250,7 @@ Each layer does a different job, and each backs up the others:
 
 | Layer | Answers | Mechanism |
 |---|---|---|
-| `anon-access` | What does the agent start with? | strips secrets, prepares the dossier, builds arguments |
+| `compart`, `anon-access` | What does the agent start with? | prepare the dossier, build arguments, strip secrets |
 | pasta | What network exists at all? | user, network, and PID namespaces |
 | bwrap | What is each path? | a nested user namespace and bind mounts |
 | nono | What may the agent touch? | Landlock, seccomp, and a filtering proxy |
@@ -283,30 +285,34 @@ them again.
 
 The sections below say how each one is set up.
 
-### anon-access
+### compart and anon-access
 
-`anon-access` runs `bulkhead-workspace-prepare`, which finds the
-current directory's workspace (via `bulkhead-compartment-info`) and
-creates its dossier. It refuses a directory no agent may start in:
-anything matching `workspace-forbidden` (e.g., `~`, `~/projects`
-itself, dot directories, a dossier, `/tmp`), a workspace at or above
-`~`, or one that holds another workspace's dossier.
+`compart` runs one harness's setup (see its `case`), then
+`bulkhead-workspace prepare`, which finds the current directory's
+workspace and creates its dossier. It refuses a directory no agent may
+start in: anything matching `workspace-forbidden` (e.g., `~`,
+`~/projects` itself, dot directories, a dossier, `/tmp`), a workspace
+at or above `~`, or one that holds another workspace's dossier.
 
-It then strips credentials from the environment, and for a `nono run`
-command it adds:
+`compart` then builds the harness's `nono run` command, adding:
 
 - `--extends bulkhead-broad` outside `~/sensitive` (broad GET and HEAD).
 - `--log-file` in the dossier's `logs/`, outside every sandbox grant.
-- What `bulkhead-workspace-nono-args` prints: `--read DOSSIER/inbox`,
-  `--write DOSSIER/outbox`, and an `--open-port` for each port in
-  `DOSSIER/policy/local-ports` and `expose-ports`.
-- For each `--open-port` the harness's wrapper passes (e.g., `compart pi`'s
-  for the AI engine), a `--forward-port` to `bulkhead-compartment`, so
-  pasta forwards that VM port in. The dossier's `local-ports` aren't
-  forwarded: they're for the agent's own servers. (`bulkhead-compartment`
-  itself reads `expose-ports`.)
+- `--read DOSSIER/inbox`, `--write DOSSIER/outbox`, and an
+  `--open-port` for each port in `DOSSIER/policy/local-ports` and
+  `expose-ports`.
 
-Finally it runs `bulkhead-compartment` with the command.
+It runs that through `anon-access`, with options for
+`bulkhead-compartment`: an `--expose-port` for each port in
+`expose-ports`, and a `--forward-port` for each VM port the harness
+needs (e.g., `compart pi`'s for the AI engine), so pasta forwards that
+VM port in. The dossier's `local-ports` aren't forwarded: they're for
+the agent's own servers.
+
+`anon-access` works for any command, not only a harness (e.g.,
+`anon-access gh ...`, or your shell when you give no command). It runs
+`bulkhead-workspace prepare` too, strips credentials from the
+environment, and runs `bulkhead-compartment` with the command.
 
 ### pasta: the network namespace
 
@@ -519,15 +525,12 @@ alternatives in Ubuntu's repositories and rejected them:
 
 ## Escape hatches
 
-- `BULKHEAD_NO_NETNS=1`: skip pasta. The agent shares the VM's network
-  namespace and can list its ports and sockets (but Landlock still
-  refuses connections to them).
 - `BULKHEAD_NO_COMPARTMENT=1`: skip bwrap and pasta entirely. nono still
   runs, but compartments share `/tmp`, `~/.claude`, and so on. Since
   the default profile grants reading `/tmp`, the agent can then read
   the VM's shared `/tmp`, too.
 
-Both print a warning. Use them only to work around a breakage.
+It prints a warning. Use it only to work around a breakage.
 
 ## Known gaps
 
@@ -558,10 +561,11 @@ Both print a warning. Use them only to work around a breakage.
 ## Testing
 
 `./ci.sh` checks the workspace refusals, that
-`bulkhead-workspace-prepare` makes the dossier and notices moves, and
-the arguments `bulkhead-compartment` and `bulkhead-workspace-nono-args`
-build (with `--dry-run`), including the port lists and that pasta
-forwards nothing unless asked. `tests/compartment-test.sh` runs
+`bulkhead-workspace prepare` makes the dossier and notices moves, the
+arguments `bulkhead-compartment` builds (with `--dry-run`), including
+that pasta forwards nothing unless asked, and the command line
+`compart claude` builds (with a stand-in `anon-access`), including the
+port lists. `tests/compartment-test.sh` runs
 real compartments; run it by hand in a VM, outside any sandbox (bwrap
 can't run inside nono). It checks the file isolation, the inbox and
 outbox, that an agent can't see or reach the VM's loopback services,

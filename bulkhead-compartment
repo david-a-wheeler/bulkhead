@@ -5,11 +5,11 @@
 # through this; nono then sandboxes the command inside it.
 #
 # The compartment is the current directory's workspace (see
-# bulkhead-compartment-info, which refuses directories no agent may
-# start in). Its state lives in the workspace's .dossier/state, beside the
+# bulkhead-workspace, which refuses directories no agent may start in).
+# Its state lives in the workspace's dossier (DOSSIER/state), beside the
 # workspace, not in it, so it can't arrive with the workspace's
-# contents (see compartments.md); bulkhead-workspace-prepare
-# (run by anon-access) creates it. We use bubblewrap (bwrap),
+# contents (see compartments.md); "bulkhead-workspace prepare" (run by
+# anon-access) creates it. We use bubblewrap (bwrap),
 # unprivileged, to mount over the paths that compartment-paths lists:
 # e.g., a private /tmp and a private ~/.claude. Everything else is the
 # real filesystem, still limited by nono.
@@ -25,32 +25,38 @@
 # to the VM's loopback, except:
 # - each --forward-port PORT: a connection to 127.0.0.1:PORT inside
 #   reaches 127.0.0.1:PORT on the VM (e.g., the local AI engine's tunnel).
-# - each port in the dossier's policy/expose-ports: a connection to
-#   127.0.0.1:PORT on the VM reaches the agent's server on PORT inside.
+# - each --expose-port PORT (compart passes the dossier's
+#   policy/expose-ports): a connection to 127.0.0.1:PORT on the VM
+#   reaches the agent's server on PORT inside.
 #
-# Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]... COMMAND [ARG...]
+# Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]...
+#          [--expose-port PORT]... COMMAND [ARG...]
 # --dry-run prints the compartment's key and the pasta and bwrap
 # arguments instead of running anything (for tests).
-# bulkhead-compartment-info computes the key and where the state lives.
 #
 # If bwrap or pasta can't run, this fails rather than silently running
 # without a compartment. To run without one anyway, set
-# BULKHEAD_NO_COMPARTMENT=1; to run without the network namespace
-# only, set BULKHEAD_NO_NETNS=1.
+# BULKHEAD_NO_COMPARTMENT=1.
 set -eu
 
-usage="Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]... COMMAND [ARG...]"
+usage="Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]... [--expose-port PORT]... COMMAND [ARG...]"
 dry_run=false
 forward=""
+expose=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=true ;;
-    --forward-port)
+    --forward-port | --expose-port)
       [ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
+      # No leading zeros, so we needn't know how pasta and nono read them.
       case "$2" in
-        '' | *[!0-9]*) echo "bulkhead-compartment: not a port: $2" >&2; exit 2 ;;
+        '' | *[!0-9]* | 0*) echo "bulkhead-compartment: not a port: $2" >&2; exit 2 ;;
       esac
-      forward="${forward:+$forward,}$2"
+      if [ "$1" = --forward-port ]; then
+        forward="${forward:+$forward,}$2"
+      else
+        expose="${expose:+$expose,}$2"
+      fi
       shift
       ;;
     *) break ;;
@@ -66,11 +72,11 @@ fi
 
 paths_file="${BULKHEAD_COMPARTMENT_PATHS:-/usr/local/libexec/bulkhead/compartment-paths}"
 here="$(pwd -P)"
-info="$(dirname "$0")/bulkhead-compartment-info"
-key="$("$info" key)"
-comp="$("$info" state)"
+ws="$(dirname "$0")/bulkhead-workspace"
+key="$("$ws" key)"
+comp="$("$ws" dossier)/state"
 if ! "$dry_run" && [ ! -d "$comp" ]; then
-  echo "bulkhead-compartment: no $comp; run bulkhead-workspace-prepare first (anon-access does)." >&2
+  echo "bulkhead-compartment: no $comp; run \"bulkhead-workspace prepare\" first (anon-access does)." >&2
   exit 1
 fi
 
@@ -88,13 +94,11 @@ set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)" --dev-bind / /
 if [ -n "${TMPDIR:-}" ]; then
   set -- "$@" --setenv TMPDIR "$TMPDIR"
 fi
-if [ -z "${BULKHEAD_NO_NETNS:-}" ]; then
-  # The namespace's resolver: an address pasta maps to the VM's own.
-  # We bind over the file /etc/resolv.conf resolves to (on Ubuntu,
-  # systemd-resolved's stub file).
-  resolv="$(readlink -f /etc/resolv.conf)"
-  set -- "$@" --ro-bind "${BULKHEAD_NETNS_RESOLV:-/usr/local/libexec/bulkhead/netns-resolv.conf}" "$resolv"
-fi
+# The namespace's resolver: an address pasta maps to the VM's own.
+# We bind over the file /etc/resolv.conf resolves to (on Ubuntu,
+# systemd-resolved's stub file).
+resolv="$(readlink -f /etc/resolv.conf)"
+set -- "$@" --ro-bind "${BULKHEAD_NETNS_RESOLV:-/usr/local/libexec/bulkhead/netns-resolv.conf}" "$resolv"
 while read -r kind path; do
   case "$kind" in '' | '#'*) continue ;; esac
   # These patterns are the data file's literal text, not expansions.
@@ -152,33 +156,23 @@ while [ "$i" -lt "$ncmd" ]; do
   i=$((i + 1))
 done
 
-set -- bwrap "$@"
-if [ -n "${BULKHEAD_NO_NETNS:-}" ]; then
-  echo "bulkhead-compartment: WARNING: BULKHEAD_NO_NETNS is set, so this agent can see the VM's local ports and sockets." >&2
-else
-  # The address netns-resolv.conf names, and the VM's first IPv4
-  # resolver (on Ubuntu, systemd-resolved's 127.0.0.53).
-  dns_host="$(awk '$1 == "nameserver" && $2 ~ /^[0-9.]+$/ { print $2; exit }' /etc/resolv.conf)"
-  # The dossier's expose-ports: listen on the VM's 127.0.0.1 only, and
-  # forward to the namespace, so you (and other processes outside any
-  # compartment) can reach the agent's servers. Other compartments
-  # can't: their 127.0.0.1 is their own, and only a --forward-port
-  # leads to the VM's. --host-lo-to-ns-lo has pasta deliver these to
-  # the namespace's loopback, where agents' servers usually listen;
-  # otherwise it sends them to the namespace's public address, from
-  # the --map-host-loopback address, and with that "none" it drops them.
-  exposed="$("$(dirname "$0")/bulkhead-workspace-ports" expose)"
-  expose_spec=""
-  for range in $exposed; do
-    expose_spec="${expose_spec:+$expose_spec,}$range"
-  done
-  set -- pasta --config-net --quiet \
-    --tcp-ports "${expose_spec:+127.0.0.1/}${expose_spec:-none}" \
-    ${expose_spec:+--host-lo-to-ns-lo} \
-    --udp-ports none --udp-ns none --tcp-ns "${forward:-none}" \
-    --map-host-loopback none --map-guest-addr none \
-    --dns-forward 169.254.53.53 ${dns_host:+--dns-host "$dns_host"} -- "$@"
-fi
+# The address netns-resolv.conf names, and the VM's first IPv4
+# resolver (on Ubuntu, systemd-resolved's 127.0.0.53).
+dns_host="$(awk '$1 == "nameserver" && $2 ~ /^[0-9.]+$/ { print $2; exit }' /etc/resolv.conf)"
+# Exposed ports listen on the VM's 127.0.0.1 only, and forward to the
+# namespace, so you (and other processes outside any compartment) can
+# reach the agent's servers. Other compartments can't: their 127.0.0.1
+# is their own, and only a --forward-port leads to the VM's.
+# --host-lo-to-ns-lo has pasta deliver these to the namespace's
+# loopback, where agents' servers usually listen; otherwise it sends
+# them to the namespace's public address, from the --map-host-loopback
+# address, and with that "none" it drops them.
+set -- pasta --config-net --quiet \
+  --tcp-ports "${expose:+127.0.0.1/}${expose:-none}" \
+  ${expose:+--host-lo-to-ns-lo} \
+  --udp-ports none --udp-ns none --tcp-ns "${forward:-none}" \
+  --map-host-loopback none --map-guest-addr none \
+  --dns-forward 169.254.53.53 ${dns_host:+--dns-host "$dns_host"} -- bwrap "$@"
 
 if "$dry_run"; then
   echo "key: $key"
