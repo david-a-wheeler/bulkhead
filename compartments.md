@@ -716,18 +716,34 @@ phantom for the real token; nowhere else does a phantom work. A
 refresh goes the same way, so the file never holds a real token. nono
 keeps the real tokens for up to 90 days; after that, log in again.
 
+The route's name, `_anthropic_oauth`, matters. nono (0.82) makes a
+route named `_ep_HOST` for each `allow_domain` entry with endpoints
+(ours for `api.anthropic.com`, and broad mode's `*.com`), and for each
+request it uses the first matching route in name order. It swaps
+phantoms only on the oauth route, so if an `_ep_` route sorts first,
+Claude's phantom reaches Anthropic unchanged and every call gets a 401.
+So the name starts with `_a`, which sorts first.
+
 This protects your login from being taken: an agent, or anything it
 downloads, can copy the phantoms, but they're useless outside nono's
 proxy. It doesn't stop an agent using your account through the proxy
 while it runs, as Claude itself does.
 
-`compart claude` refuses to start if the shared credentials file holds
-a real refresh token (anything not starting with `nono_`): a login from
-before this, or one copied in. Delete the file, revoke that login in
-your Claude account's settings (every agent could read it), and log in
-again in `compart claude`. Also delete `~/.claude/.credentials.json`
-outside any compartment, if it exists: compartments don't see it, but
-`BULKHEAD_NO_COMPARTMENT=1` would.
+`compart claude` sets `CLAUDE_SECURESTORAGE_CONFIG_DIR` to the shared
+credentials directory in nono's own environment. A profile's
+`set_vars` can't do it: unless nono already has that variable, it sets
+it to "" for Claude (to keep macOS Keychain lookups working), and with
+"" Claude keeps its login in `~/.claude`, i.e., in each compartment,
+outside `compart claude`'s checks.
+
+`compart claude` refuses to start if the shared credentials file, or
+the compartment's own `~/.claude/.credentials.json`, holds a real
+refresh token (anything not starting with `nono_`): a login from before
+this, or one copied in. Delete the file, revoke that login in your
+Claude account's settings (every agent could read it), and, if
+`compart claude` asks, log in again. With `BULKHEAD_NO_COMPARTMENT=1`,
+it checks your own `~/.claude/.credentials.json` instead, since the
+agent then sees it.
 
 ## Escape hatches
 
@@ -783,8 +799,9 @@ that pasta forwards nothing unless asked, and the command line
 port lists, and that `bulkhead-git-check` notices and explains new
 repository settings (filters, hooks, nested repositories, included
 files, and a planted `commondir`) and that `compart` won't start until
-you approve them. It also checks that `compart claude` refuses a real
-Claude login in the shared credentials file, and that no nono profile
+you approve them. It also checks that `compart claude` points Claude at the shared
+credentials directory and refuses a real Claude login there or in the
+compartment's `~/.claude`, and that no nono profile
 grants `claude-unsandboxed`'s directory or nono's token store.
 `tests/compartment-test.sh` runs
 real compartments; run it by hand in a VM, outside any sandbox (bwrap

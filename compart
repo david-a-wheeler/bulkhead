@@ -40,6 +40,19 @@ die() {
   exit 1
 }
 
+# refuse_real_login FILE: stop if the Claude credentials FILE holds a
+# real refresh token (anything but nono's phantoms, nono_...), which
+# agents could read (see compartments.md, "Claude's login").
+refuse_real_login() {
+  [ -f "$1" ] || return 0
+  refresh="$(jq -r '.claudeAiOauth.refreshToken // empty' "$1" 2> /dev/null)" ||
+    die "can't read $1; delete it, then log in again with /login."
+  case "$refresh" in
+    '' | nono_*) ;;
+    *) die "$1 holds a real Claude login, which agents could read. Delete it, revoke that login in your Claude account's settings, then run compart claude and, if it asks, log in again with /login (see compartments.md, \"Claude's login\")." ;;
+  esac
+}
+
 [ $# -gt 0 ] || { usage >&2; exit 2; }
 harness="$1"
 shift
@@ -73,9 +86,13 @@ case "$harness" in
     #
     # Each compartment has its own ~/.claude, but they share one
     # credentials directory, so one login works everywhere and a token
-    # refresh in one reaches the others. bulkhead-claude points Claude
-    # there (CLAUDE_SECURESTORAGE_CONFIG_DIR). It must exist before nono
-    # starts, or nono drops the grant.
+    # refresh in one reaches the others. We point Claude there with
+    # CLAUDE_SECURESTORAGE_CONFIG_DIR, in nono's environment, not the
+    # profile's set_vars: unless nono itself has that variable, it sets
+    # it to "" for Claude (for macOS's Keychain; see nono's
+    # docs/cli/clients/claude.mdx), overriding set_vars, and then Claude
+    # keeps its login in ~/.claude, i.e., in each compartment. The
+    # directory must exist before nono starts, or nono drops the grant.
     #
     # The file there must hold only nono's phantom tokens: when you log
     # in (/login) under nono, its oauth_capture (see
@@ -84,20 +101,18 @@ case "$harness" in
     # only through nono's proxy, and only for Anthropic's API. So an
     # agent can't take your login elsewhere. A real refresh token
     # (anything but nono_...) means a login from before this, or from
-    # outside nono, which every agent could read; we refuse it.
+    # outside nono, which every agent could read; we refuse it. We also
+    # refuse one in the compartment's own ~/.claude (below, once we know
+    # the dossier), where Claude kept its login before we set
+    # CLAUDE_SECURESTORAGE_CONFIG_DIR here.
     creds="$HOME/.local/state/bulkhead/claude-credentials"
     if [ ! -d "$creds" ]; then
       mkdir -p "$(dirname "$creds")"
       mkdir -m 700 "$creds"
     fi
-    if [ -f "$creds/.credentials.json" ]; then
-      refresh="$(jq -r '.claudeAiOauth.refreshToken // empty' "$creds/.credentials.json" 2> /dev/null)" ||
-        die "can't read $creds/.credentials.json; delete it, then log in again with /login."
-      case "$refresh" in
-        '' | nono_*) ;;
-        *) die "$creds/.credentials.json holds a real Claude login, which agents could read. Delete it, revoke that login in your Claude account's settings, then run compart claude and log in again with /login (see compartments.md, \"Claude's login\")." ;;
-      esac
-    fi
+    refuse_real_login "$creds/.credentials.json"
+    CLAUDE_SECURESTORAGE_CONFIG_DIR="$creds"
+    export CLAUDE_SECURESTORAGE_CONFIG_DIR
     profile=bulkhead-claude
     set -- -- claude "$@"
     ;;
@@ -195,6 +210,16 @@ ports() {
 dossier="$("$(dirname "$0")/bulkhead-workspace" prepare)" || exit 1
 local_ports="$(ports "$dossier/policy/local-ports")" || exit 1
 expose_ports="$(ports "$dossier/policy/expose-ports")" || exit 1
+# Claude's ~/.claude, as the agent will see it: the compartment's private
+# copy (named as bulkhead-compartment names it), or, with
+# BULKHEAD_NO_COMPARTMENT, your own.
+if [ "$harness" = claude ]; then
+  if [ -n "${BULKHEAD_NO_COMPARTMENT:-}" ]; then
+    refuse_real_login "$HOME/.claude/.credentials.json"
+  else
+    refuse_real_login "$dossier/state/$(printf '%s' "${HOME#/}/.claude" | tr '/' '%')/.credentials.json"
+  fi
+fi
 # An agent can plant git settings that run commands when you next run
 # git here, so we show you any change since you last approved them
 # (see bulkhead-git-check), before the session and again after it.

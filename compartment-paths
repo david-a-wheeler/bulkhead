@@ -25,7 +25,7 @@ ro ~/.agents
 
 # Claude Code. Transcripts, history, todos, plans, and its config file
 # (~/.claude/.claude.json, since bulkhead-claude sets CLAUDE_CONFIG_DIR)
-# become per compartment. Credentials aren't here: bulkhead-claude keeps
+# become per compartment. Credentials aren't here: compart claude keeps
 # them in one shared directory (CLAUDE_SECURESTORAGE_CONFIG_DIR), so
 # one login works everywhere.
 private ~/.claude

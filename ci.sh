@@ -147,6 +147,12 @@ jq -e '.filesystem.allow[0] as $creds | .credential_providers.claude_code.type =
     (.credential_providers.claude_code.credential_store.path | startswith($creds + "/")) and
     (.credential_routes[0].provider == "claude_code")' \
   nono-claude-profile.json > /dev/null || failed "nono-claude-profile.json oauth_capture"
+# nono swaps phantoms only on the route it picks for a request, and
+# picks the first matching route by name, so the oauth route must sort
+# before nono's "_ep_HOST" routes from allow_domain (see compartments.md,
+# "Claude's login").
+jq -e '.credential_routes | all(.name < "_ep_")' nono-claude-profile.json > /dev/null ||
+  failed "nono-claude-profile.json credential route name sorts after nono's _ep_ routes"
 # No profile of ours grants claude-unsandboxed's directory, or nono's
 # state (which holds the real tokens), or anything above them.
 for p in $(jq -r '.filesystem // {} | to_entries[] | select(.key != "deny" and .key != "bypass_protection") | .value[]' nono-*-profile.json); do
@@ -403,6 +409,32 @@ echo '{"claudeAiOauth": {"accessToken": "sk-ant-oat01-x", "refreshToken": "sk-an
 echo '{"claudeAiOauth": {"accessToken": "sk-ant-oat01-x", "refreshToken": "nono_0123"}}' > "$fcreds/.credentials.json"
 [ -n "$(cargs "$fh/projects/p1")" ] || failed "compart claude refused nono's phantom tokens"
 rm "$fcreds/.credentials.json"
+# It refuses one in the compartment's own ~/.claude too (where Claude
+# kept its login before compart set CLAUDE_SECURESTORAGE_CONFIG_DIR),
+# or, with no compartment, in yours.
+# bulkhead-compartment makes that private copy when the agent starts,
+# which these runs don't reach, so we make it here.
+pclaude="$d1/state/$(printf '%s' "${fh#/}/.claude" | tr '/' '%')"
+mkdir -p "$pclaude"
+for f in "$pclaude/.credentials.json" "$fh/.claude/.credentials.json"; do
+  echo '{"claudeAiOauth": {"accessToken": "sk-ant-oat01-x", "refreshToken": "sk-ant-ort01-x"}}' > "$f"
+done
+[ -z "$(cargs "$fh/projects/p1")" ] || failed "compart claude accepted a real login in the compartment"
+rm "$pclaude/.credentials.json"
+[ -n "$(cargs "$fh/projects/p1")" ] || failed "compart claude refused your own login in a compartment"
+[ -z "$( (cd "$fh/projects/p1" && wsenv BULKHEAD_NO_COMPARTMENT=1 PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" claude 2> /dev/null))" ] ||
+  failed "compart claude accepted a real login with no compartment"
+rm "$fh/.claude/.credentials.json"
+# nono sets CLAUDE_SECURESTORAGE_CONFIG_DIR to "" for Claude, overriding
+# set_vars, unless it inherits the variable, so compart must set it,
+# even over a value you set.
+mkdir -p "$wst/env-bin"
+printf '#!/bin/sh\nprintf "%%s" "$CLAUDE_SECURESTORAGE_CONFIG_DIR"\n' > "$wst/env-bin/anon-access"
+chmod 755 "$wst/env-bin/anon-access"
+out="$( (cd "$fh/projects/p1" && wsenv CLAUDE_SECURESTORAGE_CONFIG_DIR=/elsewhere PATH="$wst/env-bin:$PATH" "$SCRIPT_DIR/compart" claude 2> /dev/null))"
+[ "$out" = "$fcreds" ] || failed "compart claude set CLAUDE_SECURESTORAGE_CONFIG_DIR to '$out'"
+jq -e '.environment.set_vars | has("CLAUDE_SECURESTORAGE_CONFIG_DIR") | not' nono-claude-profile.json > /dev/null ||
+  failed "nono-claude-profile.json sets CLAUDE_SECURESTORAGE_CONFIG_DIR, which nono ignores"
 # claude-unsandboxed refuses inside a sandbox, before running claude.
 wsenv BULKHEAD_COMPARTMENT=projects-p1 PATH="$wst/bin:$PATH" ./claude-unsandboxed 2>&1 |
   grep -q 'refused: you.re inside' || failed "claude-unsandboxed ran inside a compartment"

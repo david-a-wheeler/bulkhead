@@ -41,14 +41,13 @@
     }
   },
   "credential_routes": [
-    {"name": "anthropic_oauth", "provider": "claude_code"}
+    {"name": "_anthropic_oauth", "provider": "claude_code"}
   ],
   "environment": {
     "set_vars": {
       "CLAUDE_CODE_TMPDIR": "$TMPDIR",
       "TMPDIR": "$TMPDIR",
       "CLAUDE_CONFIG_DIR": "$HOME/.claude",
-      "CLAUDE_SECURESTORAGE_CONFIG_DIR": "$HOME/.local/state/bulkhead/claude-credentials",
       "DISABLE_TELEMETRY": "1",
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
     }

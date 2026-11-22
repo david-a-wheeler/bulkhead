@@ -381,10 +381,10 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   maintained profile for Claude Code (installed by `vm-setup.sh`),
   rather than a hand-rolled `--allow` list this repo would have to keep
   in sync with what Claude Code actually needs at runtime. Every
-  compartment shares one Claude login: `bulkhead-claude` sets
-  `CLAUDE_SECURESTORAGE_CONFIG_DIR` to
-  `~/.local/state/bulkhead/claude-credentials`, which `compart claude` creates
-  (copying in `~/.claude/.credentials.json` the first time). Plain
+  compartment shares one Claude login: `compart claude` creates
+  `~/.local/state/bulkhead/claude-credentials` and sets
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` to it (in nono's environment, since
+  nono overrides a profile's value). Plain
   executable file, not a bash function: any shell can run it.
 - `infer-models.template.sh`: installed as `infer-models`, which asks
   the Mac's engine (through the tunnel) what models it serves now, and
