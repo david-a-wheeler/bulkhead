@@ -64,7 +64,10 @@ echo "== Installing base packages =="
 # their own copy. wl-clipboard (wl-copy, wl-paste) so command-line tools
 # can reach the Wayland desktop's clipboard; e.g., Claude Code uses it to
 # paste images. speech-dispatcher, alsa-utils (aplay), and python3-venv
-# for spoken output with Piper (vm-piper-install.sh, below). Checked
+# for spoken output with Piper (vm-piper-install.sh, below). gawk so
+# ci.sh can lint our awk programs ("gawk --posix --lint"); they're
+# POSIX awk and run under Ubuntu's default mawk, so gawk is only for
+# checking them, and ci.sh skips that check without it. Checked
 # against `apt-mark showmanual` on lftux and deliberately left out anything project-specific
 # rather than universal: ruby, postgresql, and the heroku CLI are for one
 # project (BadgeApp) and don't belong in a generic bulkhead repo;
@@ -78,7 +81,8 @@ echo "== Installing base packages =="
 sudo apt-get update
 sudo apt-get install -y openssh-server avahi-daemon nftables curl cups \
   qemu-guest-agent git shellcheck make build-essential vim python3 jq \
-  ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv bubblewrap passt
+  ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv bubblewrap passt \
+  gawk
 
 echo "== Enabling services =="
 sudo systemctl enable --now ssh avahi-daemon nftables cups qemu-guest-agent
