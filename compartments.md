@@ -100,6 +100,35 @@ Each layer does a different job, and each backs up the others:
 | nono | What may the agent touch? | Landlock, seccomp, and a filtering proxy |
 | nftables | Where may the VM send traffic? | the VM's firewall (ports 22, 53, 80, 443, and the secrets server) |
 
+We wrote as little of this as we could. Each of pasta, bwrap, and nono
+does one job we'd otherwise have to build and maintain, and all three
+are packaged, maintained tools that run without root:
+
+- **pasta** gives each run its own network: a private loopback and
+  process list, with a route out to the web but no view of the VM's
+  own services. We'd otherwise write port relays and DNS plumbing
+  (we tried; see "Why nono doesn't make the namespace").
+- **bwrap** decides what some paths *are*: it mounts the compartment's
+  own `/tmp`, `~/.claude`, and so on over the shared ones, and makes
+  shared setup read-only. It's the only layer that can change what a
+  path refers to; it doesn't limit access.
+- **nono** decides what the agent may *do*: which files it may read or
+  write, which sites, methods, and paths it may reach, and which
+  sockets it may open. It does that from profiles (data), and ships
+  maintained profiles for each harness. It saves us the most work:
+  we'd otherwise write a filtering proxy, Landlock and seccomp rules,
+  and per-harness policy.
+
+Where they overlap, they back each other up. bwrap alone wouldn't stop
+an agent from reading the rest of your home, and nono alone wouldn't
+stop two projects' agents sharing `/tmp` or `~/.claude`. If the proxy
+were bypassed, pasta would still block the VM's local services and
+nftables would still limit ports; without pasta, Landlock would still
+refuse connections to those services, though the agent could list
+them again.
+
+The sections below say how each one is set up.
+
 ### anon-access
 
 `anon-access` runs `bulkhead-workspace-prepare`, which finds the
@@ -125,6 +154,15 @@ command it adds:
 Finally it runs `bulkhead-compartment` with the command.
 
 ### pasta: the network namespace
+
+pasta's job is to give each run a network of its own that still has a
+route out. A new network namespace alone has no route out, and the
+agent needs one to reach nono's proxy's upstream; sharing the VM's
+namespace would let the agent see (in `/proc/self/net`) and try every
+service listening on the VM. pasta makes the namespace and connects it
+to the outside through ordinary sockets on the VM, forwarding only what
+we ask. It also forwards DNS, and its PID namespace hides the VM's
+other processes.
 
 pasta (from Ubuntu's `passt` package, the default network for rootless
 podman) creates new user, network, and PID namespaces and runs bwrap
@@ -176,6 +214,14 @@ gets a fresh namespace, which goes away when the command exits.
 
 ### bwrap: the filesystem view
 
+bwrap's job is to give each compartment its own copy of the paths
+every harness writes to (e.g., `/tmp` and `~/.claude`), so one
+project's agent can't leave something there for another's to read or
+run. nono can only allow or deny a path, not redirect it, so without
+bwrap every agent would share those paths. bwrap starts from the real
+filesystem, so agents use the tools installed on the VM, and it leaves
+access control to nono.
+
 bwrap (bubblewrap) runs unprivileged in a nested user namespace and
 starts from the real filesystem (`--dev-bind / /`). It then mounts
 over the paths `compartment-paths` lists, each as one of these kinds:
@@ -204,9 +250,29 @@ belongs in `compartment-paths`; list every harness's paths there.
 
 ### nono: what the agent may touch
 
-nono runs inside bwrap and sandboxes the harness with Landlock and
+nono's job is to limit what the agent can touch, from policy written as
+data. It runs inside bwrap and sandboxes the harness with Landlock and
 seccomp, using its shared `default` profile (`nono-default-profile.json`)
 plus the harness's pack and small profile (e.g., `bulkhead-claude`).
+
+Without nono, we'd have to write and maintain all of this ourselves:
+
+- **A filtering proxy.** It allows only listed sites and, per site,
+  only listed HTTP methods and paths; to see those inside HTTPS it
+  terminates TLS with a per-session certificate authority. Landlock
+  then makes sure the agent can't go around it.
+- **Filesystem rules.** bwrap could build an allowlisted view by
+  mounting only granted paths, but we'd have to write code turning a
+  policy into mount arguments. Landlock checks every access by path,
+  independently of mounts, so a mount mistake (or
+  `BULKHEAD_NO_COMPARTMENT=1`) still doesn't expose your home
+  directory.
+- **seccomp rules**, e.g., refusing UDP sockets.
+- **Per-harness policy.** nono's packs (e.g., `nolabs-ai/pi`) already
+  list what each harness needs, and profiles can `extends` one
+  another, so we write only a shared default and a small profile per
+  harness.
+- **Diagnosis.** `nono why` explains any denial.
 
 Files:
 
@@ -229,14 +295,9 @@ Network:
   seccomp refuses to create UDP sockets, so the agent can't do its own
   DNS lookups; the proxy resolves names for it.
 - Landlock scopes abstract Unix sockets to the sandbox, so the agent
-  can't connect to one made outside it.
-
-So bwrap alone wouldn't stop an agent from reading the rest of your
-home, and nono alone wouldn't stop two projects' agents sharing `/tmp`
-or `~/.claude`. Likewise, if the proxy were bypassed, pasta would still
-block the VM's local services and nftables would still limit ports;
-without pasta, Landlock would still refuse connections to those
-services, though the agent could list them again.
+  can't connect to one made outside it. (pasta's network namespace
+  separates them too, since abstract sockets belong to a network
+  namespace.)
 
 ## Why nono doesn't make the namespace
 
