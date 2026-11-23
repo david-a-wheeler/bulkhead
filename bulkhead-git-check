@@ -26,7 +26,8 @@
 # record where git keeps the repository, its local and worktree config
 # (as "git config --list --show-scope --includes" gives it, so files it
 # includes count too; see git-config-entries.awk), and the SHA-256
-# hash of each hook. Reading these runs nothing from the repository.
+# hash of each hook, plus where a plain "git push" sends each branch
+# (instead of the keys that pick that, which would bury you in noise). Reading these runs nothing from the repository.
 # git-config-risks says what each kind of change can do. The first run
 # for a workspace records what's there without asking.
 set -eu
@@ -78,6 +79,21 @@ if [ "${1:-}" = --repo ]; then
         printf '%s\terror\tgit can'"'"'t read its config\n' "$rel"
       fi
       rm -f "$file.z"
+      # Where a plain "git push" sends each branch, after pushurl and
+      # pushInsteadOf, instead of the remote and branch keys that pick
+      # it (git-config-entries.awk skips those). A branch with no
+      # remote set (or no branch yet) pushes to origin. A name that
+      # isn't a remote (e.g., a URL) is shown as it is.
+      { (cd "$dir" && GIT_DIR="$git" git for-each-ref --format='%(push:remotename)' refs/heads 2> /dev/null)
+        echo; } | sort -u | while IFS= read -r r; do
+        if [ -z "$r" ]; then
+          (cd "$dir" && GIT_DIR="$git" git remote get-url --push origin 2> /dev/null) || :
+        else
+          (cd "$dir" && GIT_DIR="$git" git remote get-url --push "$r" 2> /dev/null) || printf '%s\n' "$r"
+        fi
+      done | sort -u | while IFS= read -r u; do
+        printf '%s\tpush-to\t%s\n' "$rel" "$(shown "$u")"
+      done
       for h in "$common"/hooks/*; do
         [ -f "$h" ] || continue
         case "$h" in *.sample) continue ;; esac

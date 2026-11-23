@@ -13,12 +13,12 @@
 # a value can't fake a line of its own or hide text with, e.g., a
 # carriage return.
 #
-# We skip keys that can't run a command or send anything elsewhere, so
-# they'd only bury the ones that can: branch.NAME.remote and
-# branch.NAME.merge, which change with every branch you track and only
-# name a remote (whose own settings we keep) and a ref, and the keys
+# We skip keys that would only bury the ones that matter: the keys
 # "git init" and "git clone" (including a partial clone) write in every
-# repository. We keep remote.NAME.url, which says where a push goes.
+# repository, and the keys that pick where a push goes (branch.*,
+# remote.pushdefault, and remote.NAME.url, pushurl, and fetch), since
+# bulkhead-git-check records where a plain "git push" actually goes.
+# We keep the other remote.NAME keys: some run commands.
 
 BEGIN {
   RS = "\001"
@@ -48,9 +48,9 @@ scope == "local" || scope == "worktree" {
     key = $0
     value = ""
   }
-  if (key ~ /^branch\..*\.(remote|merge)$/ ||
+  if (key ~ /^branch\./ || key == "remote.pushdefault" ||
       key ~ /^core\.(repositoryformatversion|filemode|bare|logallrefupdates|symlinks|ignorecase|precomposeunicode)$/ ||
-      key ~ /^remote\..*\.(fetch|promisor|partialclonefilter)$/ ||
+      key ~ /^remote\..*\.(url|pushurl|fetch|promisor|partialclonefilter)$/ ||
       key == "extensions.partialclone")
     next
   print repo tab "config" tab escape(key) escape(value)

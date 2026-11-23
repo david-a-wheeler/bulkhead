@@ -359,6 +359,15 @@ printf '%s\n' "$out" | grep -q 'a filter driver: runs a command' || failed "git 
 gcheck --after > /dev/null && failed "git check --after: accepted a new filter"
 gcheck --yes > /dev/null || failed "git check --yes"
 gcheck > /dev/null || failed "git check: after approval"
+# A new remote shows nothing until a branch pushes to it; then it
+# shows where.
+git -C "$g" -c user.name=t -c user.email=t@example.org commit -q --allow-empty -m x
+git -C "$g" remote add other https://example.org/other.git
+gcheck > /dev/null || failed "git check: reported an unused remote"
+git -C "$g" config "branch.$(git -C "$g" branch --show-current).pushremote" other
+gcheck | grep -qF 'added:     . push-to https://example.org/other.git' ||
+  failed "git check: missed a branch pushing to a new remote"
+gcheck --yes > /dev/null
 # A nested repository, a planted hook, and a change in an included file.
 git init -q "$g/sub/inner"
 printf '#!/bin/sh\n' > "$g/.git/hooks/pre-commit"

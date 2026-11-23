@@ -7,6 +7,7 @@
 repo:* a repository you hadn't approved: check its settings below, and don't run git in it until you have.
 error:* git couldn't read this, so the check can't see what's there; look at it by hand.
 git-dir:* where git keeps this repository: a change can mean a planted .git file pointing elsewhere.
+push-to:* where a plain git push sends a branch: check you meant to push there.
 common-dir:* where git reads this repository's config and hooks: a planted .git/commondir redirects them.
 hook:* a hook: git-hook-passthrough runs it only once you approve its hash, but check it anyway.
 config:filter.* a filter driver: runs a command when git checks out or adds a file that .gitattributes assigns to it.
@@ -14,13 +15,12 @@ config:diff.external runs a command on every git diff.
 config:diff.* a diff driver: runs a command when git diffs a file that .gitattributes assigns to it (git diff --no-ext-diff --no-textconv avoids it).
 config:merge.* a merge driver: runs a command when git merges a file that .gitattributes assigns to it.
 config:url.* rewrites URLs: can send your fetch or push, and its credentials, elsewhere.
-config:remote.*.url where fetch (and push, unless pushurl is set) goes: can send your push, and its credentials, elsewhere.
-config:remote.*.pushurl where push goes: can send your push, and its credentials, elsewhere.
 config:remote.*.uploadpack runs a command on fetch from a local or ssh remote.
 config:remote.*.receivepack runs a command on push to a local or ssh remote.
 config:remote.*.vcs runs the remote helper git-remote-VCS.
-config:remote.* a remote's settings: check where it fetches and pushes.
-config:branch.*.pushremote picks the remote a branch pushes to.
+config:remote.*.mirror makes a push mirror every ref, deleting the remote's other branches.
+config:remote.*.push picks what a push sends and where it lands.
+config:remote.* a remote's settings: most only affect fetch, but check it in git-config(1).
 config:http.* HTTP settings (maybe for one URL): e.g., a proxy, extra headers, or turning off certificate checks.
 config:credential.* credential helpers: git gives each one your password, so a planted one can steal it.
 config:include.* includes another file's settings: check that file too (its settings are listed here as well).

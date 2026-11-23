@@ -152,13 +152,13 @@ is cheap insurance against surprise commands, not a boundary:
   approve it. If you don't, `compart` won't start a session, and after
   one it warns you not to run git there. So a change can't go
   unnoticed for long. The first run for a workspace records what's
-  there without asking. It skips keys that can't run a command or
-  send anything elsewhere, so they don't bury the ones that can:
-  `branch.NAME.remote` and `branch.NAME.merge`, which change with every
-  branch you track, and the boilerplate `git init` and `git clone` write
-  (e.g., `core.filemode`, `remote.NAME.fetch`). It keeps
-  `remote.NAME.url`, which says where a push goes, so a new clone still
-  asks you once. Run `compart check` in a workspace
+  there without asking. So you aren't buried in harmless changes,
+  it skips the boilerplate `git init` and `git clone` write (e.g.,
+  `core.filemode`), and instead of the keys that pick where a push goes
+  (`branch.*`, `remote.pushdefault`, and `remote.NAME.url`, `pushurl`,
+  and `fetch`), it records where a plain `git push` sends each branch.
+  So adding a remote shows nothing, but pointing a branch (or `origin`)
+  somewhere new does. Run `compart check` in a workspace
   before you run git there after a session you didn't watch, since
   another session may still be running. It runs the same checks as a
   launch (the dossier, its port lists, and this one), and also warns
