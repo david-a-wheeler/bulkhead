@@ -1,70 +1,48 @@
 #!/bin/sh
 # anon-access: run a command (by default, your shell) in the current
 # directory's compartment (see bulkhead-compartment), without the
-# auth/login environment variables, so a command (such as an AI
-# invocation) doesn't get them. compart runs every harness through this.
+# login and auth variables in its environment, so it (e.g., an AI
+# harness) can't use them. compart runs every harness through this.
 #
 # Usage: anon-access [BULKHEAD-COMPARTMENT-OPTION...] [COMMAND [ARG...]]
 # Options (e.g., --forward-port PORT) go to bulkhead-compartment.
 #
-# We specifically list what we'll disable; we don't want to disable auth
-# to use an AI, and we generally *do* want to pass env variables on.
-# Ideally we'd only list "what we should pass on" (clear with env -i and then
-# set specific variables), but that's hard in this case, and this is
-# to simplify use and add defense-in-depth (this is not the only defense).
+# We remove the variables we know are secrets, rather than pass on only
+# known-safe ones (env -i), because harnesses need much of your
+# environment. That's defense in depth: the main defense is that VMs
+# hold no long-lived secrets.
+set -eu
 
-# First, check this directory's workspace and set up its dossier, so a
-# directory no agent may start in (e.g., ~ or ~/projects) is refused
-# before anything else happens. See bulkhead-workspace.
-"$(dirname "$0")/bulkhead-workspace" prepare > /dev/null || exit 1
+# Refuse a directory no agent may start in (e.g., ~ or ~/projects)
+# before anything else, and set up its dossier. See bulkhead-workspace.
+"$(dirname "$0")/bulkhead-workspace" prepare > /dev/null
 
-# Hints on disabling GitHub access:
-# https://github.com/cli/cli/issues/13307
-# (GH_CONFIG_DIR is set to a useless temp dir, so it has no contents)
-# MUST use all -u FIRST.
-# We leak many empty GH_CONFIG_DIRs but I don't see that as a problem;
-# they'll be cleaned up on startup.
-#
-# gh(1) refuses to run at all without a token, even for public data (see
-# the issue above), so rather than just unsetting GH_TOKEN/GITHUB_TOKEN
-# we replace them with GH_PUBLIC_TOKEN: a separate, low-risk "Public
-# Repositories (read-only)" fine-grained PAT stored as "GH_PUBLIC_TOKEN!"
-# (see rotate-github-pat.sh and secrets-server.template.py's _resolve()
-# for what the trailing "!" does), which secrets-server.py releases with
-# no confirmation dialog, since leaking it does no more harm than having
-# no token at all. Fetched here, not inside the sandbox: this script
-# still holds a real BULKHEAD_AUTH_SESSION at this point (only the
-# command we exec below loses it), same as heroku-session/gh-session.
-# If the fetch fails for any reason (server unreachable, no session,
-# secret not created yet), gh treats an empty GH_TOKEN exactly like an
-# unset one (confirmed), so this just degrades to today's "gh doesn't
-# work" instead of failing this whole script.
-public_token="$(secrets-client --context "anon-access: ${*:-interactive shell}" --get GH_PUBLIC_TOKEN 2>/dev/null)" || public_token=""
+# gh refuses to run without a token, even for public data
+# (https://github.com/cli/cli/issues/13307). So instead of your token,
+# we give it GH_PUBLIC_TOKEN, a "Public Repositories (read-only)"
+# fine-grained PAT that the Mac releases without asking (its name in
+# the Keychain ends in "!"; see rotate-github-pat.sh), since leaking it
+# does no more harm than having no token. We fetch it here, while we
+# still have BULKHEAD_AUTH_SESSION. If that fails, gh treats the empty
+# token as none, so gh just doesn't work.
+public_token="$(secrets-client --context "anon-access: ${*:-interactive shell}" --get GH_PUBLIC_TOKEN 2> /dev/null)" || public_token=""
 
-# The nested "${SHELL:-/bin/sh}" fallback matters, not just "$SHELL":
-# tested and confirmed that at script top level (unlike inside a shell
-# function), "${@:-$SHELL}" with zero args AND an unset/empty $SHELL
-# expands to ONE empty-string argument, not zero - execvp() then fails
-# outright ("arg 2 first element cannot be empty") instead of running a
-# shell at all.
-
-# We use a local tempdir and cache dir, avoiding /tmp and ~/.cache since
-# those are shared: a tool run in one directory (rubocop, pip, npm, ...)
-# shouldn't read or poison another directory's cached state.
-
+# A per-directory temp and cache directory, not the shared /tmp and
+# ~/.cache, so a tool run in one directory (e.g., pip or npm) can't read
+# or poison another's. npm ignores XDG_CACHE_HOME, so we tell it too.
 export TMPDIR="$PWD/.tmp"
 export XDG_CACHE_HOME="$PWD/.cache"
-# npm ignores XDG_CACHE_HOME and would use ~/.npm, which is shared (and
-# read-only in the sandbox), so point it here too.
 export npm_config_cache="$XDG_CACHE_HOME/npm"
 mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
 
-# bulkhead-compartment runs the command in this directory's compartment
-# (a private /tmp, ~/.claude, and so on), so one project's agent can't
-# leave something for another's to read or run.
+# GH_CONFIG_DIR is a new, empty directory, so gh sees none of your
+# config. Each run leaves one in $TMPDIR, which is harmless.
+#
+# With no command, we run your shell. The inner fallback matters: with
+# no arguments and an empty $SHELL, "${@:-$SHELL}" gives one empty
+# argument, which exec can't run.
 exec env -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
-    -u SSH_AUTH_SOCK -u HEROKU_API_KEY \
-    -u BULKHEAD_AUTH_SESSION \
-    GH_CONFIG_DIR="$(mktemp -d)" \
-    GH_TOKEN="$public_token" GITHUB_TOKEN="$public_token" \
-    "$(dirname "$0")/bulkhead-compartment" "${@:-${SHELL:-/bin/sh}}"
+  -u SSH_AUTH_SOCK -u HEROKU_API_KEY -u BULKHEAD_AUTH_SESSION \
+  GH_CONFIG_DIR="$(mktemp -d)" \
+  GH_TOKEN="$public_token" GITHUB_TOKEN="$public_token" \
+  "$(dirname "$0")/bulkhead-compartment" "${@:-${SHELL:-/bin/sh}}"
