@@ -230,8 +230,16 @@ case "$harness" in
     [ -s "$key_file" ] ||
       die "there's no $key_file; run ./host-setup.sh on the Mac to copy it here."
     pi_update_models
-    # A later --model (in "$@") overrides this.
-    [ -z "$default" ] || set -- --model "$default" "$@"
+    # A later --model (in "$@") overrides this. pi refuses --provider
+    # without --model, so with no default you must give one.
+    if [ -n "$default" ]; then
+      set -- --model "$default" "$@"
+    else
+      case " $* " in
+        *" --model "* | *" --model="*) ;;
+        *) die "there's no default model to use (see the warning above); pass --model, or set a default on the Mac with ./manage-models.sh default." ;;
+      esac
+    fi
     INFER_API_KEY="$(cat "$key_file")"
     INFER_MODELS="$models"
     PI_OFFLINE=1
