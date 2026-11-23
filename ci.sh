@@ -186,7 +186,7 @@ mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$f
 : > "$fh/.claude/CLAUDE.md"
 fhp="$(cd "$fh" && pwd -P)"
 wsenv() {
-  env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT -u XDG_STATE_HOME -u NONO_LOG_FILE HOME="$fh" XDG_RUNTIME_DIR=/run/user/9 \
+  env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u NONO_LOG_FILE HOME="$fh" XDG_RUNTIME_DIR=/run/user/9 \
     BULKHEAD_COMPARTMENT_PATHS="$SCRIPT_DIR/compartment-paths" BULKHEAD_LIB_DIR="$SCRIPT_DIR" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$SCRIPT_DIR/workspace-forbidden" "$@"
 }
