@@ -348,7 +348,8 @@ gcheck() { (cd "$g" && wsenv setsid -w "$SCRIPT_DIR/bulkhead-git-check" "$@" 2>&
 gapproved="$fhp/projects/g1.dossier/git/approved"
 prep "$g" 2> /dev/null
 gcheck > /dev/null || failed "git check: first run"
-grep -qx ".${TAB}config${TAB}core.bare=false" "$gapproved" || failed "git check: recorded the config"
+grep -qx ".${TAB}repo${TAB}." "$gapproved" || failed "git check: recorded the repository"
+grep -q "${TAB}config${TAB}core\\.bare=" "$gapproved" && failed "git check: recorded git init's boilerplate"
 gcheck > /dev/null || failed "git check: no change"
 git -C "$g" config filter.x.smudge "$(printf 'evil\nlocal\tfake')"
 out="$(gcheck)" && failed "git check: accepted a new filter"
