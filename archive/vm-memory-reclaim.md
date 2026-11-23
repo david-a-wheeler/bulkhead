@@ -42,5 +42,21 @@ memory.
 
 ## What works on a Mac today
 
-Give each VM only the RAM it needs, and restart a VM that's been idle
-a while; quitting QEMU returns all of its memory.
+- Give each VM only the RAM it needs (UTM: Settings > System >
+  Memory). A VM's worst case on the Mac is about its RAM size plus
+  QEMU's overhead (about 3 GB more for the 8 GB VM above), so this caps
+  it. A VM using 2.5 GiB for programs does fine with 4 GB; the guest
+  just caches less.
+- Let the guest's swap absorb the occasional shortfall. Its writes go
+  to the VM's disk image, a file on the Mac, so (unless UTM turns off
+  host caching for it) they land in the Mac's file cache, which is
+  reclaimable and isn't charged to QEMU. If a VM swaps heavily all the
+  time (`vmstat 5` in the guest), give it more RAM.
+- Suspend VMs you aren't using (UTM's suspend, or
+  `utmctl suspend NAME`), or restart a VM that's been idle a while;
+  quitting QEMU returns all of its memory.
+
+Don't add zram in the guest. It keeps compressed pages in guest RAM,
+which QEMU can never return, and the Mac's compressor would retry
+compressing them for little gain. Disk swap moves them into the Mac's
+reclaimable file cache instead.
