@@ -415,12 +415,22 @@ git -C "$g" config remote.origin.url https://example.org/x
   failed "compart started with an unapproved git change"
 ccheck env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hookspath GIT_CONFIG_VALUE_0=/nonexistent > /dev/null &&
   failed "compart check passed with an unapproved git change"
-# After a session, it warns about that instead, and still runs the rest.
-out="$(cd "$g" && wsenv PATH="$wst/bin:$PATH" setsid -w env -u GIT_CONFIG_COUNT "$SCRIPT_DIR/compart" check --after 2>&1)" &&
-  failed "compart check --after passed with an unapproved git change"
-printf '%s\n' "$out" | grep -q "WARNING: don't run git" || failed "compart check --after: warned about git: $out"
-printf '%s\n' "$out" | grep -q "aren't in your environment" || failed "compart check --after: ran the other checks: $out"
-printf '%s\n' "$out" | grep -q "not starting" && failed "compart check --after: said it won't start: $out"
+# When a session ends, compart runs all of compart check's checks; on
+# a risky change the session made, it warns you not to run git, and
+# keeps the session's exit status. Here a stand-in session plants one.
+gcheck --yes > /dev/null
+mkdir -p "$wst/plant-bin"
+printf '#!/bin/sh\ngit config remote.y.mirror true\nexit 3\n' > "$wst/plant-bin/anon-access"
+chmod 755 "$wst/plant-bin/anon-access"
+status=0
+out="$(cd "$g" && wsenv PATH="$wst/plant-bin:$PATH" setsid -w env -u GIT_CONFIG_COUNT "$SCRIPT_DIR/compart" sh true 2>&1)" ||
+  status=$?
+[ "$status" = 3 ] || failed "compart sh: kept the session's exit status ($status): $out"
+printf '%s\n' "$out" | grep -q "WARNING: don't run git" || failed "compart: warned about git after a session: $out"
+printf '%s\n' "$out" | grep -q "aren't in your environment" || failed "compart: ran the other checks after a session: $out"
+printf '%s\n' "$out" | grep -q "not starting" && failed "compart: said it won't start after a session: $out"
+printf '%s\n' "$out" | grep -q "run 'compart check' here any time" || failed "compart: reminded you of compart check: $out"
+git -C "$g" config --unset remote.y.mirror
 
 # compart claude refuses a shared login holding real tokens, since
 # agents could read them; nono's phantoms (nono_...) are fine.

@@ -16,9 +16,8 @@
 # "compart check" isn't a harness: it checks the workspace the way a
 # launch would (its dossier, port lists, and git settings), plus a few
 # things about the VM, and starts nothing. Run it before you run git in
-# a workspace after a session you didn't watch. compart runs "compart
-# check --after" when a session ends: on a risky git change you don't
-# approve, it warns you instead of saying it won't start.
+# a workspace after a session you didn't watch. compart runs the same
+# checks when a session ends.
 #
 # The sandbox policy every harness shares (files and network) is nono's
 # "default" profile, nono-default-profile.json here, which vm-setup.sh
@@ -34,7 +33,7 @@ set -eu
 LIB_DIR=/usr/local/libexec/bulkhead
 
 usage() {
-  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; or compart check [--after]"
+  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; or compart check"
 }
 
 die() {
@@ -61,7 +60,6 @@ shift
 # VM ports to forward into the compartment (see bulkhead-compartment).
 forward=""
 check=false
-after=false
 case "$harness" in
   sh)
     # bulkhead-sh (nono-sh-profile.json) is nono's own linux-host-compat
@@ -78,7 +76,6 @@ case "$harness" in
     set -- -- "$@"
     ;;
   check)
-    [ "${1:-}" != --after ] || { after=true; shift; }
     [ $# -eq 0 ] || { usage >&2; exit 2; }
     check=true
     ;;
@@ -210,6 +207,46 @@ ports() {
   done < "$1"
 }
 
+# check_workspace AFTER: everything "compart check" checks, warning you
+# about anything wrong; it returns 1 if anything is. AFTER is true when
+# a session has ended: then a risky git change you don't approve gets a
+# warning not to run git, rather than "not starting". Add any new check
+# here, so it runs both on demand and after every session.
+check_workspace() {
+  cw_ok=true
+  cw_dossier="$("$(dirname "$0")/bulkhead-workspace" prepare)" || return 1
+  # ports exits on a bad line, so we run it in a subshell.
+  (ports "$cw_dossier/policy/local-ports" && ports "$cw_dossier/policy/expose-ports") > /dev/null || cw_ok=false
+  # An agent can plant git settings that run commands when you next
+  # run git here (see bulkhead-git-check).
+  if "$1"; then
+    "$(dirname "$0")/bulkhead-git-check" --after || cw_ok=false
+  else
+    "$(dirname "$0")/bulkhead-git-check" || cw_ok=false
+  fi
+  # vm-setup.sh's git pins (see make-git-safety-env) reach you only
+  # after a new login.
+  if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/50-bulkhead-git-safety.conf" ]; then
+    echo "compart check: WARNING: git's safety settings aren't installed; run vm-setup.sh." >&2
+    cw_ok=false
+  elif [ -z "${GIT_CONFIG_COUNT:-}" ]; then
+    echo "compart check: WARNING: git's safety settings aren't in your environment; log in again." >&2
+    cw_ok=false
+  fi
+  cw_orphans="$("$(dirname "$0")/bulkhead-workspace" orphans)"
+  if [ -n "$cw_orphans" ]; then
+    printf 'compart check: WARNING: these dossiers'"'"' workspaces are gone (see compartments.md, "Moving a workspace"):\n%s\n' "$cw_orphans" >&2
+    cw_ok=false
+  fi
+  "$cw_ok" || return 1
+  echo "compart check: $(pwd -P) looks as expected." >&2
+}
+
+if "$check"; then
+  check_workspace false || exit 1
+  exit 0
+fi
+
 # We prepend each option, so the command line ends with the harness's
 # own options and command. Ports are only digits (ports checks), so
 # splitting $local_ports and $expose_ports is safe.
@@ -229,32 +266,8 @@ fi
 # An agent can plant git settings that run commands when you next run
 # git here, so we show you any change since you last approved them, and
 # ask about risky ones (see bulkhead-git-check), before the session and
-# again after it (via "compart check --after").
-ok=true
-if "$after"; then
-  "$(dirname "$0")/bulkhead-git-check" --after || ok=false
-else
-  "$(dirname "$0")/bulkhead-git-check" || exit 1
-fi
-if "$check"; then
-  # vm-setup.sh's git pins (see make-git-safety-env) reach you only
-  # after a new login.
-  if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/50-bulkhead-git-safety.conf" ]; then
-    echo "compart check: WARNING: git's safety settings aren't installed; run vm-setup.sh." >&2
-    ok=false
-  elif [ -z "${GIT_CONFIG_COUNT:-}" ]; then
-    echo "compart check: WARNING: git's safety settings aren't in your environment; log in again." >&2
-    ok=false
-  fi
-  orphans="$("$(dirname "$0")/bulkhead-workspace" orphans)"
-  if [ -n "$orphans" ]; then
-    printf 'compart check: WARNING: these dossiers'"'"' workspaces are gone (see compartments.md, "Moving a workspace"):\n%s\n' "$orphans" >&2
-    ok=false
-  fi
-  "$ok" || exit 1
-  echo "compart check: $(pwd -P) looks as expected." >&2
-  exit 0
-fi
+# again after it (in check_workspace).
+"$(dirname "$0")/bulkhead-git-check" || exit 1
 # The workspace's local ports (and exposed ones, which its agents use
 # too) are on the compartment's own loopback, but nono still refuses
 # any port not opened.
@@ -303,7 +316,7 @@ trap : INT QUIT
 status=0
 anon-access "$@" || status=$?
 trap - INT QUIT
-"$(dirname "$0")/compart" check --after || :
+check_workspace true || :
 # Another session may still be running here, so remind you how to check
 # again later.
 echo "compart: run 'compart check' here any time (e.g., before you run git) to check for risky changes." >&2

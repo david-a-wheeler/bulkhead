@@ -168,8 +168,8 @@ is cheap insurance against surprise commands, not a boundary:
   launch (the dossier, its port lists, and this one), and also warns
   if git's pins aren't in your environment (log in again after
   `vm-setup.sh`) or a dossier's workspace is gone, and starts nothing.
-  `compart` runs it (as `compart check --after`) when a session ends,
-  and reminds you that you can run it any time.
+  `compart` runs the same checks when a session ends, and reminds you
+  that you can run them any time.
 
 What's still open, so check these before you run git after a session
 you didn't watch:
