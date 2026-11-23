@@ -164,11 +164,12 @@ is cheap insurance against surprise commands, not a boundary:
   So adding a remote shows nothing, but pointing a branch (or `origin`)
   somewhere new does. Run `compart check` in a workspace
   before you run git there after a session you didn't watch, since
-  another session may still be running; `compart` reminds you of this
-  when a session ends. It runs the same checks as a
+  another session may still be running. It runs the same checks as a
   launch (the dossier, its port lists, and this one), and also warns
   if git's pins aren't in your environment (log in again after
   `vm-setup.sh`) or a dossier's workspace is gone, and starts nothing.
+  `compart` runs it (as `compart check --after`) when a session ends,
+  and reminds you that you can run it any time.
 
 What's still open, so check these before you run git after a session
 you didn't watch:

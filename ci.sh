@@ -415,6 +415,12 @@ git -C "$g" config remote.origin.url https://example.org/x
   failed "compart started with an unapproved git change"
 ccheck env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hookspath GIT_CONFIG_VALUE_0=/nonexistent > /dev/null &&
   failed "compart check passed with an unapproved git change"
+# After a session, it warns about that instead, and still runs the rest.
+out="$(cd "$g" && wsenv PATH="$wst/bin:$PATH" setsid -w env -u GIT_CONFIG_COUNT "$SCRIPT_DIR/compart" check --after 2>&1)" &&
+  failed "compart check --after passed with an unapproved git change"
+printf '%s\n' "$out" | grep -q "WARNING: don't run git" || failed "compart check --after: warned about git: $out"
+printf '%s\n' "$out" | grep -q "aren't in your environment" || failed "compart check --after: ran the other checks: $out"
+printf '%s\n' "$out" | grep -q "not starting" && failed "compart check --after: said it won't start: $out"
 
 # compart claude refuses a shared login holding real tokens, since
 # agents could read them; nono's phantoms (nono_...) are fine.

@@ -361,10 +361,12 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `nono.log.1` at launch once it passes 1 MB), the dossier's `inbox/`
   (read-only) and `outbox/` (write-only), and an `--open-port` for each
   of its local and exposed ports. It runs `bulkhead-git-check` before
-  and after the session. `compart check` runs a launch's checks
-  (the dossier, port lists, and git settings), and checks that git's
-  safety settings are in your environment and that no dossier is
-  orphaned, but starts nothing. `compart sh COMMAND...` runs COMMAND
+  the session, and `compart check --after` after it. `compart check`
+  runs a launch's checks (the dossier, port lists, and git settings),
+  and checks that git's safety settings are in your environment and
+  that no dossier is orphaned, but starts nothing; with `--after`, it
+  warns about a risky git change you don't approve instead of saying
+  it won't start. `compart sh COMMAND...` runs COMMAND
   in the workspace's compartment, under the same shared policy (with
   `bulkhead-sh`), or your `$SHELL` with no COMMAND, e.g., to see what
   an agent sees or to run a tool you don't trust. `noclaude` and `nopi` are

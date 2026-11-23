@@ -16,7 +16,9 @@
 # "compart check" isn't a harness: it checks the workspace the way a
 # launch would (its dossier, port lists, and git settings), plus a few
 # things about the VM, and starts nothing. Run it before you run git in
-# a workspace after a session you didn't watch.
+# a workspace after a session you didn't watch. compart runs "compart
+# check --after" when a session ends: on a risky git change you don't
+# approve, it warns you instead of saying it won't start.
 #
 # The sandbox policy every harness shares (files and network) is nono's
 # "default" profile, nono-default-profile.json here, which vm-setup.sh
@@ -32,7 +34,7 @@ set -eu
 LIB_DIR=/usr/local/libexec/bulkhead
 
 usage() {
-  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; or compart check"
+  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; or compart check [--after]"
 }
 
 die() {
@@ -59,6 +61,7 @@ shift
 # VM ports to forward into the compartment (see bulkhead-compartment).
 forward=""
 check=false
+after=false
 case "$harness" in
   sh)
     # bulkhead-sh (nono-sh-profile.json) is nono's own linux-host-compat
@@ -75,6 +78,7 @@ case "$harness" in
     set -- -- "$@"
     ;;
   check)
+    [ "${1:-}" != --after ] || { after=true; shift; }
     [ $# -eq 0 ] || { usage >&2; exit 2; }
     check=true
     ;;
@@ -224,10 +228,15 @@ if [ "$harness" = claude ]; then
 fi
 # An agent can plant git settings that run commands when you next run
 # git here, so we show you any change since you last approved them, and
-# ask about risky ones (see bulkhead-git-check), before the session and again after it.
-"$(dirname "$0")/bulkhead-git-check" || exit 1
+# ask about risky ones (see bulkhead-git-check), before the session and
+# again after it (via "compart check --after").
+ok=true
+if "$after"; then
+  "$(dirname "$0")/bulkhead-git-check" --after || ok=false
+else
+  "$(dirname "$0")/bulkhead-git-check" || exit 1
+fi
 if "$check"; then
-  ok=true
   # vm-setup.sh's git pins (see make-git-safety-env) reach you only
   # after a new login.
   if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/50-bulkhead-git-safety.conf" ]; then
@@ -287,14 +296,14 @@ done
 for p in $forward; do
   set -- --forward-port "$p" "$@"
 done
-# We don't exec, so we can check git's settings when the session ends.
+# We don't exec, so we can check the workspace when the session ends.
 # A trap (unlike ignoring a signal) doesn't pass on to the harness, so
 # Ctrl-C still reaches it, but doesn't stop us.
 trap : INT QUIT
 status=0
 anon-access "$@" || status=$?
 trap - INT QUIT
-"$(dirname "$0")/bulkhead-git-check" --after || :
+"$(dirname "$0")/compart" check --after || :
 # Another session may still be running here, so remind you how to check
 # again later.
 echo "compart: run 'compart check' here any time (e.g., before you run git) to check for risky changes." >&2
