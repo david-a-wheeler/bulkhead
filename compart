@@ -13,6 +13,10 @@
 # policy as any harness, e.g., to see what an agent sees, or to run a
 # tool you don't trust.
 #
+# "compart dossier" prints the workspace's dossier (see
+# bulkhead-workspace), e.g., for cd "$(compart dossier)". It works it out
+# from the workspace's path, not from anything an agent can write.
+#
 # "compart check" isn't a harness: it checks the workspace the way a
 # launch would (its dossier, port lists, and git settings), plus a few
 # things about the VM, and starts nothing. Run it before you run git in
@@ -33,7 +37,7 @@ set -eu
 LIB_DIR=/usr/local/libexec/bulkhead
 
 usage() {
-  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; or compart check"
+  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; compart dossier; or compart check"
 }
 
 die() {
@@ -78,6 +82,10 @@ case "$harness" in
   check)
     [ $# -eq 0 ] || { usage >&2; exit 2; }
     check=true
+    ;;
+  dossier)
+    [ $# -eq 0 ] || { usage >&2; exit 2; }
+    exec "$(dirname "$0")/bulkhead-workspace" dossier
     ;;
   claude)
     # bulkhead-claude (nono-claude-profile.json) extends nolabs-ai/claude,

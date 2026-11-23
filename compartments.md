@@ -250,7 +250,10 @@ refuses, and so does having no terminal (e.g., a script); `prepare
 Each workspace gets a dossier directory, mode 700 (see "Where dossiers
 live"), for data that's *about* the workspace and mustn't be under its agent's
 control: what the agent did, what it's allowed, and the harness's
-private state. `bulkhead-workspace prepare` (run by `anon-access`)
+private state. To find a workspace's dossier, run `compart dossier`
+in it (e.g., `cd "$(compart dossier)"`); it works the path out from
+the workspace's own, so no agent can redirect it. `bulkhead-workspace
+prepare` (run by `anon-access`)
 creates it before any sandbox starts; it must exist first, since nono
 binds its grants at start, so a directory made later stays denied.
 

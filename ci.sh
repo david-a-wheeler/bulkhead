@@ -415,6 +415,10 @@ git -C "$g" config remote.origin.url https://example.org/x
   failed "compart started with an unapproved git change"
 ccheck env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hookspath GIT_CONFIG_VALUE_0=/nonexistent > /dev/null &&
   failed "compart check passed with an unapproved git change"
+# compart dossier prints the same dossier bulkhead-workspace does.
+[ "$(cd "$g" && wsenv "$SCRIPT_DIR/compart" dossier)" = "$(cd "$g" && wsenv "$SCRIPT_DIR/bulkhead-workspace" dossier)" ] ||
+  failed "compart dossier"
+[ "$(cd "$g" && wsenv "$SCRIPT_DIR/compart" dossier)" = "$fhp/projects/g1.dossier" ] || failed "compart dossier: printed g1's"
 # When a session ends, compart runs all of compart check's checks; on
 # a risky change the session made, it warns you not to run git, and
 # keeps the session's exit status. Here a stand-in session plants one.

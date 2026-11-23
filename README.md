@@ -364,7 +364,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   the session, and all of `compart check`'s checks after it.
   `compart check` runs a launch's checks (the dossier, port lists, and
   git settings), and checks that git's safety settings are in your
-  environment and that no dossier is orphaned, but starts nothing. `compart sh COMMAND...` runs COMMAND
+  environment and that no dossier is orphaned, but starts nothing.
+  `compart dossier` prints the workspace's dossier. `compart sh COMMAND...` runs COMMAND
   in the workspace's compartment, under the same shared policy (with
   `bulkhead-sh`), or your `$SHELL` with no COMMAND, e.g., to see what
   an agent sees or to run a tool you don't trust. `noclaude` and `nopi` are
