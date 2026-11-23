@@ -23,12 +23,26 @@ tmpdir /tmp
 # every agent's instructions. Change it from outside a compartment.
 ro ~/.agents
 
+# nono's profile drafts. The claude, goose, and pi packs grant this
+# read-write, so one compartment's agent could leave a file there for
+# another's to read. To draft a profile, write it in a workspace, and
+# move it here yourself.
+ro ~/.config/nono/profile-drafts
+
 # Claude Code. Transcripts, history, todos, plans, and its config file
 # (~/.claude/.claude.json, since bulkhead-claude sets CLAUDE_CONFIG_DIR)
 # become per compartment. Credentials aren't here: compart claude keeps
 # them in one shared directory (CLAUDE_SECURESTORAGE_CONFIG_DIR), so
 # one login works everywhere.
 private ~/.claude
+# nolabs-ai/claude grants these files in your home directory read-write,
+# and a profile that extends it can't take that back. Claude doesn't
+# need them here: CLAUDE_CONFIG_DIR keeps its config in its private
+# ~/.claude. Read-only, they can't carry anything between compartments,
+# and nono can't grant one that doesn't exist at launch.
+ro ~/.claude.json
+ro ~/.claude.json.lock
+ro ~/.claude.lock
 ro ~/.claude/CLAUDE.md
 ro ~/.claude/settings.json
 ro ~/.claude/keybindings.json

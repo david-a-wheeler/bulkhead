@@ -49,7 +49,7 @@ An agent in a compartment **can't**:
   what it gave you, or erase its own log.
 - Change your shared harness setup (it's read-only inside), even when a
   harness's pack grants it write access (e.g., `nolabs-ai/goose` grants
-  `~/.agents` read-write).
+  `~/.agents` read-write), or write nono's profile drafts.
 - Read the rest of your home directory, beyond what the nono profiles
   grant.
 - See or reach the VM's local services (e.g., sshd, or other agents'
@@ -608,6 +608,23 @@ over the paths `compartment-paths` lists, each as one of these kinds:
 - `tmpdir`: `/tmp` becomes the current directory's `.tmp` (on disk),
   which is also the compartment's `TMPDIR`.
 
+`ro` also covers paths a harness's nono pack grants read-write that no
+compartment should write for another to read, since a profile that
+extends a pack can't take back its grants: nono's
+`~/.config/nono/profile-drafts` (to draft a profile, write it in a
+workspace and move it there yourself), and the `~/.claude.json`,
+`~/.claude.json.lock`, and `~/.claude.lock` that `nolabs-ai/claude`
+grants (Claude doesn't need them, since its config is in its private
+`~/.claude`). For a path that doesn't exist, `ro` binds nothing, and
+then nono can't grant it either, since Landlock grants only paths that
+exist when the sandbox starts.
+
+The lesson: a pack's write grant to a real path outside the workspace
+is a channel between compartments unless `compartment-paths` makes it
+private or read-only. So when you add or update a pack, check its
+`filesystem.allow`, `write`, and `allow_file` entries against
+`compartment-paths`.
+
 bwrap also mounts `netns-resolv.conf` (see above) and sets
 `BULKHEAD_COMPARTMENT` to the compartment's key (`projects-NAME`,
 `sensitive-NAME`, or `dir%PATH`). The state lives in the dossier, outside
@@ -811,6 +828,16 @@ Use these only to work around a breakage.
   compartment then sees it.
 - nono's error message for the AppArmor denial points to the wrong
   cause; it's worth reporting upstream.
+- `nolabs-ai/pi` grants all of `~/.pi` read-write, but only
+  `~/.pi/agent/sessions` is private, so pi compartments share the rest
+  (e.g., `~/.pi/agent/models.json`, which `compart pi` writes): an
+  agent could change it for every other pi compartment, or pass data
+  through it. Making `~/.pi` read-only, with `sessions` still private,
+  should close this, but needs testing with pi.
+- `nolabs-ai/goose` grants `~/.config/goose`, `~/.cache/goose`,
+  `~/.local/share/goose`, and `~/.local/state/goose` read-write, and
+  none is in `compartment-paths` yet. `compart` has no goose harness,
+  so nothing uses them; add them before adding one.
 
 ## Testing
 

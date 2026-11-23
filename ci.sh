@@ -268,6 +268,17 @@ grep -qF -- "|--bind|$fhp/projects/p1/sub/.tmp|/tmp|" "$tmp/dry" || failed "comp
 printf '%s\n' "$out" | grep -qx "$fhp/projects/p1.dossier/state/.*%.claude" ||
   failed "compartment private ~/.claude"
 printf '%s\n' "$out" | grep -qx -- '--ro-bind' || failed "compartment read-only CLAUDE.md"
+# Paths nono's packs grant read-write but no compartment may write for
+# another: read-only if they exist, and skipped (so nono can't grant
+# them) if they don't.
+mkdir -p "$fh/.config/nono/profile-drafts"
+: > "$fh/.claude.json.lock"
+compart_dry "$fh/projects/p1" | tr '\n' '|' > "$tmp/dry"
+for f in .config/nono/profile-drafts .claude.json.lock; do
+  grep -qF -- "|--ro-bind|$fh/$f|$fh/$f|" "$tmp/dry" || failed "compartment read-only ~/$f"
+done
+grep -qF -- "$fh/.claude.lock" "$tmp/dry" && failed "compartment bound a missing ~/.claude.lock"
+rm -r "$fh/.config/nono" "$fh/.claude.json.lock"
 # The network namespace: pasta forwards nothing, unless asked.
 printf '%s\n' "$out" | sed -n 2p | grep -qx pasta || failed "compartment runs under pasta"
 for opt in --tcp-ports --udp-ports --udp-ns --tcp-ns --map-host-loopback --map-guest-addr; do
