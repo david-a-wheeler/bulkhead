@@ -20,7 +20,7 @@
 # the namespace itself here: Ubuntu's AppArmor profile for bwrap denies
 # it the capability (see compartments.md). pasta gives the
 # namespace a route out (nftables still applies; nono's proxy and
-# Landlock still limit the agent) and DNS through the VM's resolver.
+# sandbox still limit the agent) and DNS through the VM's resolver.
 # It forwards no ports in either direction, and doesn't map any address
 # to the VM's loopback, except:
 # - each --forward-port PORT: a connection to 127.0.0.1:PORT inside

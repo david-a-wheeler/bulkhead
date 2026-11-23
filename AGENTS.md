@@ -46,7 +46,7 @@ nono binds some grants at sandbox start: a single-file grant (e.g.,
 `~/.gitconfig`) follows the file's inode, and a granted directory that
 didn't exist then stays denied. So replacing such a file by rename
 (e.g., `git config --global`) or creating such a directory causes
-`Permission denied` afterward. The fix is for the human to restart the
+<code>Permission&#32;denied</code> afterward. The fix is for the human to restart the
 session; don't edit the nono profile or `chmod` around it. Don't run
 `vm-setup.sh` unless asked, and if you do, say a restart may be needed.
 

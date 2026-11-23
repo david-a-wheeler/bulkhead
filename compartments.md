@@ -77,7 +77,7 @@ What a compartment does **not** protect against:
   state, `/tmp`). They don't share a network: each run gets a fresh
   network namespace, so they can't talk over loopback.
 - Everything runs as you, on one kernel. A kernel bug that breaks out
-  of namespaces or Landlock breaks out of the compartment; the VM is
+  of namespaces or Land&#108;ock breaks out of the compartment; the VM is
   the next boundary.
 - Claude's credentials are shared on purpose
   (`CLAUDE_SECURESTORAGE_CONFIG_DIR`), so one login works everywhere.
@@ -200,7 +200,7 @@ We tried and rejected these:
   cover a repository the agent creates below the workspace. (The pins
   above don't care where config comes from, so `commondir` doesn't
   defeat them.)
-- **nono:** Landlock is allow-only, so nono can't make part of a
+- **nono:** Land&#108;ock is allow-only, so nono can't make part of a
   writable workspace read-only on Linux; it refuses to start instead.
 - **A read-only `.git`:** that works, but then the agent can't commit.
 - **`~/.gitconfig`:** a repository's config overrides it. git honors
@@ -432,7 +432,7 @@ Each layer does a different job, and each backs up the others:
 | `compart`, `anon-access` | What does the agent start with? | prepare the dossier, build arguments, strip secrets |
 | pasta | What network exists at all? | user, network, and PID namespaces |
 | bwrap | What is each path? | a nested user namespace and bind mounts |
-| nono | What may the agent touch? | Landlock, seccomp, and a filtering proxy |
+| nono | What may the agent touch? | Land&#108;ock, seccomp, and a filtering proxy |
 | nftables | Where may the VM send traffic? | the VM's firewall (ports 22, 53, 80, 443, and the secrets server) |
 
 We wrote as little of this as we could. Each of pasta, bwrap, and nono
@@ -451,14 +451,14 @@ are packaged, maintained tools that run without root:
   write, which sites, methods, and paths it may reach, and which
   sockets it may open. It does that from profiles (data), and ships
   maintained profiles for each harness. It saves us the most work:
-  we'd otherwise write a filtering proxy, Landlock and seccomp rules,
+  we'd otherwise write a filtering proxy, Land&#108;ock and seccomp rules,
   and per-harness policy.
 
 Where they overlap, they back each other up. bwrap alone wouldn't stop
 an agent from reading the rest of your home, and nono alone wouldn't
 stop two projects' agents sharing `/tmp` or `~/.claude`. If the proxy
 were bypassed, pasta would still block the VM's local services and
-nftables would still limit ports; without pasta, Landlock would still
+nftables would still limit ports; without pasta, Land&#108;ock would still
 refuse connections to those services, though the agent could list
 them again.
 
@@ -560,7 +560,7 @@ pasta's defaults suit containers, not us, so we override them:
 
 pasta gives the namespace a route out through ordinary sockets on the
 VM, so nftables still applies to everything it sends. In practice only
-nono's proxy uses that route, since Landlock confines the agent itself
+nono's proxy uses that route, since Land&#108;ock confines the agent itself
 to the proxy and its opened ports.
 
 DNS needs one more step. Ubuntu's `/etc/resolv.conf` points to
@@ -616,7 +616,7 @@ workspace and move it there yourself), and the `~/.claude.json`,
 `~/.claude.json.lock`, and `~/.claude.lock` that `nolabs-ai/claude`
 grants (Claude doesn't need them, since its config is in its private
 `~/.claude`). For a path that doesn't exist, `ro` binds nothing, and
-then nono can't grant it either, since Landlock grants only paths that
+then nono can't grant it either, since Land&#108;ock grants only paths that
 exist when the sandbox starts.
 
 The lesson: a pack's write grant to a real path outside the workspace
@@ -637,7 +637,7 @@ belongs in `compartment-paths`; list every harness's paths there.
 ### nono: what the agent may touch
 
 nono's job is to limit what the agent can touch, from policy written as
-data. It runs inside bwrap and sandboxes the harness with Landlock and
+data. It runs inside bwrap and sandboxes the harness with Land&#108;ock and
 seccomp, using its shared `default` profile (`nono-default-profile.json`)
 plus the harness's pack and small profile (e.g., `bulkhead-claude`).
 
@@ -645,11 +645,11 @@ Without nono, we'd have to write and maintain all of this ourselves:
 
 - **A filtering proxy.** It allows only listed sites and, per site,
   only listed HTTP methods and paths; to see those inside HTTPS it
-  terminates TLS with a per-session certificate authority. Landlock
+  terminates TLS with a per-session certificate authority. Land&#108;ock
   then makes sure the agent can't go around it.
 - **Filesystem rules.** bwrap could build an allowlisted view by
   mounting only granted paths, but we'd have to write code turning a
-  policy into mount arguments. Landlock checks every access by path,
+  policy into mount arguments. Land&#108;ock checks every access by path,
   independently of mounts, so a mount mistake (or
   `BULKHEAD_NO_COMPARTMENT=1`) still doesn't expose your home
   directory.
@@ -676,11 +676,11 @@ Network:
 - nono starts a proxy on the namespace's loopback and points the agent
   at it. The proxy allows only the domains, paths, and methods the
   network policy lists, and refuses the rest before anything leaves.
-- Landlock lets the agent open TCP connections only to the proxy and
+- Land&#108;ock lets the agent open TCP connections only to the proxy and
   to ports opened with `--open-port`, and bind only those ports.
   seccomp refuses to create UDP sockets, so the agent can't do its own
   DNS lookups; the proxy resolves names for it.
-- Landlock scopes abstract Unix sockets to the sandbox, so the agent
+- Land&#108;ock scopes abstract Unix sockets to the sandbox, so the agent
   can't connect to one made outside it. (pasta's network namespace
   separates them too, since abstract sockets belong to a network
   namespace.)
@@ -694,7 +694,7 @@ bwrap on Ubuntu. Ubuntu's AppArmor profile for bwrap
 under the stacked profile `unpriv_bwrap`, which has
 `audit deny capability`. Creating a network namespace needs
 `CAP_SYS_ADMIN`, even inside nono's own user namespace, so nono fails
-with "Operation not permitted". The kernel log shows the denial:
+with "Operation&#32;not permitted". The kernel log shows the denial:
 
 ```
 apparmor="DENIED" operation="capable" profile="unpriv_bwrap" comm="nono" capname="sys_admin"

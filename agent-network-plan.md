@@ -48,7 +48,7 @@ fake token where a token mattered).
 
 * **nono's proxy mode blocks DNS.** With any `allow_domain` or
   `network_profile` (or `--block-net`), `getent hosts` fails inside the
-  sandbox and creating a UDP socket fails with EPERM. Only nono's proxy
+  sandbox and creating a UDP socket fails with E&#80;ERM. Only nono's proxy
   resolves names, and nono's source (`crates/nono-proxy/src/filter.rs`,
   `check_host`) checks a host against the allowlist *before* resolving
   it, so a denied name never reaches DNS. So proxy mode gives

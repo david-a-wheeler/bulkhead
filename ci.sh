@@ -815,6 +815,19 @@ bash -n test-check-prose-style.sh || failed "test-check-prose-style.sh (bash -n)
 shellcheck -x test-check-prose-style.sh || fail=1
 ./test-check-prose-style.sh || fail=1
 
+step "no false alarms for nono's Claude Code hook"
+# nono's plugin (nono-hook-bash.sh) tells the agent its command hit a
+# sandbox block whenever a command's output matches this pattern, even
+# when the match is just text in a file it printed. So we break these
+# words up: in Markdown, with an entity (e.g., "Land&#108;ock"), which
+# renders as the word; elsewhere, by rewording. The pattern is split
+# here too, so printing this file doesn't match it.
+hook_words='operation not permit''ted|permission den''ied|EP''ERM|EAC''CES|sand''box.*den''ied|land''lock'
+if git grep -n -I -i -E "$hook_words" > "$tmp/hook-words"; then
+  sed 's/^\([^:]*:[0-9]*\):.*/\1/' "$tmp/hook-words" >&2
+  failed "these lines would set off nono's hook; break the word up (see ci.sh)"
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "All checks passed."

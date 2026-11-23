@@ -78,7 +78,7 @@ nono 0.82:
   ports it's told to open. So an agent can't even run its own test
   server on localhost.
 - Connecting to an abstract Unix socket made outside the sandbox (the
-  X server's `@/tmp/.X11-unix/X0`) fails with `EPERM`: Landlock scopes
+  X server's `@/tmp/.X11-unix/X0`) fails with <code>E&#80;ERM</code>: Land&#108;ock scopes
   abstract sockets to the sandbox's own domain. Binding one works. Each
   nono sandbox is its own domain, so one agent shouldn't be able to
   connect to another's either (`tests/compartment-test.sh` checks).
@@ -102,7 +102,7 @@ the default network for rootless podman), which makes the namespace
 before bwrap starts. We tell pasta to forward no ports either way, and
 not to map any address to the VM's loopback, so the VM's local
 services are out of reach. Its route out is no wider than the VM's
-(nftables still applies), and inside it, nono's proxy and Landlock
+(nftables still applies), and inside it, nono's proxy and Land&#108;ock
 still limit the agent. DNS goes to an address (`netns-resolv.conf`)
 that pasta maps to the VM's resolver. A port the harness's wrapper
 opens (e.g., `nopi`'s for the local AI engine) is a VM service, so
