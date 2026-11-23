@@ -1,6 +1,6 @@
 #!/bin/sh
 # bulkhead-git-check: notice when the settings that a workspace's git
-# repositories give git change, and ask you to approve the change.
+# repositories give git change, and ask you to approve a risky change.
 # compart runs it before each session (refusing to start unless you
 # approve) and after (warning you if you don't). Run it yourself before
 # you run git in a workspace after a session you didn't watch. Run it
@@ -12,7 +12,7 @@
 #            you not to run git there, instead of refusing to start
 #   --yes    approve any change without asking
 # DIR defaults to the current directory. It exits 0 if nothing changed
-# or you approved the change, else 1.
+# or nothing risky changed, or you approved it, else 1.
 #
 # Why: an agent can write its workspace's .git, so it can plant
 # settings that run a command, or send your push elsewhere, the next
@@ -20,7 +20,8 @@
 # riskiest keys, but it can't pin keys whose names a repository picks
 # (e.g., filter.NAME.smudge or url.NAME.insteadOf). So we record what
 # you've approved in the dossier's git/approved, where no agent can
-# reach, and show you anything new.
+# reach, show you anything new, and ask you to approve it if it's
+# risky (see git-config-risks).
 #
 # For each .git (directory or file) anywhere in the workspace, we
 # record where git keeps the repository, its local and worktree config
@@ -142,38 +143,50 @@ if [ ! -f "$approved" ]; then
 fi
 cmp -s "$approved" "$work/current" && exit 0
 
-# explain LINE: say what a changed line can do, per git-config-risks.
-explain() {
+# risk LINE: print the level ("ask" or "note") of an added line, then
+# what it can do, per git-config-risks. A line it doesn't cover asks.
+risk() {
   rest="${1#*"$tab"}"
   kind="${rest%%"$tab"*}"
   what="${rest#*"$tab"}"
   [ "$kind" != config ] || what="${what%%=*}"
   [ "$kind" != hook ] || what="${what%% *}"
-  while read -r pattern text; do
+  while read -r pattern level text; do
     case "$pattern" in '' | '#'*) continue ;; esac
     # Unquoted on purpose: $pattern is a pattern.
     # shellcheck disable=SC2254
     case "$kind:$what" in
-      $pattern) printf '             %s\n' "$text"; return ;;
+      $pattern) printf '%s %s\n' "$level" "$text"; return ;;
     esac
   done < "$LIB_DIR/git-config-risks"
+  echo ask
 }
 
+# Show every change, marking the risky ones. Only an added risky line
+# needs your approval; we record the rest without asking.
 say "the git settings in $root changed since you approved them:"
 diff "$approved" "$work/current" | while IFS= read -r line; do
   case "$line" in
     '< '*) printf '  removed:   %s\n' "$(printf '%s' "${line#'< '}" | tr '\t' ' ')" ;;
     '> '*)
-      printf '  added:     %s\n' "$(printf '%s' "${line#'> '}" | tr '\t' ' ')"
-      explain "${line#'> '}"
+      r="$(risk "${line#'> '}")"
+      label=added:
+      [ "${r%% *}" != ask ] || { label=RISKY:; : > "$work/ask"; }
+      printf '  %-10s %s\n' "$label" "$(printf '%s' "${line#'> '}" | tr '\t' ' ')"
+      [ "${r#* }" = "$r" ] || printf '             %s\n' "${r#* }"
       ;;
   esac
 done >&2
 
+if [ ! -f "$work/ask" ]; then
+  mv "$work/current" "$approved"
+  say "none of these is risky, so I've recorded them in $approved."
+  exit 0
+fi
 if "$yes"; then
   answer=y
 else
-  printf 'bulkhead: did you expect these changes (approve them)? [y/N] ' >&2
+  printf 'bulkhead: did you expect the RISKY changes (approve them all)? [y/N] ' >&2
   answer=""
   read -r answer 2> /dev/null < /dev/tty || echo >&2
 fi

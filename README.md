@@ -327,8 +327,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   session; shows you any change to the settings a workspace's git
   repositories give git (config, includes, hooks, and where each
   repository lives) since you approved them, says what each can do
-  (from `git-config-risks`), and asks you to approve it. Unapproved, a
-  session won't start. `git-config-entries.awk` turns git's config
+  (from `git-config-risks`), and asks you to approve a risky one.
+  Unapproved, a session won't start. `git-config-entries.awk` turns git's config
   listing into its lines. See `compartments.md`, "Git runs commands
   from local files".
 - `workspace-forbidden`: the data `bulkhead-workspace` reads:

@@ -353,7 +353,7 @@ grep -q "${TAB}config${TAB}core\\.bare=" "$gapproved" && failed "git check: reco
 gcheck > /dev/null || failed "git check: no change"
 git -C "$g" config filter.x.smudge "$(printf 'evil\nlocal\tfake')"
 out="$(gcheck)" && failed "git check: accepted a new filter"
-printf '%s\n' "$out" | grep -qF 'added:     . config filter.x.smudge=evil\nlocal\tfake' ||
+printf '%s\n' "$out" | grep -qF 'RISKY:     . config filter.x.smudge=evil\nlocal\tfake' ||
   failed "git check: showed the escaped filter: $out"
 printf '%s\n' "$out" | grep -q 'a filter driver: runs a command' || failed "git check: explained the filter"
 gcheck --after > /dev/null && failed "git check --after: accepted a new filter"
@@ -365,7 +365,7 @@ git -C "$g" -c user.name=t -c user.email=t@example.org commit -q --allow-empty -
 git -C "$g" remote add other https://example.org/other.git
 gcheck > /dev/null || failed "git check: reported an unused remote"
 git -C "$g" config "branch.$(git -C "$g" branch --show-current).pushremote" other
-gcheck | grep -qF 'added:     . push-to https://example.org/other.git' ||
+gcheck | grep -qF 'RISKY:     . push-to https://example.org/other.git' ||
   failed "git check: missed a branch pushing to a new remote"
 gcheck --yes > /dev/null
 # A nested repository, a planted hook, and a change in an included file.
@@ -373,20 +373,28 @@ git init -q "$g/sub/inner"
 printf '#!/bin/sh\n' > "$g/.git/hooks/pre-commit"
 out="$(gcheck)" && failed "git check: accepted a new repository and hook"
 printf '%s\n' "$out" | grep -qF 'added:     sub/inner repo sub/inner' || failed "git check: saw the new repository"
-printf '%s\n' "$out" | grep -qF 'added:     . hook pre-commit ' || failed "git check: saw the new hook"
+printf '%s\n' "$out" | grep -qF 'RISKY:     . hook pre-commit ' || failed "git check: saw the new hook"
 git -C "$g" config include.path inc
 printf '[x]\n\ty = 1\n' > "$g/.git/inc"
 gcheck --yes > /dev/null
 printf '[x]\n\ty = 2\n' > "$g/.git/inc"
-gcheck | grep -qF 'added:     . config x.y=2' || failed "git check: saw a change in an included file"
-gcheck --yes > /dev/null
+# x.y isn't risky, so it's shown and recorded without asking.
+out="$(gcheck)" || failed "git check: asked about a harmless change: $out"
+printf '%s\n' "$out" | grep -qF 'added:     . config x.y=2' || failed "git check: saw a change in an included file"
+gcheck > /dev/null || failed "git check: recorded a harmless change"
 # A planted commondir, and a .git file git can't use.
 git init -q --bare "$fh/projects/evil.git"
 echo ../../evil.git > "$g/.git/commondir"
-gcheck | grep -qF "added:     . common-dir $fhp/projects/evil.git" || failed "git check: saw a planted commondir"
+# It's only a note (we list the settings it points to), so it's recorded
+# without asking; undoing it brings back the hook, which asks again.
+out="$(gcheck)" || failed "git check: asked about a planted commondir: $out"
+printf '%s\n' "$out" | grep -qF "added:     . common-dir $fhp/projects/evil.git" || failed "git check: saw a planted commondir"
 rm "$g/.git/commondir"
+out="$(gcheck)" && failed "git check: didn't ask about the returning hook"
+printf '%s\n' "$out" | grep -qF 'RISKY:     . hook pre-commit ' || failed "git check: showed the returning hook: $out"
+gcheck --yes > /dev/null
 echo 'gitdir: /nonexistent' > "$g/sub/.git"
-gcheck | grep -qF 'added:     sub error ' || failed "git check: saw an unusable .git"
+gcheck | grep -qF 'RISKY:     sub error ' || failed "git check: saw an unusable .git"
 rm "$g/sub/.git"
 # compart check: passes here, and fails without git's safety settings.
 ccheck() { (cd "$g" && wsenv PATH="$wst/bin:$PATH" setsid -w "$@" "$SCRIPT_DIR/compart" check 2>&1); }

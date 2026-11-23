@@ -223,8 +223,8 @@ if [ "$harness" = claude ]; then
   fi
 fi
 # An agent can plant git settings that run commands when you next run
-# git here, so we show you any change since you last approved them
-# (see bulkhead-git-check), before the session and again after it.
+# git here, so we show you any change since you last approved them, and
+# ask about risky ones (see bulkhead-git-check), before the session and again after it.
 "$(dirname "$0")/bulkhead-git-check" || exit 1
 if "$check"; then
   ok=true
