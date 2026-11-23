@@ -295,7 +295,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   `~/sensitive/NAME`, with its dossier beside it (`NAME.dossier`), or
   else the directory itself, with its dossier in
   `~/.local/state/bulkhead/dossiers`, after you confirm on the terminal
-  (or give `prepare --yes`). It refuses `~` and anything above it, and
+  (or give `prepare --yes`); `compart dossier` prints it. It refuses `~` and anything above it, and
   anything matching `workspace-forbidden`. The dossier holds what's
   about the workspace but mustn't be under its agent's control
   (`logs/`, `policy/`, `git/`), mustn't arrive with its contents (`state/`, the

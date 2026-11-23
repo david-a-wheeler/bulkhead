@@ -15,7 +15,7 @@ A workspace is `~/projects/NAME` or `~/sensitive/NAME`, with its
 dossier beside it (`NAME.dossier`), and every directory inside it
 shares its compartment. Elsewhere, a workspace is just the directory
 you start in, with its dossier in `~/.local/state/bulkhead/dossiers`
-(see "Where dossiers live").
+(see "Where dossiers live"). Either way, `compart dossier` prints it.
 
 An agent in a compartment **can**:
 
@@ -278,6 +278,9 @@ purpose.
 
 ### Where dossiers live
 
+To find a workspace's dossier, run `compart dossier` in it. The rule
+it follows:
+
 - **Under `~/projects` and `~/sensitive`**, `NAME`'s dossier is the
   sibling `NAME.dossier`.
 - **Elsewhere**, `DIR`'s dossier is
@@ -323,6 +326,13 @@ the whole problem impossible instead, with no registry. The cost:
 outside `~/projects` and `~/sensitive`, you can't see the dossier
 beside the workspace, a subdirectory is a separate workspace, and the
 dossier doesn't follow the workspace when you move it (see below).
+
+We don't move the dossiers under `~/projects` and `~/sensitive` to the
+central directory too, though one rule would be simpler. Beside the
+workspace, moving it is just two side-by-side `mv`s, `ls` shows the
+dossier, and whatever you do to protect `~/sensitive` (e.g., keeping
+it out of backups) covers its dossiers too. The central directory only
+solves a problem these can't have.
 
 ### Moving a workspace
 
@@ -600,7 +610,7 @@ over the paths `compartment-paths` lists, each as one of these kinds:
 
 bwrap also mounts `netns-resolv.conf` (see above) and sets
 `BULKHEAD_COMPARTMENT` to the compartment's key (`projects-NAME`,
-`sensitive-NAME`, or `dir%PATH`). The state lives in the dossier, beside
+`sensitive-NAME`, or `dir%PATH`). The state lives in the dossier, outside
 the workspace rather than in it, so it can't arrive with a workspace's
 contents, and nono doesn't grant the agent the dossier directly.
 
