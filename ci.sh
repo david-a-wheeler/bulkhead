@@ -368,12 +368,17 @@ git -C "$g" config "branch.$(git -C "$g" branch --show-current).pushremote" othe
 gcheck | grep -qF 'RISKY:     . push-to https://example.org/other.git' ||
   failed "git check: missed a branch pushing to a new remote"
 gcheck --yes > /dev/null
-# A nested repository, a planted hook, and a change in an included file.
+# A nested repository and a planted hook are shown, but don't ask
+# (git-hook-passthrough gates hooks); a mirroring remote asks.
 git init -q "$g/sub/inner"
 printf '#!/bin/sh\n' > "$g/.git/hooks/pre-commit"
-out="$(gcheck)" && failed "git check: accepted a new repository and hook"
+out="$(gcheck)" || failed "git check: asked about a new repository and hook: $out"
 printf '%s\n' "$out" | grep -qF 'added:     sub/inner repo sub/inner' || failed "git check: saw the new repository"
-printf '%s\n' "$out" | grep -qF 'RISKY:     . hook pre-commit ' || failed "git check: saw the new hook"
+printf '%s\n' "$out" | grep -qF 'added:     . hook pre-commit ' || failed "git check: saw the new hook"
+git -C "$g" config remote.other.mirror true
+out="$(gcheck)" && failed "git check: accepted a mirroring remote"
+printf '%s\n' "$out" | grep -qF 'RISKY:     . config remote.other.mirror=true' || failed "git check: showed a mirroring remote"
+git -C "$g" config --unset remote.other.mirror
 git -C "$g" config include.path inc
 printf '[x]\n\ty = 1\n' > "$g/.git/inc"
 gcheck --yes > /dev/null
@@ -386,12 +391,13 @@ gcheck > /dev/null || failed "git check: recorded a harmless change"
 git init -q --bare "$fh/projects/evil.git"
 echo ../../evil.git > "$g/.git/commondir"
 # It's only a note (we list the settings it points to), so it's recorded
-# without asking; undoing it brings back the hook, which asks again.
+# without asking; undoing it brings back where a push goes, which asks.
 out="$(gcheck)" || failed "git check: asked about a planted commondir: $out"
 printf '%s\n' "$out" | grep -qF "added:     . common-dir $fhp/projects/evil.git" || failed "git check: saw a planted commondir"
 rm "$g/.git/commondir"
-out="$(gcheck)" && failed "git check: didn't ask about the returning hook"
-printf '%s\n' "$out" | grep -qF 'RISKY:     . hook pre-commit ' || failed "git check: showed the returning hook: $out"
+out="$(gcheck)" && failed "git check: didn't ask about the returning push destination"
+printf '%s\n' "$out" | grep -qF 'RISKY:     . push-to https://example.org/other.git' ||
+  failed "git check: showed the returning push destination: $out"
 gcheck --yes > /dev/null
 echo 'gitdir: /nonexistent' > "$g/sub/.git"
 gcheck | grep -qF 'RISKY:     sub error ' || failed "git check: saw an unusable .git"

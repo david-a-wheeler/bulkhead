@@ -150,11 +150,12 @@ is cheap insurance against surprise commands, not a boundary:
   removed, and says what each added line can do (from `git-config-risks`,
   e.g., "a filter driver: runs a command when..."). If an added line is
   risky (marked "ask" there: it can run a program without your
-  spelling it out, or change where a plain `git push` goes), it marks it RISKY and asks you to
-  approve; otherwise it just records the change. If you don't approve,
-  `compart` won't start a session, and after one it warns you not to
-  run git there. So a change can't go
-  unnoticed for long. The first run for a workspace records what's
+  spelling it out, or change where a plain `git push` goes), it marks
+  it RISKY and asks you to approve; otherwise it just records the
+  change. `git-check-rationale.md` says why each kind is in or out. If
+  you don't approve, `compart` won't start a session, and after one it
+  warns you not to run git there. So a risky change can't go unnoticed
+  for long. The first run for a workspace records what's
   there without asking. So you aren't buried in harmless changes,
   it skips the boilerplate `git init` and `git clone` write (e.g.,
   `core.filemode`), and instead of the keys that pick where a push goes

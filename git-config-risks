@@ -10,12 +10,13 @@
 # change where a plain git push goes (or let someone read it on the
 # way); else it's "note", shown but recorded without asking. Something
 # you have to spell out (e.g., "git push NAME") you'll notice anyway.
+# git-check-rationale.md says why each kind is in or out.
 repo:* note a repository you hadn't seen: its risky settings, if any, are marked below.
 error:* ask git couldn't read this, so the check can't see what's there; look at it by hand.
 git-dir:* note where git keeps this repository: a change can mean a planted .git file pointing elsewhere (its settings are listed here).
 common-dir:* note where git reads this repository's config and hooks: a planted .git/commondir redirects them (they're listed here).
 push-to:* ask where a plain git push sends a branch: check you meant to push there.
-hook:* ask a hook: git-hook-passthrough runs it only once you approve its hash, but check it anyway.
+hook:* note a hook: git-hook-passthrough runs it only once you approve its hash, so that's where you judge it.
 config:filter.* ask a filter driver: runs a command when git checks out or adds a file that .gitattributes assigns to it.
 config:diff.external ask runs a command on every git diff.
 config:diff.*.command ask a diff driver: runs a command when git diffs a file that .gitattributes assigns to it.
@@ -24,6 +25,8 @@ config:merge.*.driver ask a merge driver: runs a command when git merges a file 
 config:remote.*.uploadpack ask runs a command on fetch from a local or ssh remote.
 config:remote.*.receivepack ask runs a command on push to a local or ssh remote.
 config:remote.*.vcs ask runs the remote helper git-remote-VCS.
+config:remote.*.push ask picks what a plain push sends and which of the remote's branches it lands on.
+config:remote.*.mirror ask makes a plain push mirror every ref, deleting the remote's other branches.
 config:remote.*.proxy ask a proxy for this remote: it sees your push, and with certificate checks off can read it.
 config:http.*proxy* ask an HTTP proxy: it sees your push, and with certificate checks off can read it.
 config:http.*ssl* ask HTTPS certificate settings: turning off or changing checks lets someone read or redirect your push.
