@@ -193,7 +193,7 @@ install_unless_locally_newer "$SCRIPT_DIR/nono-claude-profile.json" \
 install_unless_locally_newer "$SCRIPT_DIR/nono-sh-profile.json" \
   "$HOME/.config/nono/profiles/bulkhead-sh.json"
 # bulkhead-broad (nono-broad-profile.json) allows GET and HEAD to the
-# whole web; anon-access adds it to every "nono run" outside ~/sensitive.
+# whole web; compart adds it to every launch outside ~/sensitive.
 install_unless_locally_newer "$SCRIPT_DIR/nono-broad-profile.json" \
   "$HOME/.config/nono/profiles/bulkhead-broad.json"
 
