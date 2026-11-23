@@ -93,19 +93,16 @@ re-run `./host-setup.sh` once the VM's actually reachable.
 
 `host-setup.sh` creates the engine's API key in
 `~/.config/bulkhead/infer-api-key` on the Mac (see `local-ai-plan.md`).
-A VM can use the engine only if it has a copy of that file; `vm-setup.sh`
-sets up pi, `compart pi`, and `infer-logs` only on a VM that has one.
+A VM can use the engine only if it has a copy of that file (and a
+tunnel; see `infer-access.sh`). `vm-setup.sh` installs pi, `compart pi`,
+and `infer-logs` on every VM, and creates the VM's `~/.config/bulkhead`.
+`host-setup.sh` then copies the key into that directory on each running
+VM, except those in `config.sh`'s `INFER_NO_KEY_VMS`, and restarts the
+VM's `infer-logs`.
 
-**To give a VM the key**, run this on the Mac, from this repo, after
-changing `mytux` to the VM's name:
-
-```
-vm=mytux
-ssh "$vm" mkdir -p .config/bulkhead
-scp ~/.config/bulkhead/infer-api-key "$vm":.config/bulkhead/
-```
-
-Then run `./vm-setup.sh` on that VM.
+**To give a VM the key**, run `./vm-setup.sh` on it, then
+`./host-setup.sh` on the Mac (in either order, but the VM must be
+running when `host-setup.sh` runs).
 
 **To rotate the key**, e.g., because it may have leaked (in a paste, a
 log, or a command line) or to cut off a VM, run this on the Mac, from
@@ -116,12 +113,13 @@ rm -f ~/.config/bulkhead/infer-api-key
 ./host-setup.sh
 ```
 
-`host-setup.sh` creates a new key and restarts the engine with it, so
-every VM's old key stops working. Then give the new key to each VM that
-should keep using the engine, as above (including its `./vm-setup.sh`,
-which restarts `infer-logs` with the new key). Restart any running
-`compart pi`, since it reads the key when it starts. On a VM you're cutting
-off, delete its old copy: `rm ~/.config/bulkhead/infer-api-key`.
+`host-setup.sh` creates a new key, restarts the engine with it (so
+every VM's old key stops working), and copies the new key to each
+running VM as above. A VM that's stopped then gets it the next time you
+run `./host-setup.sh` while it's running. Restart any running
+`compart pi`, since it reads the key when it starts. To cut a VM off,
+first add it to `INFER_NO_KEY_VMS` (in `config.local.sh`), then rotate,
+and delete its old copy: `rm ~/.config/bulkhead/infer-api-key`.
 
 ## Network egress is restricted
 

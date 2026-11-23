@@ -134,13 +134,15 @@ case "$harness" in
     # answer in INFER_MODELS, with the key in INFER_API_KEY, for tools pi
     # runs that need them.
     #
-    # vm-setup.sh installs pi where "npm install -g" would, and only on a
-    # VM with the engine's API key.
+    # vm-setup.sh installs pi where "npm install -g" would, and the Mac's
+    # host-setup.sh copies the key here.
     pi_dir=/usr/local/lib/node_modules/@earendil-works/pi-coding-agent
     key_file="$HOME/.config/bulkhead/infer-api-key"
     agent_dir="$HOME/.pi/agent"
-    [ -x /usr/local/bin/pi ] && [ -s "$key_file" ] ||
-      die "pi isn't set up on this VM (see vm-setup.sh's local AI section)."
+    [ -x /usr/local/bin/pi ] ||
+      die "pi isn't installed on this VM; run ./vm-setup.sh."
+    [ -s "$key_file" ] ||
+      die "there's no $key_file; run ./host-setup.sh on the Mac to copy it here."
     default=""
     if models="$(/usr/local/bin/infer-models)"; then
       mkdir -p "$agent_dir"

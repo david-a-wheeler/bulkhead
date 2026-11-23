@@ -497,14 +497,55 @@ runs_as_infer "$SWAP_BIN" -version
 runs_as_infer "$LLAMA_SERVER" --version
 runs_as_infer "$SD_SERVER" --version
 
-# The API key: clients send it as "Authorization: Bearer KEY". Copy it
-# to each VM that should use the engine (see vm-setup.sh).
+# The API key: clients send it as "Authorization: Bearer KEY".
 if [ ! -s "$INFER_KEY_FILE" ]; then
   mkdir -p "$(dirname "$INFER_KEY_FILE")"
   (umask 077 && printf 'sk-%s\n' "$(head -c 32 /dev/urandom | base64 | tr -d '/+=')" > "$INFER_KEY_FILE")
 fi
 chmod 600 "$INFER_KEY_FILE"
 infer_key="$(cat "$INFER_KEY_FILE")"
+
+# Copy the key to each running VM with a ~/.config/bulkhead (one
+# vm-setup.sh has set up), except those in INFER_NO_KEY_VMS, so a new
+# key (after a rotation) reaches them too. infer-access.sh's tunnels,
+# not the key, decide which VMs reach the engine. No nono profile grants
+# that directory, so agents in a VM can't read the key there. A VM's
+# copy changes only if it differs, by rename, and then its infer-logs
+# restarts with it. BatchMode: an unreachable VM only warns, and never
+# asks for a password. ssh reads the key, not the guest list, on stdin.
+echo "== Giving guests the local AI engine's API key =="
+# The script each VM runs, with the key on its stdin.
+# shellcheck disable=SC2016
+key_script='d="$HOME/.config/bulkhead"; f="$d/infer-api-key"
+[ -d "$d" ] || exit 3
+t="$(mktemp "$f.XXXXXX")" || exit 1
+cat > "$t" || { rm -f "$t"; exit 1; }
+if cmp -s "$t" "$f"; then rm -f "$t"; echo unchanged; exit 0; fi
+mv "$t" "$f" || exit 1
+echo updated
+if systemctl --user -q is-enabled infer-logs@proxy.service 2>/dev/null; then
+  systemctl --user restart infer-logs@proxy.service infer-logs@upstream.service || true
+fi'
+if guests_output="$(enumerate_guests)"; then
+  printf '%s\n' "$guests_output" | while IFS=' ' read -r vm_name vm_ip; do
+    [ -n "$vm_name" ] || continue
+    case " $INFER_NO_KEY_VMS " in
+      *" $vm_name "*)
+        echo "$vm_name: skipped (INFER_NO_KEY_VMS)"
+        continue
+        ;;
+    esac
+    if key_result="$(ssh -o BatchMode=yes "$vm_name" "$key_script" < "$INFER_KEY_FILE")"; then
+      echo "$vm_name: key $key_result"
+    elif [ $? -eq 3 ]; then
+      echo "$vm_name: skipped (no ~/.config/bulkhead; run vm-setup.sh there, then rerun this)"
+    else
+      echo "WARNING: couldn't give $vm_name ($vm_ip) the engine's API key." >&2
+    fi
+  done
+else
+  echo "WARNING: couldn't enumerate guests; no VM got the engine's API key." >&2
+fi
 
 # _infer's per-user cache directory, for the Metal shader cache. The
 # sandbox sees real paths, and /var is a symlink to /private/var.

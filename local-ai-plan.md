@@ -1183,7 +1183,9 @@ own list. I think that's fine for one checkout per host.
     `nopi` and `infer-logs` in `/usr/local/bin`,
     `infer-logs@.service` in `/etc/systemd/user`, and removes the
     trial's copies in my home directory. A VM without the key skips
-    all of it.
+    all of it. (Since 2026-11-22, every VM gets all of it, and
+    `host-setup.sh` copies the key to each running VM; see README.md's
+    "The local AI engine's API key".)
 
 ### Clients learn the models from the engine (2026-10-22)
 

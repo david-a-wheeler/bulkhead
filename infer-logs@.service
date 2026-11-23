@@ -1,5 +1,7 @@
 [Unit]
 Description=Copy the Mac's local AI engine logs (llama-swap %i) into this VM's journal
+# Not until host-setup.sh copies the key here (it then restarts this).
+ConditionFileNotEmpty=%h/.config/bulkhead/infer-api-key
 
 [Service]
 ExecStart=/usr/local/bin/infer-logs %i

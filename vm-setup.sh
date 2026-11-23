@@ -450,128 +450,130 @@ echo "== Managing ~/.bash_aliases block (editor, BULKHEAD_AUTH_SESSION) =="
 # Plain file, not rendered: no @@VAR@@ substitution left in it.
 install_managed_block "$SCRIPT_DIR/vm-bash-aliases-block.sh" "$HOME/.bash_aliases"
 
-echo "== Local AI: pi, compart pi, and infer-logs (if this VM has the engine's API key) =="
+echo "== Local AI: pi, compart pi, and infer-logs =="
 # See local-ai-plan.md. Only a VM with the engine's API key can use the
-# Mac's engine, so a VM without one skips all of this. To set one up,
-# run "mkdir -p ~/.config/bulkhead" here, then on the Mac:
-#   scp ~/.config/bulkhead/infer-api-key VMNAME:.config/bulkhead/
-# and rerun this.
+# Mac's engine. host-setup.sh copies the key into ~/.config/bulkhead on
+# each running VM that has that directory, so we create it here (no
+# nono profile grants it). We install everything else either way, so
+# the order of the two runs doesn't matter; compart pi and infer-logs
+# wait for the key.
+key_dir="$(dirname "$INFER_KEY_FILE")"
+[ -d "$key_dir" ] || { mkdir -p "$(dirname "$key_dir")" && mkdir -m 700 "$key_dir"; }
+[ ! -f "$INFER_KEY_FILE" ] || chmod 600 "$INFER_KEY_FILE"
 pi_package=@earendil-works/pi-coding-agent
-if [ -s "$INFER_KEY_FILE" ]; then
-  chmod 600 "$INFER_KEY_FILE"
-  # pi needs Node.js (Claude Code, above, doesn't).
-  sudo apt-get install -y nodejs npm
-  npm_cache="$TMPDIR/npm-cache"
+# pi needs Node.js (Claude Code, above, doesn't).
+sudo apt-get install -y nodejs npm
+npm_cache="$TMPDIR/npm-cache"
 
-  # Which pi (see config.sh): the newest release that's at least
-  # INFER_COOLING_DAYS old, but not older than PI_MIN; or PI_PIN. npm's
-  # --before limits pi and its dependencies to versions published by
-  # then. For the floor or a pin, that's an hour after it was published,
-  # since pi's sibling packages (e.g., pi-tui) come out moments after it.
-  pi_before="$(cooling_cutoff)"
-  pi_spec="$pi_package@latest"
-  pi_floor="${PI_PIN:-$PI_MIN}"
-  if [ -n "$pi_floor" ]; then
-    pi_floor_time="$(npm view "$pi_package" time --json --cache "$npm_cache" |
-      jq -r --arg v "$pi_floor" '.[$v] // empty')"
-    [ -n "$pi_floor_time" ] || die "there's no pi release $pi_floor (config.sh's PI_PIN or PI_MIN)."
-    pi_floor_before="$(date -u -d "@$(($(date -u -d "$pi_floor_time" +%s) + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
-    if [ -n "$PI_PIN" ]; then
-      echo "WARNING: pi is pinned to $PI_PIN. Clear the pin in config.sh when you can." >&2
-      pi_spec="$pi_package@$PI_PIN"
-      pi_before="$pi_floor_before"
-    else
-      # The later of the two (same format, so they sort as text).
-      pi_before="$(printf '%s\n' "$pi_before" "$pi_floor_before" | sort | tail -n 1)"
-    fi
-  fi
-
-  # Installed as you into a scratch prefix, then copied root-owned where
-  # "npm install -g" would put it (/usr/local/lib/node_modules, linked
-  # from /usr/local/bin/pi), so npm never runs as root and a sandboxed
-  # agent can't change pi. It's copied only if anything differs,
-  # including its dependencies. --ignore-scripts: pi needs no install
-  # scripts, and this keeps its dependencies from running any.
-  pi_dir="/usr/local/lib/node_modules/$pi_package"
-  rm -rf "${TMPDIR:?}/pi"
-  npm install -g --prefix "$TMPDIR/pi" --ignore-scripts --no-audit --no-fund \
-    --cache "$npm_cache" --before "$pi_before" "$pi_spec"
-  if ! diff -rq --no-dereference "$TMPDIR/pi/lib/node_modules/$pi_package" "$pi_dir" >/dev/null 2>&1; then
-    sudo mkdir -p "$(dirname "$pi_dir")"
-    sudo rm -rf "$pi_dir"
-    sudo cp -R "$TMPDIR/pi/lib/node_modules/$pi_package" "$pi_dir"
-    sudo chown -R root:root "$pi_dir"
-    sudo chmod -R go-w "$pi_dir"
-    # A relative link (../lib/node_modules/...), so it works from here too.
-    sudo cp -P "$TMPDIR/pi/bin/pi" /usr/local/bin/pi
-  fi
-  rm -rf "${TMPDIR:?}/pi"
-  echo "pi $(jq -r .version "$pi_dir/package.json")"
-
-  # infer-models (what the engine serves now, for any client, checked by
-  # infer-models.jq), and compart pi,
-  # which runs it each time pi starts and writes pi's models.json with
-  # pi-models.jq. So changing the models on the Mac needs nothing done
-  # here. An old models.json stays until compart pi first reaches the engine.
-  install_rendered infer-models.template.sh /usr/local/bin/infer-models 755 INFER_PORT
-  # pi reads global instructions from ~/.pi/agent/AGENTS.md, so point
-  # that at the shared ones, unless you've put your own file there.
-  pi_agents="$HOME/.pi/agent/AGENTS.md"
-  if [ ! -e "$pi_agents" ] && [ ! -L "$pi_agents" ]; then
-    mkdir -p "$(dirname "$pi_agents")"
-    ln -s "$HOME/.agents/AGENTS.md" "$pi_agents"
-  elif [ "$(readlink "$pi_agents" 2> /dev/null)" != "$HOME/.agents/AGENTS.md" ]; then
-    echo "WARNING: $pi_agents isn't a link to ~/.agents/AGENTS.md, so pi doesn't get the shared instructions." >&2
-  fi
-  sudo install -d -m 755 /usr/local/libexec/bulkhead
-  sudo install -m 644 "$SCRIPT_DIR/infer-models.jq" "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
-  # pi's thinking defaults, unless you've set your own (pi saves the
-  # level you pick): think at "high", with 32768 tokens for it instead of
-  # pi's 16384. Qwen evaluated Qwen3.8-27B's coding with up to 32768
-  # tokens per turn. pi treats "xhigh" as "high", so this budget is
-  # pi's most. Other settings in the file are kept.
-  pi_settings="$HOME/.pi/agent/settings.json"
-  mkdir -p "$(dirname "$pi_settings")"
-  [ -s "$pi_settings" ] || printf '%s' '{}' > "$pi_settings"
-  # Our pi extensions: pi-prose-style.js makes pi check what it writes
-  # with check-prose-style, as Claude Code's hook does, and
-  # pi-next-steps.js has pi act on NEXT-STEPS.md once it's done. They're
-  # root-owned, like the checker, so a sandboxed agent can't edit them.
-  sudo install -m 644 "$SCRIPT_DIR/pi-prose-style.js" \
-    "$SCRIPT_DIR/pi-next-steps.js" /usr/local/libexec/bulkhead/
-  jq '.defaultThinkingLevel //= "high" | .thinkingBudgets.high //= 32768
-      | reduce ($ARGS.positional[] | "/usr/local/libexec/bulkhead/" + .) as $ext
-          (.; .extensions |= (. // [] | if any(. == $ext) then . else . + [$ext] end))' \
-    "$pi_settings" --args pi-prose-style.js pi-next-steps.js \
-    > "$TMPDIR/pi-settings.json.rendered"
-  cmp -s "$TMPDIR/pi-settings.json.rendered" "$pi_settings" ||
-    cp "$TMPDIR/pi-settings.json.rendered" "$pi_settings"
-  rm -f "$TMPDIR/pi-settings.json.rendered"
-  # my-gen-image makes and edits images with the engine's image models,
-  # from any client with a shell. agents/ holds what clients look for in
-  # ~/.agents, e.g., its skill (agents/skills/my-gen-image), where Agent
-  # Skills clients (e.g., pi) find it. Other files there are kept.
-  sudo install -m 755 "$SCRIPT_DIR/my-gen-image" /usr/local/bin/
-  mkdir -p "$HOME/.agents"
-  cp -R "$SCRIPT_DIR/agents/." "$HOME/.agents/"
-  if /usr/local/bin/infer-models > /dev/null; then
-    echo "The engine answers; compart pi asks it for its models each time pi starts."
+# Which pi (see config.sh): the newest release that's at least
+# INFER_COOLING_DAYS old, but not older than PI_MIN; or PI_PIN. npm's
+# --before limits pi and its dependencies to versions published by
+# then. For the floor or a pin, that's an hour after it was published,
+# since pi's sibling packages (e.g., pi-tui) come out moments after it.
+pi_before="$(cooling_cutoff)"
+pi_spec="$pi_package@latest"
+pi_floor="${PI_PIN:-$PI_MIN}"
+if [ -n "$pi_floor" ]; then
+  pi_floor_time="$(npm view "$pi_package" time --json --cache "$npm_cache" |
+    jq -r --arg v "$pi_floor" '.[$v] // empty')"
+  [ -n "$pi_floor_time" ] || die "there's no pi release $pi_floor (config.sh's PI_PIN or PI_MIN)."
+  pi_floor_before="$(date -u -d "@$(($(date -u -d "$pi_floor_time" +%s) + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
+  if [ -n "$PI_PIN" ]; then
+    echo "WARNING: pi is pinned to $PI_PIN. Clear the pin in config.sh when you can." >&2
+    pi_spec="$pi_package@$PI_PIN"
+    pi_before="$pi_floor_before"
   else
-    echo "WARNING: the local AI engine didn't answer through the tunnel; compart pi needs" >&2
-    echo "it (on the Mac, see ./infer-access.sh)." >&2
+    # The later of the two (same format, so they sort as text).
+    pi_before="$(printf '%s\n' "$pi_before" "$pi_floor_before" | sort | tail -n 1)"
   fi
-  install_rendered infer-logs.template.sh /usr/local/bin/infer-logs 755 INFER_PORT
-  # A systemd user unit, but root-owned in /etc/systemd/user.
-  sudo mkdir -p /etc/systemd/user
-  sudo install -m 644 "$SCRIPT_DIR/infer-logs@.service" /etc/systemd/user/
-  systemctl --user daemon-reload
-  systemctl --user enable infer-logs@proxy.service infer-logs@upstream.service
-  # Restart, not just start, to pick up a new infer-logs.
-  systemctl --user restart infer-logs@proxy.service infer-logs@upstream.service
-  echo "Once the Mac gives this VM access (./infer-access.sh shared), try: compart pi --print 'Say hello in five words.'"
-  echo "Engine logs: journalctl --user -u 'infer-logs@*'"
-else
-  echo "Skipping: no $INFER_KEY_FILE (see the comment in vm-setup.sh to add one)."
 fi
+
+# Installed as you into a scratch prefix, then copied root-owned where
+# "npm install -g" would put it (/usr/local/lib/node_modules, linked
+# from /usr/local/bin/pi), so npm never runs as root and a sandboxed
+# agent can't change pi. It's copied only if anything differs,
+# including its dependencies. --ignore-scripts: pi needs no install
+# scripts, and this keeps its dependencies from running any.
+pi_dir="/usr/local/lib/node_modules/$pi_package"
+rm -rf "${TMPDIR:?}/pi"
+npm install -g --prefix "$TMPDIR/pi" --ignore-scripts --no-audit --no-fund \
+  --cache "$npm_cache" --before "$pi_before" "$pi_spec"
+if ! diff -rq --no-dereference "$TMPDIR/pi/lib/node_modules/$pi_package" "$pi_dir" >/dev/null 2>&1; then
+  sudo mkdir -p "$(dirname "$pi_dir")"
+  sudo rm -rf "$pi_dir"
+  sudo cp -R "$TMPDIR/pi/lib/node_modules/$pi_package" "$pi_dir"
+  sudo chown -R root:root "$pi_dir"
+  sudo chmod -R go-w "$pi_dir"
+  # A relative link (../lib/node_modules/...), so it works from here too.
+  sudo cp -P "$TMPDIR/pi/bin/pi" /usr/local/bin/pi
+fi
+rm -rf "${TMPDIR:?}/pi"
+echo "pi $(jq -r .version "$pi_dir/package.json")"
+
+# infer-models (what the engine serves now, for any client, checked by
+# infer-models.jq), and compart pi,
+# which runs it each time pi starts and writes pi's models.json with
+# pi-models.jq. So changing the models on the Mac needs nothing done
+# here. An old models.json stays until compart pi first reaches the engine.
+install_rendered infer-models.template.sh /usr/local/bin/infer-models 755 INFER_PORT
+# pi reads global instructions from ~/.pi/agent/AGENTS.md, so point
+# that at the shared ones, unless you've put your own file there.
+pi_agents="$HOME/.pi/agent/AGENTS.md"
+if [ ! -e "$pi_agents" ] && [ ! -L "$pi_agents" ]; then
+  mkdir -p "$(dirname "$pi_agents")"
+  ln -s "$HOME/.agents/AGENTS.md" "$pi_agents"
+elif [ "$(readlink "$pi_agents" 2> /dev/null)" != "$HOME/.agents/AGENTS.md" ]; then
+  echo "WARNING: $pi_agents isn't a link to ~/.agents/AGENTS.md, so pi doesn't get the shared instructions." >&2
+fi
+sudo install -d -m 755 /usr/local/libexec/bulkhead
+sudo install -m 644 "$SCRIPT_DIR/infer-models.jq" "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
+# pi's thinking defaults, unless you've set your own (pi saves the
+# level you pick): think at "high", with 32768 tokens for it instead of
+# pi's 16384. Qwen evaluated Qwen3.8-27B's coding with up to 32768
+# tokens per turn. pi treats "xhigh" as "high", so this budget is
+# pi's most. Other settings in the file are kept.
+pi_settings="$HOME/.pi/agent/settings.json"
+mkdir -p "$(dirname "$pi_settings")"
+[ -s "$pi_settings" ] || printf '%s' '{}' > "$pi_settings"
+# Our pi extensions: pi-prose-style.js makes pi check what it writes
+# with check-prose-style, as Claude Code's hook does, and
+# pi-next-steps.js has pi act on NEXT-STEPS.md once it's done. They're
+# root-owned, like the checker, so a sandboxed agent can't edit them.
+sudo install -m 644 "$SCRIPT_DIR/pi-prose-style.js" \
+  "$SCRIPT_DIR/pi-next-steps.js" /usr/local/libexec/bulkhead/
+jq '.defaultThinkingLevel //= "high" | .thinkingBudgets.high //= 32768
+    | reduce ($ARGS.positional[] | "/usr/local/libexec/bulkhead/" + .) as $ext
+        (.; .extensions |= (. // [] | if any(. == $ext) then . else . + [$ext] end))' \
+  "$pi_settings" --args pi-prose-style.js pi-next-steps.js \
+  > "$TMPDIR/pi-settings.json.rendered"
+cmp -s "$TMPDIR/pi-settings.json.rendered" "$pi_settings" ||
+  cp "$TMPDIR/pi-settings.json.rendered" "$pi_settings"
+rm -f "$TMPDIR/pi-settings.json.rendered"
+# my-gen-image makes and edits images with the engine's image models,
+# from any client with a shell. agents/ holds what clients look for in
+# ~/.agents, e.g., its skill (agents/skills/my-gen-image), where Agent
+# Skills clients (e.g., pi) find it. Other files there are kept.
+sudo install -m 755 "$SCRIPT_DIR/my-gen-image" /usr/local/bin/
+mkdir -p "$HOME/.agents"
+cp -R "$SCRIPT_DIR/agents/." "$HOME/.agents/"
+if [ ! -s "$INFER_KEY_FILE" ]; then
+  echo "WARNING: no $INFER_KEY_FILE yet, so compart pi and infer-logs can't use the" >&2
+  echo "local AI engine; run ./host-setup.sh on the Mac to copy it here." >&2
+elif /usr/local/bin/infer-models > /dev/null; then
+  echo "The engine answers; compart pi asks it for its models each time pi starts."
+else
+  echo "WARNING: the local AI engine didn't answer through the tunnel; compart pi needs" >&2
+  echo "it (on the Mac, see ./infer-access.sh)." >&2
+fi
+install_rendered infer-logs.template.sh /usr/local/bin/infer-logs 755 INFER_PORT
+# A systemd user unit, but root-owned in /etc/systemd/user.
+sudo mkdir -p /etc/systemd/user
+sudo install -m 644 "$SCRIPT_DIR/infer-logs@.service" /etc/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable infer-logs@proxy.service infer-logs@upstream.service
+# Restart, not just start, to pick up a new infer-logs.
+systemctl --user restart infer-logs@proxy.service infer-logs@upstream.service
+echo "Once the Mac gives this VM access (./infer-access.sh shared), try: compart pi --print 'Say hello in five words.'"
+echo "Engine logs: journalctl --user -u 'infer-logs@*'"
 
 echo "== vm-setup.sh done =="
