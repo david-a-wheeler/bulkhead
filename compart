@@ -295,4 +295,7 @@ status=0
 anon-access "$@" || status=$?
 trap - INT QUIT
 "$(dirname "$0")/bulkhead-git-check" --after || :
+# Another session may still be running here, so remind you how to check
+# again later.
+echo "compart: run 'compart check' here any time (e.g., before you run git) to check for risky changes." >&2
 exit "$status"
