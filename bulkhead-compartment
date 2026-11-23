@@ -6,11 +6,11 @@
 #
 # The compartment is the current directory's workspace (see
 # bulkhead-workspace, which refuses directories no agent may start in).
-# Its state lives in the workspace's dossier (DOSSIER/state), beside the
-# workspace, not in it, so it can't arrive with the workspace's
-# contents (see compartments.md); "bulkhead-workspace prepare" (run by
-# anon-access) creates it. We use bubblewrap (bwrap),
-# unprivileged, to mount over the paths that compartment-paths lists:
+# Its state lives in the workspace's dossier (DOSSIER/state), outside
+# the workspace, so it can't arrive with the workspace's contents (see
+# compartments.md); "bulkhead-workspace prepare" (run by anon-access)
+# creates it. We use bubblewrap (bwrap), unprivileged, to mount over
+# the paths that compartment-paths lists:
 # e.g., a private /tmp and a private ~/.claude. Everything else is the
 # real filesystem, still limited by nono.
 #

@@ -322,7 +322,7 @@ cp "$d1/policy/local-ports" "$wst/local-ports"
 cp "$d1/policy/expose-ports" "$wst/expose-ports"
 printf '8089\n\n# a dev server\n3000' >> "$d1/policy/local-ports"
 echo 4000 >> "$d1/policy/expose-ports"
-[ "$(cargs "$fh/projects/p1")" = "--expose-port|4000|$nono_head|--extends|bulkhead-broad|$inout|--open-port|4000|--open-port|3000|--open-port|8089|--|claude|" ] ||
+[ "$(cargs "$fh/projects/p1")" = "--expose-port|4000|$nono_head|--extends|bulkhead-broad|$inout|--open-port|8089|--open-port|3000|--open-port|4000|--|claude|" ] ||
   failed "compart: ports: $(cargs "$fh/projects/p1")"
 cp "$wst/expose-ports" "$d1/policy/expose-ports"
 for bad in 80x 0 010 65536 3000-3002 ' 8089' '8089 # web'; do

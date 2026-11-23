@@ -1,40 +1,40 @@
 #!/bin/sh
 # compart: run an AI harness in this workspace's compartment (see
 # compartments.md) under nono, e.g., "compart claude" or
-# "compart pi --print 'Say hello'". Each harness below adds only what it
-# alone needs: its nono profile, any setup before it starts, and any
-# extra nono options. So adding a harness (e.g., goose) means adding one
-# case here. Then, for every harness, we add the workspace's nono
-# options (from its dossier; see bulkhead-workspace), and run it all
-# through anon-access, which strips secrets and starts the compartment.
+# "compart pi --print 'Say hello'". Each harness's case below adds only
+# what it alone needs: its nono profile, any setup, and any extra nono
+# options. So adding a harness (e.g., goose) means adding one case.
+# Then, for every harness, we check the workspace, add its nono options
+# (from its dossier; see bulkhead-workspace), and run it all through
+# anon-access, which strips secrets and starts the compartment. When
+# the session ends, we check the workspace again.
 #
 # "compart sh [COMMAND [ARGUMENTS...]]" runs COMMAND (or, with none,
-# your $SHELL) in the workspace's compartment, under the same shared
-# policy as any harness, e.g., to see what an agent sees, or to run a
-# tool you don't trust.
+# your $SHELL) in the compartment, under the same shared policy as any
+# harness, e.g., to see what an agent sees, or to run a tool you don't
+# trust.
 #
-# "compart dossier" prints the workspace's dossier (see
-# bulkhead-workspace), e.g., for cd "$(compart dossier)". It works it out
-# from the workspace's path, not from anything an agent can write.
+# "compart dossier" prints the workspace's dossier, e.g., for
+# cd "$(compart dossier)". It works it out from the workspace's path,
+# not from anything an agent can write.
 #
-# "compart check" isn't a harness: it checks the workspace the way a
-# launch would (its dossier, port lists, and git settings), plus a few
+# "compart check" checks the workspace as a launch would, plus a few
 # things about the VM, and starts nothing. Run it before you run git in
-# a workspace after a session you didn't watch. compart runs the same
-# checks when a session ends.
+# a workspace after a session you didn't watch.
 #
 # The sandbox policy every harness shares (files and network) is nono's
 # "default" profile, nono-default-profile.json here, which vm-setup.sh
-# installs and every nono pack extends. Outside ~/sensitive, anon-access
-# also adds bulkhead-broad (GET and HEAD to the whole web). For one more
-# host for one run, set NONO_ALLOW_DOMAIN (one host), e.g.,
-# NONO_ALLOW_DOMAIN=docs.example.org compart claude; in broad mode that
-# only matters under ~/sensitive, since bulkhead-broad's GET-only rules
+# installs and every nono pack extends. Outside ~/sensitive, we also add
+# bulkhead-broad (GET and HEAD to the whole web). To allow one more host
+# for one run, set NONO_ALLOW_DOMAIN, e.g.,
+# NONO_ALLOW_DOMAIN=docs.example.org compart claude; that matters only
+# under ~/sensitive, since elsewhere bulkhead-broad's GET-only rules
 # still apply to it. vm-setup.sh installs this.
 
 set -eu
 
 LIB_DIR=/usr/local/libexec/bulkhead
+bin="$(dirname "$0")"
 
 usage() {
   echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; compart dossier; or compart check"
@@ -58,13 +58,125 @@ refuse_real_login() {
   esac
 }
 
+# pi_update_models: ask the engine what it serves now (infer-models), and
+# rewrite pi's list of models (~/.pi/agent/models.json, by pi-models.jq)
+# if that changed, keeping the old one as models.json.bak. So a change
+# on the Mac (see manage-models.sh there) reaches pi the next time you
+# start it. Sets $models to infer-models' answer and $default to the
+# model the Mac's list marks "default: true"; if the engine doesn't
+# answer, both are "" and pi uses the list it had.
+pi_update_models() {
+  agent_dir="$HOME/.pi/agent"
+  default=""
+  if ! models="$(/usr/local/bin/infer-models)"; then
+    models=""
+    echo "compart pi: WARNING: using pi's last list of models; INFER_MODELS is empty." >&2
+    return 0
+  fi
+  mkdir -p "$agent_dir"
+  new="$(mktemp "$agent_dir/models.json.XXXXXX")"
+  printf '%s' "$models" | jq -f "$LIB_DIR/pi-models.jq" > "$new" ||
+    { rm -f "$new"; exit 1; }
+  if cmp -s "$new" "$agent_dir/models.json"; then
+    rm -f "$new"
+  else
+    [ ! -f "$agent_dir/models.json" ] || cp "$agent_dir/models.json" "$agent_dir/models.json.bak"
+    mv "$new" "$agent_dir/models.json"
+  fi
+  default="$(printf '%s' "$models" | jq -r '.default // empty')"
+  [ -n "$default" ] ||
+    echo "compart pi: WARNING: the engine has no default model (see ./manage-models.sh default on the Mac)." >&2
+}
+
+# pi_engine_port: the engine's port on 127.0.0.1, where the VM's SSH
+# tunnel to the Mac ends.
+pi_engine_port() {
+  url="$(/usr/local/bin/infer-models --url)"
+  port="${url#http://127.0.0.1:}"
+  printf '%s\n' "${port%%/*}"
+}
+
+# Each line of a policy file is a port number, except blank lines and
+# those starting with "#". A bad line is an error.
+ports() {
+  [ -f "$1" ] || return 0
+  while IFS= read -r p || [ -n "$p" ]; do
+    case "$p" in
+      '' | '#'*) continue ;;
+      *[!0-9]* | 0*) die "$1: not a port number: $p" ;;
+    esac
+    [ "$p" -le 65535 ] || die "$1: not a port number (1-65535): $p"
+    echo "$p"
+  done < "$1"
+}
+
+# launch_checks AFTER: prepare the workspace's dossier, read its port
+# lists, and check its git settings, setting $dossier, $local_ports, and
+# $expose_ports. Returns 1 (having said why) if any of that fails, but
+# still runs every check it can. An agent can plant git settings that
+# run commands when you next run git here, so bulkhead-git-check shows
+# you any change since you approved them and asks about risky ones.
+# AFTER is true once a session has ended: then a risky change you don't
+# approve gets a warning not to run git, rather than "not starting".
+launch_checks() {
+  lc_ok=true
+  dossier="$("$bin/bulkhead-workspace" prepare)" || return 1
+  local_ports="$(ports "$dossier/policy/local-ports")" || lc_ok=false
+  expose_ports="$(ports "$dossier/policy/expose-ports")" || lc_ok=false
+  if "$1"; then
+    "$bin/bulkhead-git-check" --after || lc_ok=false
+  else
+    "$bin/bulkhead-git-check" || lc_ok=false
+  fi
+  "$lc_ok"
+}
+
+# check_workspace AFTER: what "compart check" checks (launch_checks, plus
+# the VM's own setup), warning you about anything wrong; returns 1 if
+# anything is. It also runs when a session ends, so add new checks here.
+check_workspace() {
+  cw_ok=true
+  launch_checks "$1" || cw_ok=false
+  # vm-setup.sh's git pins (see make-git-safety-env) reach you only
+  # after a new login.
+  if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/50-bulkhead-git-safety.conf" ]; then
+    echo "compart check: WARNING: git's safety settings aren't installed; run vm-setup.sh." >&2
+    cw_ok=false
+  elif [ -z "${GIT_CONFIG_COUNT:-}" ]; then
+    echo "compart check: WARNING: git's safety settings aren't in your environment; log in again." >&2
+    cw_ok=false
+  fi
+  cw_orphans="$("$bin/bulkhead-workspace" orphans)"
+  if [ -n "$cw_orphans" ]; then
+    printf 'compart check: WARNING: these dossiers'"'"' workspaces are gone (see compartments.md, "Moving a workspace"):\n%s\n' "$cw_orphans" >&2
+    cw_ok=false
+  fi
+  "$cw_ok" || return 1
+  echo "compart check: $(pwd -P) looks as expected." >&2
+}
+
 [ $# -gt 0 ] || { usage >&2; exit 2; }
 harness="$1"
 shift
-# VM ports to forward into the compartment (see bulkhead-compartment).
+# Each harness's case sets $profile (its nono profile) and leaves "$@"
+# as its own nono options, then "--", then the command to run. It may
+# set $forward, VM ports to forward into the compartment (see
+# bulkhead-compartment).
 forward=""
-check=false
 case "$harness" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  check)
+    [ $# -eq 0 ] || { usage >&2; exit 2; }
+    check_workspace false || exit 1
+    exit 0
+    ;;
+  dossier)
+    [ $# -eq 0 ] || { usage >&2; exit 2; }
+    exec "$bin/bulkhead-workspace" dossier
+    ;;
   sh)
     # bulkhead-sh (nono-sh-profile.json) is nono's own linux-host-compat
     # plus what the harness packs add for the tools agents run
@@ -79,41 +191,18 @@ case "$harness" in
     [ $# -gt 0 ] || set -- "${SHELL:-/bin/sh}"
     set -- -- "$@"
     ;;
-  check)
-    [ $# -eq 0 ] || { usage >&2; exit 2; }
-    check=true
-    ;;
-  dossier)
-    [ $# -eq 0 ] || { usage >&2; exit 2; }
-    exec "$(dirname "$0")/bulkhead-workspace" dossier
-    ;;
   claude)
     # bulkhead-claude (nono-claude-profile.json) extends nolabs-ai/claude,
-    # nono's own maintained profile for Claude Code, with only Claude
-    # Code's own hosts, and puts Claude's temp files back in anon-access's
-    # per-directory TMPDIR.
+    # nono's own profile for Claude Code, with Claude Code's own hosts.
     #
-    # Each compartment has its own ~/.claude, but they share one
-    # credentials directory, so one login works everywhere and a token
-    # refresh in one reaches the others. We point Claude there with
-    # CLAUDE_SECURESTORAGE_CONFIG_DIR, in nono's environment, not the
-    # profile's set_vars: unless nono itself has that variable, it sets
-    # it to "" for Claude (for macOS's Keychain; see nono's
-    # docs/cli/clients/claude.mdx), overriding set_vars, and then Claude
-    # keeps its login in ~/.claude, i.e., in each compartment. The
-    # directory must exist before nono starts, or nono drops the grant.
-    #
-    # The file there must hold only nono's phantom tokens: when you log
-    # in (/login) under nono, its oauth_capture (see
-    # nono-claude-profile.json) keeps the real tokens in its own state,
-    # which no sandbox can read, and gives Claude stand-ins that work
-    # only through nono's proxy, and only for Anthropic's API. So an
-    # agent can't take your login elsewhere. A real refresh token
-    # (anything but nono_...) means a login from before this, or from
-    # outside nono, which every agent could read; we refuse it. We also
-    # refuse one in the compartment's own ~/.claude (below, once we know
-    # the dossier), where Claude kept its login before we set
-    # CLAUDE_SECURESTORAGE_CONFIG_DIR here.
+    # Each compartment has its own ~/.claude, but they share one login,
+    # in $creds, which we name in nono's environment (not the profile's
+    # set_vars, which nono overrides for this variable). That file must
+    # hold only nono's phantom tokens, which work only through nono's
+    # proxy, so we refuse a real login there (and, below, in the
+    # compartment's own ~/.claude). compartments.md, "Claude's login",
+    # says why. The directory must exist before nono starts, or nono
+    # drops the grant.
     creds="$HOME/.local/state/bulkhead/claude-credentials"
     if [ ! -d "$creds" ]; then
       mkdir -p "$(dirname "$creds")"
@@ -128,71 +217,33 @@ case "$harness" in
   pi)
     # pi runs against the Mac's local AI models, which llama-swap serves
     # through this VM's SSH tunnel (see local-ai-plan.md), with no
-    # automatic network activity of its own (no model catalog refresh,
-    # version check, or telemetry). The API key comes from a file only
-    # you can read, and reaches pi only through its environment.
-    #
-    # Each time, we ask the engine what it serves now (infer-models), and
-    # write pi's list of models (~/.pi/agent/models.json, by
-    # pi-models.jq) if that changed, keeping the old one as
-    # models.json.bak. So a change on the Mac (see manage-models.sh
-    # there) reaches pi the next time you start it. The default is the
-    # one the Mac's list marks "default: true" (see ./manage-models.sh
-    # default there); a later --model overrides it. If the engine doesn't
-    # answer, pi uses the list it had. We also export infer-models'
-    # answer in INFER_MODELS, with the key in INFER_API_KEY, for tools pi
-    # runs that need them.
-    #
-    # vm-setup.sh installs pi where "npm install -g" would, and the Mac's
-    # host-setup.sh copies the key here.
+    # network activity of its own (no model catalog refresh, version
+    # check, or telemetry). The API key comes from a file only you can
+    # read (host-setup.sh on the Mac copies it here), and reaches pi only
+    # through its environment. We also export infer-models' answer in
+    # INFER_MODELS, for tools pi runs that need it. vm-setup.sh installs
+    # pi where "npm install -g" would.
     pi_dir=/usr/local/lib/node_modules/@earendil-works/pi-coding-agent
     key_file="$HOME/.config/bulkhead/infer-api-key"
-    agent_dir="$HOME/.pi/agent"
     [ -x /usr/local/bin/pi ] ||
       die "pi isn't installed on this VM; run ./vm-setup.sh."
     [ -s "$key_file" ] ||
       die "there's no $key_file; run ./host-setup.sh on the Mac to copy it here."
-    default=""
-    if models="$(/usr/local/bin/infer-models)"; then
-      mkdir -p "$agent_dir"
-      new="$(mktemp "$agent_dir/models.json.XXXXXX")"
-      printf '%s' "$models" | jq -f "$LIB_DIR/pi-models.jq" > "$new" ||
-        { rm -f "$new"; exit 1; }
-      if cmp -s "$new" "$agent_dir/models.json"; then
-        rm -f "$new"
-      else
-        [ ! -f "$agent_dir/models.json" ] || cp "$agent_dir/models.json" "$agent_dir/models.json.bak"
-        mv "$new" "$agent_dir/models.json"
-      fi
-      default="$(printf '%s' "$models" | jq -r '.default // empty')"
-      [ -n "$default" ] ||
-        echo "compart pi: WARNING: the engine has no default model (see ./manage-models.sh default on the Mac)." >&2
-    else
-      models=""
-      echo "compart pi: WARNING: using pi's last list of models; INFER_MODELS is empty." >&2
-    fi
+    pi_update_models
+    # A later --model (in "$@") overrides this.
     [ -z "$default" ] || set -- --model "$default" "$@"
-
     INFER_API_KEY="$(cat "$key_file")"
     INFER_MODELS="$models"
     PI_OFFLINE=1
     PI_SKIP_VERSION_CHECK=1
     PI_TELEMETRY=0
     export INFER_API_KEY INFER_MODELS PI_OFFLINE PI_SKIP_VERSION_CHECK PI_TELEMETRY
-
-    # The shared network allowlist has no model providers: pi only needs
-    # the engine's port on 127.0.0.1, where the tunnel ends.
-    url="$(/usr/local/bin/infer-models --url)"
-    port="${url#http://127.0.0.1:}"
-    port="${port%%/*}"
-    profile=nolabs-ai/pi
-    # The engine is a VM service, so it must reach the compartment too.
+    # The shared allowlist has no model providers; pi needs only the
+    # engine, a VM service, so we forward its port into the compartment.
+    port="$(pi_engine_port)"
     forward="$port"
+    profile=nolabs-ai/pi
     set -- --read "$pi_dir" --open-port "$port" -- /usr/local/bin/pi --provider mac-local "$@"
-    ;;
-  -h | --help)
-    usage
-    exit 0
     ;;
   *)
     echo "compart: unknown harness: $harness" >&2
@@ -201,66 +252,7 @@ case "$harness" in
     ;;
 esac
 
-# Each line of a policy file is a port number, except blank lines and
-# those starting with "#". A bad line stops the launch.
-ports() {
-  [ -f "$1" ] || return 0
-  while IFS= read -r p || [ -n "$p" ]; do
-    case "$p" in
-      '' | '#'*) continue ;;
-      *[!0-9]* | 0*) die "$1: not a port number: $p" ;;
-    esac
-    [ "$p" -le 65535 ] || die "$1: not a port number (1-65535): $p"
-    echo "$p"
-  done < "$1"
-}
-
-# check_workspace AFTER: everything "compart check" checks, warning you
-# about anything wrong; it returns 1 if anything is. AFTER is true when
-# a session has ended: then a risky git change you don't approve gets a
-# warning not to run git, rather than "not starting". Add any new check
-# here, so it runs both on demand and after every session.
-check_workspace() {
-  cw_ok=true
-  cw_dossier="$("$(dirname "$0")/bulkhead-workspace" prepare)" || return 1
-  # ports exits on a bad line, so we run it in a subshell.
-  (ports "$cw_dossier/policy/local-ports" && ports "$cw_dossier/policy/expose-ports") > /dev/null || cw_ok=false
-  # An agent can plant git settings that run commands when you next
-  # run git here (see bulkhead-git-check).
-  if "$1"; then
-    "$(dirname "$0")/bulkhead-git-check" --after || cw_ok=false
-  else
-    "$(dirname "$0")/bulkhead-git-check" || cw_ok=false
-  fi
-  # vm-setup.sh's git pins (see make-git-safety-env) reach you only
-  # after a new login.
-  if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/50-bulkhead-git-safety.conf" ]; then
-    echo "compart check: WARNING: git's safety settings aren't installed; run vm-setup.sh." >&2
-    cw_ok=false
-  elif [ -z "${GIT_CONFIG_COUNT:-}" ]; then
-    echo "compart check: WARNING: git's safety settings aren't in your environment; log in again." >&2
-    cw_ok=false
-  fi
-  cw_orphans="$("$(dirname "$0")/bulkhead-workspace" orphans)"
-  if [ -n "$cw_orphans" ]; then
-    printf 'compart check: WARNING: these dossiers'"'"' workspaces are gone (see compartments.md, "Moving a workspace"):\n%s\n' "$cw_orphans" >&2
-    cw_ok=false
-  fi
-  "$cw_ok" || return 1
-  echo "compart check: $(pwd -P) looks as expected." >&2
-}
-
-if "$check"; then
-  check_workspace false || exit 1
-  exit 0
-fi
-
-# We prepend each option, so the command line ends with the harness's
-# own options and command. Ports are only digits (ports checks), so
-# splitting $local_ports and $expose_ports is safe.
-dossier="$("$(dirname "$0")/bulkhead-workspace" prepare)" || exit 1
-local_ports="$(ports "$dossier/policy/local-ports")" || exit 1
-expose_ports="$(ports "$dossier/policy/expose-ports")" || exit 1
+launch_checks false || exit 1
 # Claude's ~/.claude, as the agent will see it: the compartment's private
 # copy (named as bulkhead-compartment names it), or, with
 # BULKHEAD_NO_COMPARTMENT, your own.
@@ -271,54 +263,54 @@ if [ "$harness" = claude ]; then
     refuse_real_login "$dossier/state/$(printf '%s' "${HOME#/}/.claude" | tr '/' '%')/.credentials.json"
   fi
 fi
-# An agent can plant git settings that run commands when you next run
-# git here, so we show you any change since you last approved them, and
-# ask about risky ones (see bulkhead-git-check), before the session and
-# again after it (in check_workspace).
-"$(dirname "$0")/bulkhead-git-check" || exit 1
+
+# The rest of the command line, besides the harness's own part:
+#   anon-access [--forward-port P]... [--expose-port P]...
+#     nono run --profile PROFILE --allow-cwd [--extends bulkhead-broad]
+#       [--log-file LOG] --read INBOX --write OUTBOX [--open-port P]...
+#       HARNESS-NONO-OPTIONS -- COMMAND...
+#
+# Ports are only digits (ports checks them), so we can split them.
+compartment_opts=""
+for p in $forward; do compartment_opts="$compartment_opts --forward-port $p"; done
+for p in $expose_ports; do compartment_opts="$compartment_opts --expose-port $p"; done
 # The workspace's local ports (and exposed ones, which its agents use
-# too) are on the compartment's own loopback, but nono still refuses
-# any port not opened.
-for p in $local_ports $expose_ports; do
-  set -- --open-port "$p" "$@"
-done
-# The inbox holds files you give the agent (it can't change them); the
-# outbox, files the agent gives you (it can't read them back).
-export BULKHEAD_INBOX="$dossier/inbox" BULKHEAD_OUTBOX="$dossier/outbox"
-set -- --read "$BULKHEAD_INBOX" --write "$BULKHEAD_OUTBOX" "$@"
-# nono logs to stderr by default, and its proxy's warnings (e.g., "WARN
-# tls_intercept ...") then land on top of a harness's full-screen
-# display. So we log to the dossier's logs, outside every sandbox grant,
-# so the agent can't change or erase its own log. We pass --log-file
-# rather than export NONO_LOG_FILE, so the sandboxed command doesn't
-# inherit a path it can't write. If you set NONO_LOG_FILE, nono uses
-# that instead. We keep one old log, rotated at launch once it passes
-# 1 MB.
+# too) are on the compartment's own loopback, but nono still refuses any
+# port not opened.
+open_opts=""
+for p in $local_ports $expose_ports; do open_opts="$open_opts --open-port $p"; done
+# Most work isn't sensitive, so we add bulkhead-broad (GET and HEAD to
+# the whole web; see agent-network-plan.md), except under ~/sensitive (by
+# real path), where only the narrow allowlist in nono's "default"
+# profile applies.
+broad=bulkhead-broad
+sensitive="$(cd "$HOME/sensitive" 2> /dev/null && pwd -P)" || sensitive=""
+case "$(pwd -P)/" in
+  "${sensitive:-/nonexistent}"/*) broad="" ;;
+esac
+# nono logs to stderr by default, where its proxy's warnings land on top
+# of a harness's full-screen display. So we log to the dossier, where no
+# agent can change or erase it, keeping one old log once it passes 1 MB.
+# --log-file, not NONO_LOG_FILE, so the sandboxed command doesn't
+# inherit a path it can't write. If you set NONO_LOG_FILE, nono uses it.
+log=""
 if [ -z "${NONO_LOG_FILE:-}" ]; then
   log="$dossier/logs/nono.log"
   if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt 1000000 ]; then
     mv -f "$log" "$log.1"
   fi
-  set -- --log-file "$log" "$@"
 fi
-# Most work isn't sensitive, so by default we add the bulkhead-broad
-# profile (GET and HEAD to the whole web; see agent-network-plan.md).
-# Under ~/sensitive (by real path) we don't, so only the narrow
-# allowlist in nono's "default" profile applies.
-sensitive="$(cd "$HOME/sensitive" 2> /dev/null && pwd -P)" || sensitive=""
-case "$(pwd -P)/" in
-  "${sensitive:-/nonexistent}"/*) ;;
-  *) set -- --extends bulkhead-broad "$@" ;;
-esac
-set -- nono run --profile "$profile" --allow-cwd "$@"
-for p in $expose_ports; do
-  set -- --expose-port "$p" "$@"
-done
-for p in $forward; do
-  set -- --forward-port "$p" "$@"
-done
-# We don't exec, so we can check the workspace when the session ends.
-# A trap (unlike ignoring a signal) doesn't pass on to the harness, so
+# The inbox holds files you give the agent (it can't change them); the
+# outbox, files the agent gives you (it can't read them back).
+export BULKHEAD_INBOX="$dossier/inbox" BULKHEAD_OUTBOX="$dossier/outbox"
+# shellcheck disable=SC2086 # $compartment_opts and $open_opts split on purpose.
+set -- $compartment_opts \
+  nono run --profile "$profile" --allow-cwd ${broad:+--extends "$broad"} \
+  ${log:+--log-file "$log"} --read "$BULKHEAD_INBOX" --write "$BULKHEAD_OUTBOX" \
+  $open_opts "$@"
+
+# We don't exec, so we can check the workspace when the session ends. A
+# trap (unlike ignoring a signal) doesn't pass on to the harness, so
 # Ctrl-C still reaches it, but doesn't stop us.
 trap : INT QUIT
 status=0
