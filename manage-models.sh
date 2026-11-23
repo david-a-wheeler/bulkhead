@@ -46,7 +46,9 @@
 # too, so the model reads images, and the entry says so, so pi sends
 # them; --no-mmproj skips it, and --mmproj URL names another one. Both
 # files then go in --dir, which defaults to NAME, since many models'
-# projectors have the same name.
+# projectors have the same name. For a GGUF split into parts
+# (NAME-00001-of-00004.gguf, and so on), give the first part's URL: it
+# adds every part, also in --dir.
 #
 # add NAME --sd-args ARGS instead adds a specialist (an sd-server model,
 # which makes images): ARGS are the sd-server arguments you'd use (e.g.,
@@ -238,6 +240,30 @@ prepare_models_dir() {
 # without any query (e.g., "?download=true"), maybe in a subdirectory.
 model_file() {
   printf '%s\n' "${2:+$2/}$(basename "${1%%\?*}")"
+}
+
+# split_parts URL: if URL names the first part of a GGUF split into
+# parts (NAME-00001-of-00004.gguf, and so on), prints each part's URL,
+# in order; else prints URL. llama-server is given the first part, and
+# loads the rest from beside it.
+split_parts() {
+  sp_url="${1%%\?*}"
+  case "${sp_url##*/}" in
+    *-00001-of-[0-9][0-9][0-9][0-9][0-9].gguf) ;;
+    *-[0-9][0-9][0-9][0-9][0-9]-of-[0-9][0-9][0-9][0-9][0-9].gguf)
+      die "$1 is part of a split GGUF; give its first part's URL (-00001-of-...)."
+      ;;
+    *) printf '%s\n' "$1"; return ;;
+  esac
+  sp_total="${sp_url%.gguf}"
+  sp_total="${sp_total##*-of-}"
+  sp_stem="${sp_url%-00001-of-*}"
+  sp_n="$(printf '%s' "$sp_total" | sed 's/^0*//')"
+  sp_i=1
+  while [ "$sp_i" -le "${sp_n:-0}" ]; do
+    printf '%s-%05d-of-%s.gguf\n' "$sp_stem" "$sp_i" "$sp_total"
+    sp_i=$((sp_i + 1))
+  done
 }
 
 # Usage: fetch_model <url> <sha256> <license> <file>
@@ -726,7 +752,12 @@ if [ -n "$sd_args" ]; then
   [ -n "$urls" ] || die "--sd-args names no model file; write each one as its Hugging Face URL."
 else
   allow 2 --dir --ctx --max --desc --sha256 --license --default --mmproj --no-mmproj
-  urls="$pos2"
+  urls="$(split_parts "$pos2")" || exit 1
+  if [ "$urls" != "$pos2" ]; then
+    [ -z "$sha256" ] || die "--sha256 is for one file, and $pos2 is the first of several."
+    # Many files, so they get their own directory.
+    subdir="${subdir:-$serve}"
+  fi
   [ -z "$mmproj" ] || ! $no_mmproj || die "give --mmproj or --no-mmproj, not both."
   # A Hugging Face repository with a vision projector: use it, so the
   # model reads images too.
@@ -833,7 +864,8 @@ if [ -n "$sd_args" ]; then
   set +f
 else
   file="$(printf '%s' "$files" | awk 'NR == 1 { print $5 }')"
-  mmproj_file="$(printf '%s' "$files" | awk 'NR == 2 { print $5 }')"
+  mmproj_file=""
+  [ -z "$mmproj" ] || mmproj_file="$(printf '%s' "$files" | awk 'END { print $5 }')"
   [ -n "$ctx" ] || die "Hugging Face doesn't say $file's context length; give --ctx."
   whole_number "$ctx" --ctx
   case "$file" in *.gguf) ;; *) die "llama-server only serves GGUF files." ;; esac
@@ -844,7 +876,7 @@ else
   fi
   whole_number "$max" --max
   [ "$max" -le "$ctx" ] || die "--max ($max) is more than the context window ($ctx)."
-  desc="${desc:-$(basename "$file" .gguf)}"
+  desc="${desc:-$(basename "$file" .gguf | sed 's/-00001-of-[0-9]*$//')}"
 fi
 # shellcheck disable=SC2046 # the files are checked file names, one per line
 infer_model_ok "$serve" "$desc" $(printf '%s' "$files" | awk '{ print $5 }') ||

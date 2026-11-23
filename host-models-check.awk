@@ -34,6 +34,11 @@ function path_ok(p) {
 function gen_ok(p) {
   return name_ok(p) && p ~ /\.jinja$/
 }
+# use_file(P): the model's cmd uses P.
+function use_file(p) {
+  used[model SUBSEP p] = 1
+  cmd_files = cmd_files " " p
+}
 # Checks the model that just ended, if any.
 function end_model(   i, n, paths) {
   n = split(cmd_files, paths, " ")
@@ -68,6 +73,7 @@ function end_model(   i, n, paths) {
   model = backend = proxy = out = ttl = section = cmd_files = file_lines = gen_lines = ""
   cmds = proxies = is_default = 0
 }
+BEGIN { SPLIT = "-[0-9][0-9][0-9][0-9][0-9]-of-[0-9][0-9][0-9][0-9][0-9]\\.gguf$" }
 FNR == 1 { end_model(); started = 0 }
 /^    # generated:/ {
   if (model == "") {
@@ -149,9 +155,21 @@ model == "" { bad("must be inside a model"); next }
   rest = $0
   while (match(rest, /\$\{models-dir\}\/[^ "]+/)) {
     f = substr(rest, RSTART + 14, RLENGTH - 14)
-    used[model SUBSEP f] = 1
-    cmd_files = cmd_files " " f
+    use_file(f)
     rest = substr(rest, RSTART + RLENGTH)
+    # A GGUF split into parts (NAME-00001-of-00004.gguf, and so on):
+    # llama-server is given the first, and loads the rest from beside
+    # it, so the cmd uses them all.
+    if (match(f, SPLIT)) {
+      if (substr(f, RSTART + 1, 5) != "00001")
+        bad("a split GGUF's cmd must name its first part (-00001-of-...), not " f)
+      else {
+        stem = substr(f, 1, RSTART)
+        total = substr(f, RSTART + 10, 5)
+        for (k = 2; k <= total + 0; k++)
+          use_file(stem sprintf("%05d", k) "-of-" total ".gguf")
+      }
+    }
   }
 }
 /^    proxy:/ {

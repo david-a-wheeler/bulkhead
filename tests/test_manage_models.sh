@@ -41,6 +41,7 @@ printf 'GGUF sees more' > "$F/x.gguf"
 printf 'GGUF sees less' > "$F/y.gguf"
 printf 'GGUF F16 projector' > "$F/mmproj-F16.gguf"
 printf 'GGUF BF16 projector' > "$F/mmproj-BF16.gguf"
+for i in 1 2 3; do printf 'GGUF part %s' "$i" > "$F/p-0000$i-of-00003.gguf"; done
 sha() {
   sha256sum "$1" | cut -d ' ' -f 1
 }
@@ -223,6 +224,23 @@ grep -q '  x1/mmproj-F16\.gguf$' "$T/models/SHA256SUMS" ||
 mm "$T" check || { cat "$work/out" >&2; failed "check after adding x3"; }
 mm "$T" remove x3 || { cat "$work/out" >&2; failed "removing x3"; }
 
+# A GGUF split into parts: given the first part's URL, add lists and
+# downloads every part, in the model's own directory, and the cmd names
+# the first.
+mm "$T" add p1 --no-mmproj "$HF/o/p/resolve/main/UD/p-00001-of-00003.gguf?download=true" ||
+  { cat "$work/out" >&2; failed "adding a split GGUF"; }
+# shellcheck disable=SC2016 # a literal cmd line
+grep -qxF '    cmd: ${llama-server} --model ${models-dir}/p1/p-00001-of-00003.gguf --ctx-size 8192' "$L" ||
+  failed "the split GGUF's cmd"
+for i in 1 2 3; do
+  grep -qx "    # file: p1/p-0000$i-of-00003.gguf $(sha "$F/p-0000$i-of-00003.gguf") apache-2.0 $HF/o/p/resolve/main/UD/p-0000$i-of-00003.gguf" "$L" ||
+    failed "the split GGUF's file line for part $i"
+  [ -f "$T/models/p1/p-0000$i-of-00003.gguf" ] || failed "add didn't download part $i of the split GGUF"
+done
+grep -qx '    name: "p"' "$L" || failed "the split GGUF's default description"
+mm "$T" check || { cat "$work/out" >&2; failed "check after adding p1"; }
+mm "$T" remove p1 || { cat "$work/out" >&2; failed "removing p1"; }
+
 # Bad requests: each must fail and change nothing.
 snapshot() {
   (cd "$T" && cat models.local.yaml models/SHA256SUMS; find models -type f | sort)
@@ -243,6 +261,8 @@ for bad in \
   "add s2 --sd-args|--diffusion-model $HF/o/d/blob/main/corrupt.gguf" \
   "add g3 --ttl 60|$HF/o/g/blob/main/n.gguf" \
   "add g3|$HF/o/g/blob/main/n.gguf $HF/o/g/blob/main/t.gguf" \
+  "add p2|$HF/o/p/resolve/main/UD/p-00002-of-00003.gguf" \
+  "add p2 --sha256 $(sha "$F/p-00001-of-00003.gguf")|$HF/o/p/resolve/main/UD/p-00001-of-00003.gguf" \
   "remove|nosuch" \
   "remove|i1" \
   "default|s1" \

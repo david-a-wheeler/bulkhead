@@ -224,6 +224,16 @@ for bad in "$(printf '%s\n  n:\n    # file: m.gguf %064d mit https://example.com
   "$(printf '    # file: m.gguf %064d mit https://example.com/m.gguf\n%s' 0 "$(sed 1d "$tmp/m.yaml")")"; do
   printf 'models:\n%s\n' "$bad" | refuses_list "files that don't match"
 done
+# A GGUF split into parts: the cmd names the first, and uses them all,
+# so it must list every part; refuse a missing part, and a cmd that
+# names a later part.
+split_lines="$(for i in 1 2 3; do printf '    # file: d/p-0000%s-of-00003.gguf %064d mit https://example.com/p-0000%s-of-00003.gguf\n' "$i" 0 "$i"; done)"
+split_good="$(printf 'models:\n  p:\n%s\n    cmd: ${llama-server} --model ${models-dir}/d/p-00001-of-00003.gguf\n    proxy: ${proxy}' "$split_lines")"
+printf '%s\n' "$split_good" > "$tmp/split.yaml"
+infer_models_ok "$tmp/split.yaml" || failed "infer_models_ok rejected a split GGUF listing every part"
+printf '%s\n' "$split_good" | grep -v 'p-00002-of' | refuses_list "a split GGUF missing a part"
+printf '%s\n' "$split_good" | sed 's|models-dir}/d/p-00001-of|models-dir}/d/p-00002-of|' |
+  refuses_list "a split GGUF whose cmd names its second part"
 # The same file in two models, listed the same way, is fine.
 printf '%s\n  n:\n%s\n    cmd: ${llama-server} --model ${models-dir}/m.gguf\n    proxy: ${proxy}\n' \
   "$(cat "$tmp/m.yaml")" "$(grep '# file:' "$tmp/m.yaml")" > "$tmp/shared.yaml"

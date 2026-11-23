@@ -29,7 +29,9 @@
 # "# generated: PATH": manage-models.sh never downloads it, so it names
 # no SHA-256 or URL, and PATH is a .jinja file in MODELS_DIR or one
 # subdirectory. Either way, each model lists exactly the files its cmd
-# uses, one per line.
+# uses, one per line. For a GGUF split into parts (NAME-00001-of-00004.gguf,
+# and so on), the cmd names only the first part, but uses them all
+# (llama-server loads the rest from beside it), so list every part.
 #
 # Each model has a role, which follows from its cmd. A generalist (a
 # ${llama-server} model) can chat; one usually stays loaded, for up to a
