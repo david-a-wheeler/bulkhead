@@ -269,6 +269,11 @@ fi
 #     nono run --profile PROFILE --allow-cwd [--extends bulkhead-broad]
 #       [--log-file LOG] --read INBOX --write OUTBOX [--open-port P]...
 #       HARNESS-NONO-OPTIONS -- COMMAND...
+# anon-access strips secrets, then runs bulkhead-compartment with the
+# same arguments. That takes the port options and runs, nested:
+#   pasta: a private network namespace, passing only those ports;
+#   bwrap: private mounts (compartment-paths, e.g., /tmp and ~/.claude);
+#   nono run ...: the sandbox, which then runs COMMAND.
 #
 # Ports are only digits (ports checks them), so we can split them.
 compartment_opts=""
