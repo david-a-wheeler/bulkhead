@@ -164,20 +164,6 @@ UTMCTL="/Applications/UTM.app/Contents/MacOS/utmctl"
 # one legitimate destination and shouldn't be reachable anywhere else.
 NFTABLES_ALLOWED_TCP_PORTS="22 80 443"
 
-# Giving idle VM RAM back to the host (see bulkhead-reclaim-memory).
-# Every VM_RECLAIM_INTERVAL (a systemd time span), if the VM's 1-minute
-# load average is under VM_RECLAIM_MAX_LOAD, it evicts file cache beyond
-# VM_RECLAIM_KEEP_MB, but only cache that hasn't been reused lately. A
-# longer interval or bigger KEEP_MB keeps more of your files cached
-# (faster) but leaves the host less RAM.
-VM_RECLAIM_INTERVAL="15min"
-VM_RECLAIM_KEEP_MB="1024"
-VM_RECLAIM_MAX_LOAD="1"
-
-# The QEMU argument each UTM VM needs so its freed RAM goes back to the
-# host. host-setup.sh and vm-setup.sh warn about a VM without it.
-VM_BALLOON_QEMU_ARG="-device virtio-balloon-pci,free-page-reporting=on"
-
 # nono agent packs vm-setup.sh installs (see `nono search <name>` for
 # others). One of these, nolabs-ai/claude, is what compart claude runs under.
 # Filesystem access every pack should have beyond what its own profile

@@ -50,7 +50,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-copy-claude-history tests/compartment-test.sh bulkhead-reclaim-memory"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-copy-claude-history tests/compartment-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -116,12 +116,6 @@ INFER_GENERALIST_PORT=8999 INFER_SPECIALIST_PORT=8998 METAL_CACHE=/m MODELS_DIR=
 render_template infer.template.sb "$tmp/infer.sb" \
   INFER_PORT INFER_GENERALIST_PORT INFER_SPECIALIST_PORT METAL_CACHE MODELS_DIR
 ! grep -q '@@' "$tmp/infer.sb" || failed infer.sb
-render_template bulkhead-reclaim-memory.template.service "$tmp/reclaim.service" \
-  VM_RECLAIM_KEEP_MB VM_RECLAIM_MAX_LOAD
-render_template bulkhead-reclaim-memory.template.timer "$tmp/reclaim.timer" VM_RECLAIM_INTERVAL
-for f in reclaim.service reclaim.timer; do
-  ! grep -q '@@' "$tmp/$f" || failed "$f"
-done
 
 step "nono's shared profile (nono-default-profile.json)"
 # Every network entry is a host, or a host with endpoint rules that each
@@ -605,9 +599,6 @@ step "speechd-piper (tests/test_speechd_piper.sh)"
 # How it maps speech-dispatcher's rate and volume to Piper's, and that it
 # refuses bad voice names and numbers.
 { shellcheck -x tests/test_speechd_piper.sh && tests/test_speechd_piper.sh; } || fail=1
-
-step "bulkhead-reclaim-memory (tests/test_reclaim_memory.sh)"
-{ shellcheck -x tests/test_reclaim_memory.sh && tests/test_reclaim_memory.sh; } || fail=1
 
 step "manage-models.sh (tests/test_manage_models.sh)"
 # Starts a list, adds and removes a generalist and a

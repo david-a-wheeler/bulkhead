@@ -164,32 +164,6 @@ echo "== Hardening CUPS (unix socket only, no TCP listener) =="
 sudo sed -i '/^[[:space:]]*Listen localhost:631/s/^/#/' /etc/cups/cupsd.conf
 sudo systemctl restart cups
 
-echo "== Giving idle RAM back to the host =="
-# Linux fills spare RAM with file cache and keeps it, so without this an
-# idle VM still holds all its RAM, and the Mac swaps. See
-# bulkhead-reclaim-memory for how; the timer does nothing until the VM
-# has a balloon that reports free pages, so it's safe to install first.
-sudo install -m 755 "$SCRIPT_DIR/bulkhead-reclaim-memory" /usr/local/sbin/
-install_rendered bulkhead-reclaim-memory.template.service \
-  /etc/systemd/system/bulkhead-reclaim-memory.service 644 \
-  VM_RECLAIM_KEEP_MB VM_RECLAIM_MAX_LOAD
-install_rendered bulkhead-reclaim-memory.template.timer \
-  /etc/systemd/system/bulkhead-reclaim-memory.timer 644 VM_RECLAIM_INTERVAL
-sudo systemctl daemon-reload
-sudo systemctl enable --now bulkhead-reclaim-memory.timer
-if ! why="$(/usr/local/sbin/bulkhead-reclaim-memory --check)"; then
-  cat >&2 <<EOF
-WARNING: this VM can't give unused RAM back to the Mac: $why
-  Why it matters: the VM keeps every page it has ever used (mostly file
-  cache), so several VMs can push the Mac into swap, slowing everything.
-  To fix: shut down this VM, and in UTM open its Settings > QEMU >
-  Arguments, add a new argument with this exact text:
-    $VM_BALLOON_QEMU_ARG
-  then start the VM again. (If you've turned on UTM's own balloon
-  device setting, turn it off, so there's just one balloon.)
-EOF
-fi
-
 echo "== Installing/updating nono =="
 # A separate script, so you can also update nono without the rest of
 # this. If it fails, keep going with whatever nono is installed.

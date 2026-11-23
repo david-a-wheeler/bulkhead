@@ -495,15 +495,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   where an agent may not start, and how `anon-access`, pasta, bwrap,
   and nono build it.
 - `archive/`: plans that are done, kept for their reasoning and
-  lessons (e.g., `workspace-dossier-plan.md`).
+  lessons (e.g., `workspace-dossier-plan.md`, and
+  `vm-memory-reclaim.md` on why VMs can't give a Mac RAM back).
 - `nftables.template.conf`: VM egress firewall ruleset.
-- `bulkhead-reclaim-memory`, `bulkhead-reclaim-memory.template.service`,
-  and `bulkhead-reclaim-memory.template.timer`: every 15 minutes, when
-  the VM is idle, evict file cache beyond `VM_RECLAIM_KEEP_MB` that
-  hasn't been reused lately, so the Mac gets that RAM back instead of
-  swapping. It only works if the VM has a virtio balloon with free
-  page reporting (UTM QEMU argument `VM_BALLOON_QEMU_ARG`);
-  `host-setup.sh` and `vm-setup.sh` warn about any VM without one. Installed by `vm-setup.sh`.
 - `vm-bash-aliases-block.sh`: the managed block installed into each VM's
   `~/.bash_aliases`: editor and `BULKHEAD_AUTH_SESSION` (none inside a
   compartment or nono sandbox, where `compart sh` may read it). Not a

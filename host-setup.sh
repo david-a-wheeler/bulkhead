@@ -196,23 +196,6 @@ else
   echo "WARNING: couldn't enumerate guests (utmctl missing, or 'utmctl list' failed); skipping ~/.ssh/config setup. Check UTMCTL in config.sh." >&2
 fi
 
-echo "== Checking that guests can give idle RAM back =="
-# Each VM's bulkhead-reclaim-memory (from vm-setup.sh) frees cold cache,
-# but only a balloon with free page reporting returns it to this Mac.
-no_reporting="$(guests_without_memory_reporting | tr '\n' ' ')"
-if [ -n "$no_reporting" ]; then
-  cat >&2 <<EOF
-WARNING: these VMs can't give unused RAM back to this Mac: $no_reporting
-  Why it matters: each keeps every page it has ever used (mostly file
-  cache), so a few of them can push the Mac into swap, slowing everything.
-  To fix: shut down each VM, and in UTM open its Settings > QEMU >
-  Arguments, add a new argument with this exact text:
-    $VM_BALLOON_QEMU_ARG
-  then start it again. (If you've turned on UTM's own balloon device
-  setting, turn it off, so there's just one balloon.)
-EOF
-fi
-
 if ! confirmation_done battery; then
   cat <<EOF
 
