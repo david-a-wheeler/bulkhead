@@ -21,10 +21,14 @@ marker=",compartment-test-$$"
 . "$repo/tests/report.sh"
 report_begin compartment-test.sh
 cleanup() {
-  report_on_exit || :
-  rm -rf "$a" "$b" "$a.dossier" "$b.dossier"
-  rm -f "/tmp/$marker"
+  report_on_exit
+  report_clean "$a" "$b" "$a.dossier" "$b.dossier" "/tmp/$marker"
 }
+# A failed run keeps its files for you to examine; the names are fixed,
+# so a new run starts by removing them.
+for d in "$a" "$b" "$a.dossier" "$b.dossier"; do
+  [ ! -e "$d" ] || { echo "Removing $d, kept from an earlier run."; rm -rf "$d"; }
+done
 trap cleanup EXIT
 mkdir -p "$a" "$b"
 # A compartment sees no other workspace, and this repo is one, so each

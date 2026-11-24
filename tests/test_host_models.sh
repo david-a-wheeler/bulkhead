@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$TESTS/.." && pwd)"
 cd "$SCRIPT_DIR"
 mkdir -p .tmp
 tmp="$(mktemp -d "$SCRIPT_DIR/.tmp/test-host-models.XXXXXX")"
-trap 'report_on_exit; rm -rf "${tmp:?}"' EXIT
+trap 'report_on_exit; report_clean "${tmp:?}"' EXIT
 . ./config.sh
 . ./common.sh
 . ./host-models.sh

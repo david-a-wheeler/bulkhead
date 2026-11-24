@@ -14,12 +14,12 @@ cd "$SCRIPT_DIR"
 # scratch git configs the tests below make.
 unset GIT_CONFIG_COUNT
 
-tmp="$(mktemp -d)"
-trap 'report_on_exit; rm -rf "${tmp:?}"' EXIT
-
 # shellcheck source=tests/report.sh
 . "$SCRIPT_DIR/tests/report.sh"
 report_begin ci.sh
+tmp="$(mktemp -d)"
+# A failed run keeps its scratch files for you to examine.
+trap 'report_on_exit; report_clean "${tmp:?}"' EXIT
 fail=0
 failed() {
   echo "FAILED: $1" >&2
@@ -193,7 +193,7 @@ step "workspaces (bulkhead-workspace, bulkhead-compartment --dry-run, compart)"
 # be in /tmp, where workspace-forbidden refuses every workspace.
 mkdir -p "$SCRIPT_DIR/.tmp"
 wst="$(mktemp -d "$SCRIPT_DIR/.tmp/ci-workspaces.XXXXXX")"
-trap 'report_on_exit; rm -rf "${tmp:?}" "${wst:?}"' EXIT
+trap 'report_on_exit; report_clean "${tmp:?}" "${wst:?}"' EXIT
 fh="$wst/home"
 mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$fh/.claude" "$fh/.ssh"
 : > "$fh/.claude/CLAUDE.md"
@@ -708,17 +708,22 @@ if command -v nono > /dev/null && nono profile list 2> /dev/null > "$tmp/nono-pr
 fi
 
 step "tests/report.sh (how test scripts end)"
-# A failed or stopped test still runs the rest of its EXIT trap (e.g.,
-# removing its temporary files), and keeps its failing status.
+# A failed or stopped test keeps its scratch files for you to examine,
+# says where they are, and keeps its failing status; a pass removes
+# them.
 for how in "report_end 1 2" false; do
-  mkdir -p "$tmp/report-left"
+  mkdir -p "$tmp/report-kept"
   status=0
-  sh -c 'set -e; . ./tests/report.sh; report_begin demo; trap "report_on_exit; rm -rf \"$1\"" EXIT; '"$how" sh "$tmp/report-left" > /dev/null 2>&1 || status=$?
+  out="$(sh -c 'set -e; . ./tests/report.sh; report_begin demo; trap "report_on_exit; report_clean \"$1\"" EXIT; '"$how" sh "$tmp/report-kept" 2>&1)" || status=$?
   [ "$status" -eq 1 ] || failed "tests/report.sh: '$how' exited with $status, not 1"
-  [ ! -e "$tmp/report-left" ] || failed "tests/report.sh: '$how' kept the trap from cleaning up"
+  [ -e "$tmp/report-kept" ] || failed "tests/report.sh: '$how' removed its files"
+  case "$out" in *"Kept $tmp/report-kept for you to examine"*) ;; *) failed "tests/report.sh: '$how' didn't say what it kept: $out" ;; esac
+  rm -rf "$tmp/report-kept"
 done
-out="$(sh -c '. ./tests/report.sh; report_begin demo; report_end 0 3')"
+mkdir -p "$tmp/report-kept"
+out="$(sh -c 'set -e; . ./tests/report.sh; report_begin demo; trap "report_on_exit; report_clean \"$1\"" EXIT; report_end 0 3' sh "$tmp/report-kept")"
 [ "$out" = "PASSED: demo: all 3 checks passed." ] || failed "tests/report.sh: a pass said: $out"
+[ ! -e "$tmp/report-kept" ] || failed "tests/report.sh: a pass kept its files"
 
 step "compart (usage and unknown harnesses)"
 ./compart --help | grep -q '^Usage: compart HARNESS' || failed "compart --help"

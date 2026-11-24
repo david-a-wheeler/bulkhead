@@ -15,7 +15,7 @@ TESTS="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$TESTS/.." && pwd)"
 mkdir -p "$REPO/.tmp"
 work="$(mktemp -d "$REPO/.tmp/test-manage-models.XXXXXX")"
-trap 'report_on_exit; rm -rf "${work:?}"' EXIT
+trap 'report_on_exit; report_clean "${work:?}"' EXIT
 
 fail=0
 failed() {

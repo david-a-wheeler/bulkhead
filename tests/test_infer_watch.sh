@@ -13,7 +13,7 @@ TESTS="$(cd "$(dirname "$0")" && pwd)"
 SOURCE="$TESTS/../infer-watch.c"
 STUBS="$TESTS/macos-stubs"
 tmp="$(mktemp -d)"
-trap 'report_on_exit; rm -rf "$tmp"' EXIT
+trap 'report_on_exit; report_clean "$tmp"' EXIT
 
 FLAGS="-std=c11 -D_POSIX_C_SOURCE=200809L -O2 -D_FORTIFY_SOURCE=3
   -Werror -Wall -Wextra -Wpedantic -Wformat=2 -Wformat-overflow=2

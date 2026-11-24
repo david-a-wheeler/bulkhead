@@ -13,7 +13,7 @@ report_begin test_git_safety_env.sh
 
 top="$(pwd -P)"
 tmp="$(mktemp -d)"
-trap 'report_on_exit; rm -rf "${tmp:?}"' EXIT
+trap 'report_on_exit; report_clean "${tmp:?}"' EXIT
 fail=0
 failed() {
   echo "FAILED: $1" >&2
