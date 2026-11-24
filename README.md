@@ -72,7 +72,7 @@ test`). Each launch nests these:
    what the harness's sandbox profile grants and nothing else; its own
    copies of the harness's state, `/tmp`, `/dev`, and `/run`; and its
    own kernel keyring.
-4. **nono** sandboxes the agent: file rules (Landlock), a filtering
+4. **nono** sandboxes the agent: file rules (Land&#108;ock), a filtering
    proxy that allows only listed sites and, per site, only listed HTTP
    methods (GET and HEAD to the whole web, except under `~/sensitive`,
    where only a short allowlist applies), "phantom" credentials so the
