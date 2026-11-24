@@ -67,8 +67,9 @@ So:
 ## Other things worth knowing
 
 - goose reads `AGENTS.md` (and `.goosehints`) in the project and in
-  `~/.config/goose`, so `vm-setup.sh` links `~/.config/goose/AGENTS.md`
-  to the shared `~/.agents/AGENTS.md`, as it does for pi.
+  `~/.config/goose`, and the shared `~/.agents/AGENTS.md` too (since
+  goose PR #9736, 2026-06), so it needs no link to the shared
+  instructions, unlike pi.
 - At startup goose fetches a model catalog from `models.dev` (a GET,
   which tells that site you're running goose). It has a bundled copy,
   so it works without it, e.g., under `~/sensitive`.

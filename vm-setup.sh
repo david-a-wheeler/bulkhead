@@ -592,15 +592,12 @@ else
   echo "goose $goose_tag installed."
 fi
 rm -rf "${release_tmp:?}"
-# goose reads global instructions from ~/.config/goose/AGENTS.md, which
-# every compartment shares read-only (see compartment-paths), so point
-# that at the shared ones, unless you've put your own file there.
+# goose reads the shared instructions (~/.agents/AGENTS.md) itself, so
+# remove the link to them we used to make, which made goose read them
+# twice.
 goose_agents="$HOME/.config/goose/AGENTS.md"
-mkdir -p "$HOME/.config/goose"
-if [ ! -e "$goose_agents" ] && [ ! -L "$goose_agents" ]; then
-  ln -s "$HOME/.agents/AGENTS.md" "$goose_agents"
-elif [ "$(readlink "$goose_agents" 2> /dev/null)" != "$HOME/.agents/AGENTS.md" ]; then
-  echo "WARNING: $goose_agents isn't a link to ~/.agents/AGENTS.md, so goose doesn't get the shared instructions." >&2
+if [ "$(readlink "$goose_agents" 2> /dev/null)" = "$HOME/.agents/AGENTS.md" ]; then
+  rm "$goose_agents"
 fi
 echo "Once the Mac gives this VM access (./infer-access.sh shared), try: compart goose run --text 'Say hello in five words.'"
 
