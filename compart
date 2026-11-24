@@ -103,7 +103,7 @@ engine_note() {
     jq -r --arg m "$en_id" 'first(.running[] | select(.model == $m) | .state) // "none"' 2> /dev/null)" ||
     return 0
   [ "$en_state" = ready ] ||
-    echo "compart: the engine hasn't loaded $1 yet, so its first reply may take a minute or more." >&2
+    echo "compart: the local engine hasn't loaded $1 yet, so its first reply may take a minute or more." >&2
 }
 
 # pi_update_models: rewrite pi's list of models (~/.pi/agent/models.json,
