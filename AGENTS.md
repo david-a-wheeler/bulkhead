@@ -14,7 +14,9 @@ VM-side code portable where it's practical.
 
 Don't read the long docs up front; look things up as you need them:
 
-- `README.md`: its "Files" section says what each file does.
+- `README.md`: what this is and why (the two layers and threat model).
+- `INSTALL.md`: how to set up the Mac and its VMs.
+- `FILES.md`: what each file does.
 - `architecture.md`: why the security design is the way it is.
 - `local-ai-plan.md` (long): the inference engine's design notes and
   history. Read only the section you need.

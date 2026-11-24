@@ -604,7 +604,7 @@ and asking the directory service, i.e., the rules doing their job.
 Running it turned up a leak: `infer-logs` passed the key on curl's
 command line, which any process in the VM can read, including one under
 nono. Every script now sends it on curl's stdin (`-H @-`), as
-`infer-models` already did. `README.md` explains how to rotate the key
+`infer-models` already did. `INSTALL.md` explains how to rotate the key
 after a leak like this.
 
 The strict profile, if built:
@@ -1193,7 +1193,7 @@ own list. I think that's fine for one checkout per host.
     `infer-logs@.service` in `/etc/systemd/user`, and removes the
     trial's copies in my home directory. A VM without the key skips
     all of it. (Since 2026-11-22, every VM gets all of it, and
-    `host-setup.sh` copies the key to each running VM; see README.md's
+    `host-setup.sh` copies the key to each running VM; see INSTALL.md's
     "The local AI engine's API key".)
 
 ### Clients learn the models from the engine (2026-10-22)

@@ -117,4 +117,4 @@ Verification: from a human interactive shell, `git push`/`git fetch` should trig
 
 ## **4. Setup**
 
-Everything below "Overview" used to be a list of commands to copy-paste by hand into each VM and the host, which is exactly how it drifted out of sync with what was actually configured. That's now `config.sh` + `common.sh` + `host-backend.sh` + `host-setup.sh` + `host-secrets.sh` + `vm-setup.sh`, checked into this repo, idempotent, and safe to re-run after every `git pull`. See [README.md](README.md) for how to run them, and the scripts themselves (they're commented) for what each step does and why.
+Everything below "Overview" used to be a list of commands to copy-paste by hand into each VM and the host, which is exactly how it drifted out of sync with what was actually configured. That's now `config.sh` + `common.sh` + `host-backend.sh` + `host-setup.sh` + `host-secrets.sh` + `vm-setup.sh`, checked into this repo, idempotent, and safe to re-run after every `git pull`. See [INSTALL.md](INSTALL.md) for how to run them, and the scripts themselves (they're commented) for what each step does and why.

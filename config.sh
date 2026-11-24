@@ -84,7 +84,7 @@ INFER_KEY_FILE="$HOME/.config/bulkhead/infer-api-key"
 # (UTM names, space-separated) listed here. A VM without the key can't
 # use the engine even with a tunnel; infer-access.sh decides which VMs
 # get a tunnel. To cut a VM off for good, list it here and rotate the
-# key (see README.md).
+# key (see INSTALL.md).
 INFER_NO_KEY_VMS=""
 
 # The sleep watcher's launchd agent (see infer-watch.c), and when it
