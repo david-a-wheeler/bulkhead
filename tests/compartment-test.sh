@@ -23,6 +23,12 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$a" "$b"
+# A compartment sees no other workspace, and this repo is one, so each
+# gets its own copy of the helper bwrap runs inside.
+for d in "$a" "$b"; do
+  mkdir -p "$d/,lib"
+  cp "$repo/new-session-keyring" "$d/,lib/"
+done
 
 fails=0
 check() {
@@ -42,7 +48,7 @@ run_in() {
   shift 2
   (cd "$d" && export BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$repo/workspace-forbidden" \
-    BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" BULKHEAD_LIB_DIR="$repo" TMPDIR="$d/.tmp" &&
+    BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" BULKHEAD_LIB_DIR="$d/,lib" TMPDIR="$d/.tmp" &&
     mkdir -p "$TMPDIR" && "$repo/bulkhead-workspace" prepare > /dev/null 2>&1 &&
     "$repo/bulkhead-compartment" "$@" sh -c "$c")
 }
