@@ -8,8 +8,9 @@
 #
 # Usage: vm-speech-setup.sh [--say]
 #   --say   also speak a test sentence aloud (turn up the VM's volume)
-# Each run also checks, silently, that text with quotes, $(...), and
-# backticks can't run commands through the module's shell command.
+# It also checks, silently, that text with quotes, $(...), and
+# backticks can't run commands through the module's shell command,
+# whenever that could have changed since it last passed.
 #
 # It writes ~/.config/speech-dispatcher/modules/piper.conf and a
 # bulkhead block in ~/.config/speech-dispatcher/speechd.conf (copying
@@ -120,16 +121,34 @@ else
 fi
 
 # Silently (volume -100) speak text that would run a command if the
-# module's shell command didn't quote it right.
-marker=$TMPDIR/,spd-quoting-test
-rm -f "$marker"
-spd-say -w -o piper -i -100 \
-  "$(printf "It's a quoting test: \$(touch %s) and \`touch %s\`." "$marker" "$marker")"
-if [ -e "$marker" ]; then
-  rm -f "$marker"
-  die "text spoken through Piper can run commands; don't use it for text you don't trust."
+# module's shell command didn't quote it right. It waits until the
+# speech is done, which takes a while, so we skip it when nothing it
+# depends on (the module's settings, speechd-piper, and
+# speech-dispatcher's version) changed since it last passed. The
+# marker's path is short since it's spoken too.
+stamp_file=$HOME/.local/state/bulkhead/spd-quoting-test
+# Without dpkg-query, we can't tell when speech-dispatcher changed, so
+# we always run it.
+stamp=""
+if version="$(dpkg-query -W -f '${Version}' speech-dispatcher 2> /dev/null)"; then
+  stamp="$( { cat "$conf/modules/piper.conf" "$piper_home/bin/speechd-piper"
+    echo "$version"; } | sha256sum)"
 fi
-echo "Quoting test passed."
+if [ -n "$stamp" ] && [ "$(cat "$stamp_file" 2> /dev/null)" = "$stamp" ]; then
+  echo "Quoting test passed before, and nothing it depends on changed."
+else
+  marker=$HOME/,spdq
+  rm -f "$marker"
+  spd-say -w -o piper -i -100 "$(printf "It's \$(touch %s) \`touch %s\`" "$marker" "$marker")"
+  if [ -e "$marker" ]; then
+    rm -f "$marker"
+    rm -f "$stamp_file"
+    die "text spoken through Piper can run commands; don't use it for text you don't trust."
+  fi
+  mkdir -p "$(dirname "$stamp_file")"
+  printf '%s\n' "$stamp" > "$stamp_file"
+  echo "Quoting test passed."
+fi
 
 if $say; then
   spd-say -w "Hello. This is Piper, the default voice for speech dispatcher."
