@@ -56,7 +56,15 @@
     ],
     "unix_socket": [
       "$XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock"
+    ],
+    "unix_socket_subtree_bind": [
+      "$WORKDIR",
+      "$TMPDIR",
+      "/tmp"
     ]
+  },
+  "linux": {
+    "af_unix_mediation": "pathname"
   },
   "network": {
     "network_profile": "developer",

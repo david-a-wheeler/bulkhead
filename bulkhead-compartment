@@ -78,7 +78,9 @@ paths_file="${BULKHEAD_COMPARTMENT_PATHS:-/usr/local/libexec/bulkhead/compartmen
 here="$(pwd -P)"
 ws="$(dirname "$0")/bulkhead-workspace"
 key="$("$ws" key)"
-comp="$("$ws" dossier)/state"
+root="$("$ws" root)"
+dossier="$("$ws" dossier)"
+comp="$dossier/state"
 if ! "$dry_run" && [ ! -d "$comp" ]; then
   echo "bulkhead-compartment: no $comp; run \"bulkhead-workspace prepare\" first (anon-access does)." >&2
   exit 1
@@ -104,6 +106,18 @@ set -- "$@" --dev /dev
 # empty, and only ours.
 set -- "$@" --tmpfs /run
 [ -z "${XDG_RUNTIME_DIR:-}" ] || set -- "$@" --perms 0700 --dir "$XDG_RUNTIME_DIR"
+# Other workspaces are hidden: ~/projects and ~/sensitive are empty but
+# for this workspace and its dossier's inbox and outbox. nono denies
+# their files anyway, but it can't stop connecting to a socket in one
+# (e.g., another agent's browser, or its nono supervisor).
+for d in "$HOME/projects" "$HOME/sensitive"; do
+  [ -d "$d" ] || continue
+  d="$(cd "$d" && pwd -P)"
+  set -- "$@" --tmpfs "$d"
+  for keep in "$root" "$dossier/inbox" "$dossier/outbox"; do
+    case "$keep/" in "$d"/*) set -- "$@" --bind "$keep" "$keep" ;; esac
+  done
+done
 # Every key of ours is listed in /proc/keys (and counted in
 # /proc/key-users), so a key's name could carry data between
 # compartments. Each also gets its own session keyring (see

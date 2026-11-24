@@ -158,6 +158,12 @@ for p in $(jq -r '.filesystem // {} | to_entries[] | select(.key != "deny" and .
     esac
   done
 done
+# nono doesn't mediate connecting to a Unix socket by path on Linux
+# unless a profile says so, and every profile compart uses must.
+for f in nono-default-profile.json nono-sh-profile.json; do
+  jq -e '.linux.af_unix_mediation == "pathname"' "$f" > /dev/null ||
+    failed "$f doesn't turn on nono's socket mediation"
+done
 # nono itself can check the packs' grants too, where it and the packs
 # are installed (not in GitHub's CI).
 if command -v nono > /dev/null && nono profile list 2> /dev/null > "$tmp/nono-profiles" && grep -q 'nolabs-ai/pi' "$tmp/nono-profiles"; then
@@ -659,6 +665,11 @@ done
 if command -v nono > /dev/null && nono profile list 2> /dev/null > "$tmp/nono-profiles" && grep -q 'nolabs-ai/pi' "$tmp/nono-profiles"; then
   BULKHEAD_COMPARTMENT_PATHS=compartment-paths ./bulkhead-grant-check bulkhead-sh bulkhead-claude nolabs-ai/pi ||
     failed "compartment-paths doesn't cover the profiles' grants"
+  for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
+    shown="$(nono profile show "$prof" --json 2> /dev/null || :)"
+    printf '%s' "$shown" | jq -e '.linux.af_unix_mediation == "pathname"' > /dev/null ||
+      failed "nono profile $prof doesn't mediate Unix sockets (run vm-setup.sh?)"
+  done
 fi
 
 step "compart (usage and unknown harnesses)"
