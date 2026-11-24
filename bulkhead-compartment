@@ -109,7 +109,9 @@ set -- "$@" --tmpfs /run
 # compartments. Each also gets its own session keyring (see
 # new-session-keyring, which bwrap runs: pasta's AppArmor profile
 # won't run it from /usr/local/libexec).
-set -- "$@" --ro-bind /dev/null /proc/keys --ro-bind /dev/null /proc/key-users
+# A --ro-bind is nodev, so /dev/null wouldn't open there; writes to it
+# are discarded anyway.
+set -- "$@" --dev-bind /dev/null /proc/keys --dev-bind /dev/null /proc/key-users
 # The compartment's temp directory is the directory's .tmp (on disk,
 # not in RAM), as /tmp and as TMPDIR. We always set TMPDIR: pasta's
 # AppArmor profile runs its command with "Ux", which has glibc drop
