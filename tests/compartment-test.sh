@@ -57,7 +57,8 @@ check() {
 # command in DIR's compartment, as anon-access would (prepare the
 # workspace, then a TMPDIR in DIR). As compart does, the compartment is
 # built for the nono profile the command runs (its "--profile NAME"),
-# or pi's if it runs none. Set BULKHEAD_VIEW=allowlist to test that view.
+# or pi's if it runs none. Set BULKHEAD_VIEW=full to test the old view
+# (TRANSITIONAL).
 run_in() {
   d="$1"
   c="$2"
@@ -155,7 +156,7 @@ check "a compartment can't see another workspace" "$r" unseen
 # (each of these exists on the VM), under each harness's profile (a
 # profile may grant more than it seems, e.g., all of /run); what it
 # grants is.
-if [ "${BULKHEAD_VIEW:-full}" = allowlist ]; then
+if [ "${BULKHEAD_VIEW:-allowlist}" = allowlist ]; then
   for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
     for p in /etc/shadow /var/log /run/docker.sock /run/dbus/system_bus_socket \
       "${XDG_RUNTIME_DIR:-/nonexistent}/bus" "$HOME/.ssh" "$HOME/.gnupg" \

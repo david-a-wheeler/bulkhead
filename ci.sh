@@ -211,8 +211,12 @@ fh="$wst/home"
 mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$fh/.claude" "$fh/.ssh"
 : > "$fh/.claude/CLAUDE.md"
 fhp="$(cd "$fh" && pwd -P)"
+# These tests check what the two views share, in the full view, which
+# needs no nono profile; the allowlist view's own tests set it
+# (TRANSITIONAL: when the full view goes, they all use a stand-in nono).
 wsenv() {
   env -u CLAUDE_CONFIG_DIR -u BULKHEAD_COMPARTMENT -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u NONO_LOG_FILE HOME="$fh" XDG_RUNTIME_DIR=/run/user/9 \
+    BULKHEAD_VIEW=full \
     BULKHEAD_COMPARTMENT_PATHS="$SCRIPT_DIR/compartment-paths" BULKHEAD_LIB_DIR="$SCRIPT_DIR" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$SCRIPT_DIR/workspace-forbidden" "$@"
 }
@@ -384,6 +388,12 @@ if [ -L /var/run ] && ls /var > /dev/null 2>&1; then
 fi
 (cd "$fh/projects/p1" && wsenv BULKHEAD_VIEW=allowlist "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd 2>&1) |
   grep -q "needs --nono-profile" || failed "the allowlist view started without a profile"
+# The allowlist view is the default; --tidy builds no view, so it needs
+# no profile.
+(cd "$fh/projects/p1" && wsenv env -u BULKHEAD_VIEW "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd 2>&1) |
+  grep -q "needs --nono-profile" || failed "the allowlist view isn't the default"
+(cd "$fh/projects/p1" && wsenv env -u BULKHEAD_VIEW XDG_RUNTIME_DIR="$fh/run" "$SCRIPT_DIR/bulkhead-compartment" --tidy) ||
+  failed "bulkhead-compartment --tidy needed a profile"
 (cd "$fh/projects/p1" && wsenv BULKHEAD_VIEW=nope "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd > /dev/null 2>&1) &&
   failed "bulkhead-compartment accepted BULKHEAD_VIEW=nope"
 rm -r "$fh/.newtool"

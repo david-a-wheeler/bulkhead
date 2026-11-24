@@ -93,17 +93,18 @@ if ! "$dry_run" && [ ! -d "$comp" ]; then
 fi
 
 # What the compartment sees of the filesystem (TRANSITIONAL: "full" is
-# the old way, to remove once "allowlist" has proven itself):
+# the old way, a fallback to remove once "allowlist" has proven itself):
+#   allowlist  (the default) only what the harness's nono profile grants
+#              (as nono resolves it), plus what nono itself needs and
+#              what we provide; anything else isn't there at all
 #   full       the VM's whole filesystem, minus what we hide or replace
-#   allowlist  only what the harness's nono profile grants (as nono
-#              resolves it), plus what nono itself needs and what we
-#              provide; anything else isn't there at all
-view="${BULKHEAD_VIEW:-full}"
+# --tidy builds no view, so it needs no profile.
+view="${BULKHEAD_VIEW:-allowlist}"
 case "$view" in
   full) ;;
   allowlist)
-    [ -n "$nono_profile" ] ||
-      { echo "bulkhead-compartment: the allowlist view needs --nono-profile." >&2; exit 1; }
+    "$tidy_only" || [ -n "$nono_profile" ] ||
+      { echo "bulkhead-compartment: the allowlist view needs --nono-profile (or set BULKHEAD_VIEW=full)." >&2; exit 1; }
     ;;
   *) echo "bulkhead-compartment: BULKHEAD_VIEW must be full or allowlist, not $view." >&2; exit 2 ;;
 esac
