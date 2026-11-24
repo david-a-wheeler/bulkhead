@@ -68,7 +68,7 @@ So:
 
 - goose reads `AGENTS.md` (and `.goosehints`) in the project and in
   `~/.config/goose`, and the shared `~/.agents/AGENTS.md` too (since
-  goose PR #9736, 2026-06), so it needs no link to the shared
+  goose [PR #9736](https://github.com/aaif-goose/goose/pull/9736), 2026-06), so it needs no link to the shared
   instructions, unlike pi.
 - At startup goose fetches a model catalog from `models.dev` (a GET,
   which tells that site you're running goose). It has a bundled copy,
@@ -92,4 +92,5 @@ So:
 - [Extension allowlist](https://goose-docs.ai/docs/guides/allowlist/)
 - [Hints files](https://goose-docs.ai/docs/guides/context-engineering/using-goosehints)
 - [Installation](https://goose-docs.ai/docs/getting-started/installation) and [`download_cli.sh`](https://github.com/aaif-goose/goose/blob/main/download_cli.sh)
-- Source: [`egress_inspector.rs`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/security/egress_inspector.rs), [`adversary_inspector.rs`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/security/adversary_inspector.rs)
+- Source: [`egress_inspector.rs`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/security/egress_inspector.rs), [`adversary_inspector.rs`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/security/adversary_inspector.rs), [`posthog.rs`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/posthog.rs) (telemetry), [`configure.rs`](https://github.com/aaif-goose/goose/blob/main/crates/goose-cli/src/commands/configure.rs) and [`cli.rs`](https://github.com/aaif-goose/goose/blob/main/crates/goose-cli/src/cli.rs) (first-run setup), and [`load_hints.rs`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/hints/load_hints.rs) (hints files)
+- [PR #9736](https://github.com/aaif-goose/goose/pull/9736): goose reads `~/.agents/AGENTS.md`

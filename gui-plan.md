@@ -144,3 +144,15 @@ Open questions for that experiment:
   the agent's (e.g., a login page there may be fake).
 - GUI harnesses such as goose's Electron desktop app would need the same
   as Chromium (3 to 5).
+
+## Sources
+
+- The OpenSSF Best Practices badge project's `snap-chromium-bp-badge`
+  (the copy in this workspace, `,snap-chromium-bp-badge`).
+- What I checked on our VMs on 2026-11-24: the session (GNOME 50,
+  Wayland, `DISPLAY=:0`), that Firefox and Chromium are snaps, the
+  variables nono sets for its CA and proxy, and that a compartment
+  hides `wayland-0`.
+- The rest (how browsers keep CAs, proxy logins, VNC, and Wayland's
+  clipboard rules) is from general knowledge I haven't checked against
+  a source yet; check it before relying on it.
