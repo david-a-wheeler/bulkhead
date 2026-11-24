@@ -120,6 +120,25 @@ if [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/speech-dispatcher/speechd.sock" ]; the
   r=$(run_in "$a" "[ -S \$XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock ] && echo seen || echo unseen")
   check "a compartment can reach speech-dispatcher" "$r" seen
 fi
+# Other workspaces are hidden, but not its own dossier's inbox.
+r=$(run_in "$a" "[ -e $b ] && echo seen || echo unseen")
+check "a compartment can't see another workspace" "$r" unseen
+r=$(run_in "$a" "[ -d $a.dossier/inbox ] && [ ! -e $a.dossier/policy ] && echo ok")
+check "a compartment sees only its dossier's inbox and outbox" "$r" ok
+# nono mediates Unix sockets: a socket outside the compartment's own
+# places is refused, even where nothing hides it; its own work.
+sock="$HOME/,compartment-test-$$.sock"
+python3 -I -c 'import socket, sys, time; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(); time.sleep(60)' "$sock" &
+listener=$!
+sleep 1
+# Python prints nothing (quotes don't survive the nesting); sh says.
+conn="python3 -I -c 'import socket, sys; socket.socket(socket.AF_UNIX).connect(sys.argv[1])'"
+r=$(run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c \"$conn $sock 2>/dev/null && echo connected || echo refused\"")
+kill "$listener" 2> /dev/null; rm -f "$sock"
+check "nono refuses a socket outside the compartment" "$r" refused
+bind="python3 -I -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])'"
+r=$(run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c \"$bind $a/,s && echo bound\""; rm -f "$a/,s")
+check "nono lets an agent make a socket in its workspace" "$r" bound
 # Its own session keyring, and no list of our keys.
 r=$(run_in "$a" "wc -c < /proc/keys")
 check "a compartment's /proc/keys is empty" "$r" 0

@@ -311,6 +311,12 @@ for want in "|--dev|/dev|" "|--tmpfs|/run|" "|--perms|0700|--dir|/run/user/9|" \
   "|--|$SCRIPT_DIR/new-session-keyring|cmd|a b|"; do
   case "$dry" in *"$want"*) ;; *) failed "compartment arguments lack $want" ;; esac
 done
+# Other workspaces are hidden: ~/projects is empty but for this
+# workspace and its dossier's inbox and outbox.
+case "$dry" in
+  *"|--tmpfs|$fhp/projects|--bind|$fhp/projects/p1|$fhp/projects/p1|--bind|$fhp/projects/p1.dossier/inbox|$fhp/projects/p1.dossier/inbox|--bind|$fhp/projects/p1.dossier/outbox|$fhp/projects/p1.dossier/outbox|"*) ;;
+  *) failed "compartment doesn't hide other workspaces: $dry" ;;
+esac
 # /run is empty but for what compartment-paths lists, after the tmpfs.
 case "$dry" in *"|--tmpfs|/run|"*"|--bind|"*"run%user%9%cc-socks|/run/user/9/cc-socks|"*) ;;
   *) failed "compartment binds cc-socks after its own /run" ;; esac
