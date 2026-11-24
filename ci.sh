@@ -260,7 +260,7 @@ prep "$fh/projects/p3" 2> /dev/null && failed "prepare used a symlinked .dossier
 # The dry run binds the private ~/.claude from the dossier's state.
 out="$(compart_dry "$fh/projects/p1/sub")"
 [ "$(printf '%s\n' "$out" | head -n 1)" = "key: projects-p1" ] || failed "compartment key"
-printf '%s\n' "$out" | tail -n 3 | tr '\n' '|' | grep -qx -- '--|cmd|a b|' ||
+printf '%s\n' "$out" | tail -n 4 | tr '\n' '|' | grep -qx -- "--|$SCRIPT_DIR/new-session-keyring|cmd|a b|" ||
   failed "compartment command passthrough"
 # /tmp and TMPDIR are the directory's .tmp, whatever TMPDIR was.
 (cd "$fh/projects/p1/sub" && TMPDIR="$fh" wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd) |
@@ -302,7 +302,7 @@ rm -r "$fh/.pi" "$fh/run"
 dry="$(printf '%s\n' "$out" | tr '\n' '|')"
 for want in "|--dev|/dev|" "|--tmpfs|/run|" "|--perms|0700|--dir|/run/user/9|" \
   "|--ro-bind|/dev/null|/proc/keys|" "|--ro-bind|/dev/null|/proc/key-users|" \
-  "|$SCRIPT_DIR/new-session-keyring|bwrap|"; do
+  "|--|$SCRIPT_DIR/new-session-keyring|cmd|a b|"; do
   case "$dry" in *"$want"*) ;; *) failed "compartment arguments lack $want" ;; esac
 done
 # /run is empty but for what compartment-paths lists, after the tmpfs.
