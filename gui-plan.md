@@ -85,8 +85,8 @@ start fresh, never your real one, with its logins and cookies.
 ## Running the Chromium snap without snap
 
 The OpenSSF Best Practices badge project's `snap-chromium-bp-badge`
-(MIT; a copy is untracked in this workspace) already runs the snap's
-Chromium, and its chromedriver, under nono. What it shows:
+(MIT; a copy is in this workspace as `,snap-chromium-bp-badge`)
+already runs the snap's Chromium, and its chromedriver, under nono. What it shows:
 
 - Run the snap's ELF binaries directly
   (`/snap/chromium/current/usr/lib/chromium-browser/chrome` and
