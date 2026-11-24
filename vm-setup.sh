@@ -599,6 +599,13 @@ rm -rf "${release_tmp:?}"
 # you've put your own file there.
 goose_agents="$HOME/.config/goose/AGENTS.md"
 mkdir -p "$HOME/.config/goose"
+# Without a config.yaml, plain "goose" runs its first-time setup, which
+# asks about telemetry and a provider and saves the answers there, so in
+# a compartment it fails. So we write one, unless you have your own.
+goose_config="$HOME/.config/goose/config.yaml"
+[ -e "$goose_config" ] ||
+  printf '%s\n' "# Written by bulkhead's vm-setup.sh; compart goose sets the provider." \
+    "GOOSE_TELEMETRY_ENABLED: false" > "$goose_config"
 if [ ! -e "$goose_agents" ] && [ ! -L "$goose_agents" ]; then
   ln -s "$HOME/.agents/AGENTS.md" "$goose_agents"
 elif [ "$(readlink "$goose_agents" 2> /dev/null)" != "$HOME/.agents/AGENTS.md" ]; then

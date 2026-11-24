@@ -43,7 +43,10 @@ So:
 
 - `compartment-paths` makes `~/.config/goose` read-only. goose works
   with that: it takes its whole provider setup from the environment, and
-  writes nothing there in a normal session. A change it would save
+  writes nothing there in a normal session. It does need a
+  `config.yaml` to exist, or plain `goose` runs its first-time setup,
+  which saves your answers there and so fails; `vm-setup.sh` writes a
+  one-line one (no telemetry), unless you have your own. A change it would save
   there (e.g., "always allow" for a tool, or `/mode`) fails; set those
   from outside a compartment.
 - goose's sessions (`~/.local/share/goose`) and logs

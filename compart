@@ -296,6 +296,8 @@ case "$harness" in
     # the key is in the environment anyway. vm-setup.sh installs goose.
     [ -x /usr/local/bin/goose ] ||
       die "goose isn't installed on this VM; run ./vm-setup.sh."
+    [ -f "$HOME/.config/goose/config.yaml" ] ||
+      die "there's no ~/.config/goose/config.yaml, so goose would try to set itself up; run ./vm-setup.sh."
     engine_setup goose
     GOOSE_MODEL="${GOOSE_MODEL:-$default}"
     [ -n "$GOOSE_MODEL" ] ||
@@ -310,9 +312,12 @@ case "$harness" in
     OPENAI_HOST="http://127.0.0.1:$port"
     OPENAI_API_KEY="$INFER_API_KEY"
     GOOSE_DISABLE_KEYRING=1
+    # The docs name GOOSE_TELEMETRY_ENABLED; the source also reads
+    # GOOSE_TELEMETRY_OFF.
     GOOSE_TELEMETRY_ENABLED=false
+    GOOSE_TELEMETRY_OFF=1
     export GOOSE_MODEL GOOSE_CONTEXT_LIMIT GOOSE_PROVIDER OPENAI_HOST OPENAI_API_KEY \
-      GOOSE_DISABLE_KEYRING GOOSE_TELEMETRY_ENABLED
+      GOOSE_DISABLE_KEYRING GOOSE_TELEMETRY_ENABLED GOOSE_TELEMETRY_OFF
     profile=nolabs-ai/goose
     set -- --open-port "$port" -- /usr/local/bin/goose "$@"
     ;;
