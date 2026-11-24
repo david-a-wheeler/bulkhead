@@ -390,6 +390,9 @@ What each file in this repository does. For what bulkhead is, see
   results, and rollout steps.
 - `goose.md`: what goose's own security checks do, why ours are
   stronger, and how goose fits in a compartment.
+- `gui-plan.md`: why GUIs (e.g., a browser) don't work in a
+  compartment yet, what a display would expose, and the options, with
+  a first experiment (VNC) to try.
 - `compartments.md`: what each agent's compartment can and can't do,
   each workspace's dossier (its layout, ports, inbox, and outbox) and
   where an agent may not start, and how `anon-access`, pasta, bwrap,
