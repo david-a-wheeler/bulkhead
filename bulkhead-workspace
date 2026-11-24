@@ -31,7 +31,8 @@
 # bulkhead-compartment binds over ~/.claude and the like), logs/ (e.g.,
 # nono's log; no agent access), policy/ (local-ports and expose-ports),
 # git/ (the git settings you've approved; see bulkhead-git-check),
-# inbox/, outbox/, and workspace (the path it was made for).
+# snapshots/ (made by bulkhead-snapshot), inbox/, outbox/, and
+# workspace (the path it was made for).
 #
 # Every command but orphans refuses (exits 1, saying why) DIR when DIR
 # or its workspace matches a pattern in workspace-forbidden

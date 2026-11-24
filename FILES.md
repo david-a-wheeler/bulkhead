@@ -168,7 +168,7 @@ What each file in this repository does. For what bulkhead is, see
   (or give `prepare --yes`); `compart dossier` prints it. It refuses `~` and anything above it, and
   anything matching `workspace-forbidden`. The dossier holds what's
   about the workspace but mustn't be under its agent's control
-  (`logs/`, `policy/`, `git/`), mustn't arrive with its contents (`state/`, the
+  (`logs/`, `policy/`, `git/`, `snapshots/`), mustn't arrive with its contents (`state/`, the
   harness's private files), or passes between you and the agent
   (`inbox/`, `outbox/`). `prepare` notices a workspace moved with its
   dossier, and (for now) moves older layouts in; `orphans` lists
@@ -201,6 +201,12 @@ What each file in this repository does. For what bulkhead is, see
   `git-config-risks`), and asks you to approve it. Unapproved, a session won't start.
   `git-config-entries.awk` turns git's config listing into its lines.
   See `compartments.md`, "Git runs commands from local files".
+- `bulkhead-snapshot`: run by `compart` at each launch; saves the
+  files the workspace's repository tracks in the dossier's
+  `snapshots/`, where no agent can reach them, and lists, diffs, and
+  restores them. `snapshot-feed.py` writes each snapshot with `git
+  fast-import`. See `compartments.md`, "Snapshots", and
+  `snapshot-plan.md`.
 - `git-check-rationale.md`: why `bulkhead-git-check` asks about some
   changes and records others without a word.
 - `bulkhead-grant-check`: run by `compart` after each session and by
@@ -393,6 +399,8 @@ What each file in this repository does. For what bulkhead is, see
 - `gui-plan.md`: why GUIs (e.g., a browser) don't work in a
   compartment yet, what a display would expose, and the options, with
   a first experiment (VNC) to try.
+- `snapshot-plan.md`: the design of `bulkhead-snapshot` (what it
+  saves, when, how, and how long), and what it doesn't cover.
 - `compartments.md`: what each agent's compartment can and can't do,
   each workspace's dossier (its layout, ports, inbox, and outbox) and
   where an agent may not start, and how `anon-access`, pasta, bwrap,

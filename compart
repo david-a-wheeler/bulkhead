@@ -6,8 +6,10 @@
 # options. So adding a harness means adding one case.
 # Then, for every harness, we check the workspace, add its nono options
 # (from its dossier; see bulkhead-workspace), and run it all through
-# anon-access, which strips secrets and starts the compartment. When
-# the session ends, we check the workspace again.
+# anon-access, which strips secrets and starts the compartment. Before
+# it starts, we take a snapshot of the workspace's tracked files (see
+# bulkhead-snapshot), so you can undo an agent's damage. When the
+# session ends, we check the workspace again.
 #
 # "compart sh [COMMAND [ARGUMENTS...]]" runs COMMAND (or, with none,
 # your $SHELL) in the compartment, under the same shared policy as any
@@ -324,6 +326,9 @@ case "$harness" in
 esac
 
 launch_checks false || exit 1
+# After the git check, so we run git only on settings you approved.
+"$bin/bulkhead-snapshot" take ||
+  die "not starting without a snapshot of the workspace (see above)."
 # Without a config.yaml, plain goose runs its whole first-time setup,
 # provider and all; with one that names the provider (compart goose
 # sets the rest), it asks only what's left, e.g., about telemetry. So we
@@ -408,8 +413,13 @@ set -- $compartment_opts \
 # Ctrl-C still reaches it, but doesn't stop us.
 [ -z "$note_model" ] || engine_note "$note_model"
 trap : INT QUIT
+# A shared lock for the session's length, so bulkhead-snapshot restore
+# knows not to run meanwhile. The session doesn't get the descriptor.
+exec 9> "$dossier/logs/sessions.lock"
+flock -s 9
 status=0
-anon-access "$@" || status=$?
+anon-access "$@" 9>&- || status=$?
+exec 9>&-
 trap - INT QUIT
 # A blank line sets our report apart from the session's last output.
 echo >&2

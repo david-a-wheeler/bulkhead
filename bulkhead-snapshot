@@ -1,0 +1,276 @@
+#!/bin/sh
+# bulkhead-snapshot: keep snapshots of a workspace's git-tracked files
+# in its dossier, where no agent can reach them, so you can undo an
+# agent's damage. compart takes one at each launch. Run it outside
+# every sandbox, in the workspace. See compartments.md, "Snapshots".
+#
+# Usage: bulkhead-snapshot take
+#        bulkhead-snapshot list
+#        bulkhead-snapshot diff [SNAPSHOT] [PATH...]
+#        bulkhead-snapshot restore [SNAPSHOT] [PATH...]
+#        bulkhead-snapshot refs [SNAPSHOT]
+#   take     save the files the workspace's top repository tracks, as
+#            they are now, unless nothing changed since the last one;
+#            then prune old snapshots
+#   list     list the snapshots, newest first
+#   diff     show what changed since SNAPSHOT ("-" lines are the
+#            snapshot's), and list tracked files it lacks
+#   restore  put back SNAPSHOT's files (only those under PATHs, if you
+#            give any), after taking a snapshot of the current state.
+#            It refuses while a session runs in the workspace, or if a
+#            directory it would write into is now a symlink. It
+#            doesn't delete files the snapshot lacks.
+#   refs     print the refs the repository had (as "git for-each-ref"
+#            prints them), e.g., to bring back a deleted branch with
+#            "git branch NAME ID" while its commit still exists
+# SNAPSHOT is a name from list; it defaults to the newest. PATHs are
+# relative to the current directory.
+#
+# How: the dossier's snapshots/ is a bare git repository, separate
+# from the workspace's .git (which agents can write). Each snapshot is
+# a root commit, refs/snapshots/TIME (UTC). snapshot-feed.py writes it
+# with git fast-import, from the files themselves, so no repository's
+# filters or attributes apply. We always keep the newest 3, and prune
+# others once they're 30 days old. snapshot-plan.md says why.
+set -eu
+
+LIB_DIR="${BULKHEAD_LIB_DIR:-/usr/local/libexec/bulkhead}"
+# git's empty tree, as an attribute source: see T().
+EMPTY_TREE=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+KEEP=3
+MAX_AGE_DAYS=30
+
+say() {
+  echo "bulkhead-snapshot: $*" >&2
+}
+die() {
+  say "$*"
+  exit 1
+}
+usage() {
+  echo "Usage: bulkhead-snapshot take|list|diff [SNAPSHOT] [PATH...]|restore [SNAPSHOT] [PATH...]|refs [SNAPSHOT]" >&2
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+cmd="$1"
+shift
+case "$cmd" in
+  take | list | diff | restore | refs) ;;
+  *) usage ;;
+esac
+workspace="$(dirname "$0")/bulkhead-workspace"
+root="$("$workspace" root)"
+dossier="$("$workspace" dossier)"
+[ -d "$dossier" ] || die "$dossier doesn't exist; run bulkhead-workspace prepare first."
+store="$dossier/snapshots"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_EXTERNAL_DIFF GIT_ATTR_SOURCE
+
+# W: git in the workspace's repository, which an agent can write. Its
+# config is what bulkhead-git-check approved; we also turn off the few
+# settings that run a program on what we use.
+W() {
+  GIT_DIR="$root/.git" GIT_WORK_TREE="$root" \
+    git -c core.fsmonitor=false -c core.untrackedCache=false "$@"
+}
+# S: git in the store, ignoring your global and system config.
+S() {
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_DIR="$store" git "$@"
+}
+# T: S with the workspace as its work tree and an index in $work, which
+# takes attributes from the empty tree, not the workspace, so it
+# converts nothing.
+T() {
+  GIT_INDEX_FILE="$work/index" GIT_WORK_TREE="$root" GIT_ATTR_SOURCE="$EMPTY_TREE" S "$@"
+}
+
+work=""
+cleanup() {
+  [ -z "$work" ] || rm -rf "$work"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+new_work() {
+  [ -n "$work" ] || work="$(mktemp -d "$store/,work.XXXXXX")"
+}
+
+need_store() {
+  [ -d "$store" ] || die "there are no snapshots of $root yet."
+}
+
+# commit_of [NAME]: the commit of snapshot NAME, or of the newest.
+commit_of() {
+  if [ $# -eq 0 ]; then
+    co="$(S for-each-ref --sort=-refname --count=1 --format='%(objectname)' refs/snapshots)"
+    [ -n "$co" ] || die "there are no snapshots of $root yet."
+    printf '%s\n' "$co"
+    return
+  fi
+  case "$1" in
+    '' | *[!0-9TZ-]*) die "not a snapshot name (see bulkhead-snapshot list): $1" ;;
+  esac
+  S rev-parse -q --verify "refs/snapshots/$1^{commit}" ||
+    die "no snapshot $1 (see bulkhead-snapshot list)."
+}
+
+# is_name ARG: is ARG a snapshot's name?
+is_name() {
+  case "$1" in
+    [0-9]*T*Z | [0-9]*T*Z-*) S rev-parse -q --verify "refs/snapshots/$1" > /dev/null ;;
+    *) return 1 ;;
+  esac
+}
+
+# take [--no-prune]
+take() {
+  [ -e "$root/.git" ] || return 0
+  if [ ! -d "$store" ]; then
+    mkdir -m 700 "$store"
+    S init -q --bare --template= --object-format=sha1
+    S config gc.auto 0
+    S config core.logAllRefUpdates false
+    S config repack.writeBitmaps false
+  fi
+  # One take at a time per store (e.g., two launches at once).
+  exec 8> "$store/,take.lock"
+  flock -x 8
+  new_work
+  W ls-files -s -z > "$work/index-list" ||
+    die "can't read the list of tracked files in $root."
+  {
+    echo "Snapshot of $root"
+    echo
+    echo "Refs:"
+    W for-each-ref --format='%(objectname) %(refname)' 2> /dev/null || :
+  } > "$work/message"
+  newest="$(S for-each-ref --sort=-refname --count=1 --format='%(objectname)' refs/snapshots)"
+  cache=/dev/null
+  if [ -n "$newest" ] && [ -f "$store/cache" ] &&
+    [ "$(cat "$store/cache.commit" 2> /dev/null)" = "$newest" ]; then
+    cache="$store/cache"
+  fi
+  [ -n "$newest" ] || say "saving the first snapshot of $root; later ones save only changes."
+  base="refs/snapshots/$(date -u +%Y%m%dT%H%M%SZ)"
+  ref="$base"
+  n=2
+  while S rev-parse -q --verify "$ref" > /dev/null; do
+    ref="$base-$n"
+    n=$((n + 1))
+  done
+  status=0
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 python3 -I "$LIB_DIR/snapshot-feed.py" \
+    "$root" "$store" "$ref" "$work/message" "$cache" "$work/cache" < "$work/index-list" ||
+    status=$?
+  case "$status" in
+    0) ;;
+    3) return 0 ;;
+    *) die "couldn't take a snapshot of $root." ;;
+  esac
+  commit="$(S rev-parse "$ref")"
+  # Same files, new stat data (e.g., after git checkout): keep the
+  # older one.
+  if [ -n "$newest" ] &&
+    [ "$(S rev-parse "$ref^{tree}")" = "$(S rev-parse "$newest^{tree}")" ]; then
+    S update-ref -d "$ref"
+    commit="$newest"
+  fi
+  mv -f "$work/cache" "$store/cache"
+  printf '%s\n' "$commit" > "$work/cache.commit"
+  mv -f "$work/cache.commit" "$store/cache.commit"
+  [ "${1:-}" = --no-prune ] || prune
+  repack
+}
+
+# prune: delete snapshots past the newest $KEEP that are more than
+# $MAX_AGE_DAYS old. Their data goes at the next full repack.
+prune() {
+  cutoff=$(($(date +%s) - MAX_AGE_DAYS * 86400))
+  S for-each-ref --sort=-refname --format='%(refname) %(committerdate:unix)' refs/snapshots |
+    awk -v keep="$KEEP" -v cutoff="$cutoff" 'NR > keep && $2 < cutoff { print "delete " $1 }' \
+      > "$work/prune"
+  [ -s "$work/prune" ] || return 0
+  S update-ref --stdin < "$work/prune"
+  : > "$store/prune-pending"
+}
+
+# repack: merge small packs. After pruning, rewrite everything (which
+# drops pruned data) at most once a week, to limit writes.
+repack() {
+  stamp="$store/last-full-repack"
+  if [ -f "$store/prune-pending" ] &&
+    { [ ! -f "$stamp" ] || [ -n "$(find "$stamp" -mtime +6)" ]; }; then
+    S repack -a -d -q
+    : > "$stamp"
+    rm -f "$store/prune-pending"
+  else
+    S repack -d -q --geometric=2
+  fi
+}
+
+# extras: list files the workspace tracks now that commit $1 lacks.
+extras() {
+  W -c core.quotePath=true ls-files --full-name | LC_ALL=C sort -u > "$work/now"
+  S ls-tree -r --name-only "$1" | LC_ALL=C sort -u > "$work/then"
+  LC_ALL=C comm -23 "$work/now" "$work/then" > "$work/extra"
+  [ -s "$work/extra" ] || return 0
+  echo "Tracked now, but not in the snapshot (restore leaves them alone):"
+  sed 's/^/  /' "$work/extra"
+}
+
+case "$cmd" in
+  take)
+    [ $# -eq 0 ] || usage
+    take
+    ;;
+  list)
+    [ $# -eq 0 ] || usage
+    need_store
+    S for-each-ref --sort=-refname --format='%(refname:strip=2)  %(committerdate:iso-local)' refs/snapshots
+    ;;
+  refs)
+    [ $# -le 1 ] || usage
+    need_store
+    snap="$(commit_of "$@")"
+    S log -1 --format=%B "$snap" | sed '1,/^Refs:$/d; /^$/d'
+    ;;
+  diff | restore)
+    need_store
+    if [ $# -gt 0 ] && is_name "$1"; then
+      snap="$(commit_of "$1")"
+      name="$1"
+      shift
+    else
+      snap="$(commit_of)"
+      name="$(S for-each-ref --sort=-refname --count=1 --format='%(refname:strip=2)' refs/snapshots)"
+    fi
+    [ "${1:-}" != -- ] || shift
+    new_work
+    T read-tree "$snap"
+    if [ "$cmd" = diff ]; then
+      T --no-pager diff --no-ext-diff --no-textconv -- "$@"
+      extras "$snap"
+      exit 0
+    fi
+    # restore
+    exec 9> "$dossier/logs/sessions.lock"
+    flock -n -x 9 || die "a session is running in $root; end it first."
+    T ls-files -z --full-name -- "$@" > "$work/restore"
+    [ -s "$work/restore" ] || die "snapshot $name has no files matching: $*"
+    # Refuse to write below a directory that's now a symlink: git
+    # would replace the symlink, but you should see why it's there.
+    (cd "$root" && find . -path ./.git -prune -o -type l -print) | sed 's|^\./||' > "$work/links"
+    tr '\0' '\n' < "$work/restore" | awk 'NR == FNR { link[$0] = 1; next }
+      { n = split($0, part, "/"); pre = ""
+        for (j = 1; j < n; j++) { pre = pre part[j]; if (pre in link) bad[pre] = 1; pre = pre "/" } }
+      END { for (b in bad) print b }' "$work/links" - > "$work/bad"
+    if [ -s "$work/bad" ]; then
+      say "these directories in the snapshot are symlinks now, so I won't restore below them; look at and remove them first:"
+      sed 's/^/  /' "$work/bad" >&2
+      exit 1
+    fi
+    take --no-prune
+    (cd "$root" && T checkout-index -f -z --stdin < "$work/restore")
+    say "restored $(tr -cd '\0' < "$work/restore" | wc -c) file(s) from snapshot $name; the state before is now the newest snapshot (see bulkhead-snapshot list)."
+    extras "$snap"
+    ;;
+esac

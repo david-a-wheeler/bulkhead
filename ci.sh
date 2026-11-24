@@ -55,7 +55,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-grant-check bulkhead-copy-claude-history tests/compartment-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-snapshot bulkhead-grant-check bulkhead-copy-claude-history tests/compartment-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -82,7 +82,7 @@ shellcheck -x -s bash vm-bash-aliases-block.sh || failed "$step_name"
 render_template secrets-client.template.py "$tmp/secrets-client" SECRETS_SERVER_PORT
 render_template secrets-server.template.py "$tmp/secrets-server.py" \
   SECRETS_SERVER_PORT KEYCHAIN_PREFIX UTMCTL
-for f in "$tmp/secrets-client" "$tmp/secrets-server.py" new-session-keyring tests/compartment-sweep.py extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py tests/net-probe.py; do
+for f in "$tmp/secrets-client" "$tmp/secrets-server.py" new-session-keyring tests/compartment-sweep.py extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py tests/net-probe.py snapshot-feed.py; do
   python3 -m py_compile "$f" || failed "$f (py_compile)"
 done
 # Inside a compartment (or nono), secrets-client refuses at once, saying
@@ -569,6 +569,72 @@ git -C "$g" config --unset remote.y.mirror
 printf '#!/bin/sh\necho hi\n' > "$wst/plant-bin/anon-access"
 out="$(cd "$g" && wsenv PATH="$wst/plant-bin:$PATH" setsid -w "$SCRIPT_DIR/compart" sh true 2> /dev/null)"
 [ "$out" = hi ] || failed "compart sh: stdout holds only the command's output: $out"
+
+# bulkhead-snapshot: saves tracked files' exact bytes (no repository
+# attributes apply), skips a snapshot when nothing changed, writes no
+# loose objects, restores (undoably), and refuses to write below a
+# planted symlink or while a session runs. compart takes one at launch.
+sw="$fh/projects/snap"
+mkdir -p "$sw/d"
+git init -q "$sw"
+printf 'a\n' > "$sw/a"
+printf 'b\n' > "$sw/d/b"
+printf '* text eol=crlf\n' > "$sw/.gitattributes"
+git -C "$sw" add -A 2> /dev/null
+git -C "$sw" -c user.name=t -c user.email=t@example.org commit -q -m x
+snap() { (cd "$sw" && wsenv setsid -w "$SCRIPT_DIR/bulkhead-snapshot" "$@" 2>&1); }
+nsnaps() { snap list | wc -l; }
+sstore="$fhp/projects/snap.dossier/snapshots"
+prep "$sw" 2> /dev/null
+snap list | grep -q 'no snapshots' || failed "snapshot: list with none"
+printf '#!/bin/sh\n' > "$wst/plant-bin/anon-access"
+(cd "$sw" && wsenv PATH="$wst/plant-bin:$PATH" setsid -w env -u GIT_CONFIG_COUNT "$SCRIPT_DIR/compart" sh true > /dev/null 2>&1) || :
+[ "$(nsnaps)" = 1 ] || failed "snapshot: compart took one at launch"
+snap take > /dev/null || failed "snapshot: take"
+touch "$sw/a"
+snap take > /dev/null || failed "snapshot: take after touch"
+[ "$(nsnaps)" = 1 ] || failed "snapshot: took one with nothing changed"
+first="$(snap list | awk '{ print $1 }')"
+[ "$(GIT_DIR="$sstore" git cat-file -p "refs/snapshots/$first:a")" = a ] ||
+  failed "snapshot: saved a's bytes as they are"
+[ -z "$(find "$sstore/objects" -path '*/objects/??/*' -type f)" ] ||
+  failed "snapshot: wrote loose objects"
+snap refs | grep -q ' refs/heads/' || failed "snapshot: recorded the refs"
+printf 'bad\n' > "$sw/a"
+rm "$sw/d/b"
+out="$(snap diff)"
+printf '%s\n' "$out" | grep -qx '+bad' || failed "snapshot: diff showed the change: $out"
+out="$(snap restore)" || failed "snapshot: restore: $out"
+[ "$(cat "$sw/a")" = a ] && [ "$(cat "$sw/d/b")" = b ] || failed "snapshot: restored the files"
+[ "$(nsnaps)" = 2 ] || failed "snapshot: took one before restoring"
+# Only the paths you name, relative to the current directory.
+printf 'bad\n' > "$sw/a"
+printf 'bad\n' > "$sw/d/b"
+(cd "$sw/d" && wsenv setsid -w "$SCRIPT_DIR/bulkhead-snapshot" restore "$first" b > /dev/null 2>&1) ||
+  failed "snapshot: restore one path"
+[ "$(cat "$sw/d/b")" = b ] && [ "$(cat "$sw/a")" = bad ] || failed "snapshot: restored only d/b"
+rm -r "$sw/d"
+mkdir "$wst/target"
+ln -s "$wst/target" "$sw/d"
+snap restore "$first" > /dev/null && failed "snapshot: restored below a symlink"
+[ -z "$(ls "$wst/target")" ] || failed "snapshot: wrote through a symlink"
+rm "$sw/d"
+mkdir "$sw/d"
+exec 9> "$fhp/projects/snap.dossier/logs/sessions.lock"
+flock -s 9
+snap restore > /dev/null && failed "snapshot: restored during a session"
+exec 9>&-
+snap restore 'HEAD;x' > /dev/null && failed "snapshot: accepted a bad name"
+# Pruning keeps the newest 3, and drops older ones past 30 days.
+for i in 1 2 3; do
+  d="@$(($(date +%s) - (40 + i) * 86400)) +0000"
+  c="$(GIT_DIR="$sstore" GIT_COMMITTER_DATE="$d" GIT_AUTHOR_DATE="$d" git -c user.name=o -c user.email=o commit-tree -m old "$(GIT_DIR="$sstore" git mktree < /dev/null)")"
+  GIT_DIR="$sstore" git update-ref "refs/snapshots/2000010${i}T000000Z" "$c"
+done
+printf 'new\n' > "$sw/a"
+snap take > /dev/null || failed "snapshot: take with old ones"
+snap list | grep -q '^20000101' && failed "snapshot: kept one past 30 days"
+[ "$(nsnaps)" -ge 3 ] || failed "snapshot: kept at least 3"
 
 # compart claude refuses a shared login holding real tokens, since
 # agents could read them; nono's phantoms (nono_...) are fine.

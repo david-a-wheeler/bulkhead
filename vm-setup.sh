@@ -277,12 +277,13 @@ sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRI
 # everything through bulkhead-compartment (bubblewrap, in a network
 # namespace from pasta), which reads compartment-paths and
 # netns-resolv.conf. compart also runs bulkhead-git-check (which reads
-# git-config-entries.awk and git-config-risks) and bulkhead-grant-check
-# (which reads compartment-paths). See compartments.md.
+# git-config-entries.awk and git-config-risks), bulkhead-snapshot
+# (which runs snapshot-feed.py), and bulkhead-grant-check (which reads
+# compartment-paths). See compartments.md.
 # bulkhead-copy-claude-history is transitional.
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
   "$SCRIPT_DIR/bulkhead-workspace" "$SCRIPT_DIR/bulkhead-git-check" \
-  "$SCRIPT_DIR/bulkhead-grant-check" \
+  "$SCRIPT_DIR/bulkhead-snapshot" "$SCRIPT_DIR/bulkhead-grant-check" \
   "$SCRIPT_DIR/bulkhead-copy-claude-history" /usr/local/bin/
 # The helpers bulkhead-workspace replaced.
 for f in bulkhead-compartment-info bulkhead-workspace-prepare \
@@ -292,7 +293,7 @@ done
 sudo install -d -m 755 /usr/local/libexec/bulkhead
 sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbidden" \
   "$SCRIPT_DIR/netns-resolv.conf" "$SCRIPT_DIR/git-config-entries.awk" \
-  "$SCRIPT_DIR/git-config-risks" /usr/local/libexec/bulkhead/
+  "$SCRIPT_DIR/git-config-risks" "$SCRIPT_DIR/snapshot-feed.py" /usr/local/libexec/bulkhead/
 sudo install -m 755 "$SCRIPT_DIR/new-session-keyring" /usr/local/libexec/bulkhead/
 orphans="$(/usr/local/bin/bulkhead-workspace orphans)"
 if [ -n "$orphans" ]; then

@@ -287,9 +287,10 @@ binds its grants at start, so a directory made later stays denied.
 | --- | --- | --- |
 | `workspace` | none | `DIR`'s real path when last launched |
 | `state/` | read-write, through bwrap's binds only | the harness's private files (e.g., `~/.claude`) |
-| `logs/` | none | `nono.log` and its one rotated copy |
+| `logs/` | none | `nono.log` and its one rotated copy; `sessions.lock` (see "Snapshots") |
 | `policy/` | none | your settings for the workspace: `local-ports` and `expose-ports` |
 | `git/` | none | `approved`: the repositories' git settings you've approved (see `bulkhead-git-check`) |
+| `snapshots/` | none | snapshots of the workspace's tracked files (see "Snapshots") |
 | `inbox/` | read-only (nono `--read`) | files you give the agent |
 | `outbox/` | write-only (nono `--write`) | files the agent gives you |
 
@@ -442,6 +443,55 @@ Warnings about `expose-ports`:
   program that wants it gets "address in use", and vice versa (then
   pasta fails to start, and the agent with it).
 - Changes take effect at the next launch.
+
+### Snapshots
+
+An agent can damage its workspace, by mistake or on purpose, and its
+own git history is no help, since it can rewrite that too. So at each
+launch, after `bulkhead-git-check`, `compart` runs `bulkhead-snapshot
+take`, which saves the files that the workspace's top repository
+tracks, as they are in the working tree, in the dossier's
+`snapshots/`, where no agent can reach them. If it fails, the session
+doesn't start. A workspace with no repository at its top gets none.
+
+In the workspace, outside every sandbox:
+
+- `bulkhead-snapshot list`: the snapshots, newest first.
+- `bulkhead-snapshot diff [SNAPSHOT] [PATH...]`: what changed since a
+  snapshot (by default the newest), plus files tracked now that it
+  lacks.
+- `bulkhead-snapshot restore [SNAPSHOT] [PATH...]`: put back the
+  snapshot's files (or only those under each PATH). It takes a
+  snapshot first, so you can undo a restore. It doesn't delete files
+  the snapshot lacks; it lists them. It refuses while a session runs
+  in the workspace (`compart` holds a shared lock on the dossier's
+  `logs/sessions.lock` for each session), and refuses to write below a
+  directory that's now a symlink, which an agent could have planted
+  to make it write elsewhere.
+- `bulkhead-snapshot refs [SNAPSHOT]`: the repository's refs at the
+  time, so you can bring back a deleted branch (`git branch NAME ID`)
+  while its commit still exists.
+
+`snapshots/` is a bare git repository, separate from the workspace's
+`.git`; each snapshot is a root commit at `refs/snapshots/TIME` (UTC).
+`snapshot-feed.py` reads each file (through directory descriptors,
+never following a symlink) and gives its exact bytes to `git
+fast-import`, so no repository's filters, attributes, or config apply,
+and the store's git ignores your own config too. To limit space and SSD
+wear, a launch where nothing changed writes nothing (a cache of each
+file's inode, size, and times means it doesn't even read unchanged
+files), and a launch where something did writes one pack holding only
+what's new. One snapshot of a typical set of workspaces took about 145
+MiB, and later ones add only what changed.
+
+It always keeps the newest 3 snapshots, and prunes others once they're
+30 days old. The space they used comes back at the next full repack,
+at most once a week.
+
+It doesn't cover untracked files, history (commits that were never
+pushed and got garbage-collected), tracked paths below a symlink, or
+damage done during a session, since the newest snapshot is from its
+start. `snapshot-plan.md` has the design and why.
 
 ## How it's built
 
@@ -934,11 +984,9 @@ Use these only to work around a breakage.
   agent's own server ports in its dossier's `policy/local-ports`. A nono
   option to allow all loopback ports in a namespace it didn't make
   would close this.
-- No snapshots: nothing keeps a copy of the workspace that its agent
-  can't change, to undo its damage. nono's rollback snapshots don't
-  qualify, since `--rollback-dest` must be a directory the sandbox can
-  already write. We'd have to take our own, outside the sandbox, at
-  launch.
+- Snapshots (see "Snapshots") cover only tracked files, taken at
+  launch. nono's own rollback snapshots wouldn't help, since
+  `--rollback-dest` must be a directory the sandbox can already write.
 - An agent can't read its own `policy/`, so it can't see why something
   is allowed; `nono why --self` usually explains it.
 - An agent can't install or change shared setup from inside a
