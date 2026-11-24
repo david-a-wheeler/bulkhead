@@ -381,7 +381,9 @@ wait "$sleeper" || :
 # against what it should. Each has a positive control, so a sweep that
 # found nothing (e.g., a broken pattern) can't pass.
 echo "Sweeping the VM's sockets and each profile's grants (this takes a moment)..."
-cp "$repo/tests/compartment-sweep.py" "$a/,compartment-sweep.py"
+for d in "$a" "$b"; do
+  cp "$repo/tests/compartment-sweep.py" "$d/,compartment-sweep.py"
+done
 # Every Unix socket on the VM, as seen from outside, and every abstract
 # one in the VM's network namespace.
 {
