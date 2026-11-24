@@ -319,7 +319,7 @@ done
 # Other workspaces are hidden: ~/projects is empty but for this
 # workspace and its dossier's inbox and outbox.
 case "$dry" in
-  *"|--tmpfs|$fhp/projects|--bind|$fhp/projects/p1|$fhp/projects/p1|--bind|$fhp/projects/p1.dossier/inbox|$fhp/projects/p1.dossier/inbox|--bind|$fhp/projects/p1.dossier/outbox|$fhp/projects/p1.dossier/outbox|"*) ;;
+  *"|--tmpfs|$fhp/projects|--bind|$fhp/projects/p1|$fhp/projects/p1|--bind|$fhp/projects/p1.dossier/inbox|$fhp/projects/p1.dossier/inbox|--bind|$fhp/projects/p1.dossier/outbox|$fhp/projects/p1.dossier/outbox|--bind|$fhp/projects/p1.dossier/logs|$fhp/projects/p1.dossier/logs|"*) ;;
   *) failed "compartment doesn't hide other workspaces: $dry" ;;
 esac
 # /run is empty but for what compartment-paths lists, after the tmpfs.

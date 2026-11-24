@@ -141,7 +141,13 @@ fi
 r=$(run_in "$a" "[ -e $b ] && echo seen || echo unseen")
 check "a compartment can't see another workspace" "$r" unseen
 r=$(run_in "$a" "[ -d $a.dossier/inbox ] && [ ! -e $a.dossier/policy ] && echo ok")
-check "a compartment sees only its dossier's inbox and outbox" "$r" ok
+check "a compartment sees only its dossier's inbox, outbox, and logs" "$r" ok
+# nono, run as compart runs it, logs to the dossier (not to stderr,
+# over a harness's display).
+rm -f "$a.dossier/logs/nono.log"
+r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd --log-file $a.dossier/logs/nono.log -- true" 2>&1)
+case "$r" in *"failed to open log file"*) r=stderr ;; *) [ -f "$a.dossier/logs/nono.log" ] && r=dossier || r=nowhere ;; esac
+check "nono's log from a compartment reaches the dossier" "$r" dossier
 # nono mediates Unix sockets: a socket outside the compartment's own
 # places is refused, even where nothing hides it; its own work.
 sock="$HOME/,compartment-test-$$.sock"

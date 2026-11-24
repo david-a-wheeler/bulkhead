@@ -129,14 +129,18 @@ if ! "$dry_run" && [ ! -S "$nolisten" ]; then
 fi
 set -- "$@" --ro-bind "$nolisten" /run/nscd/socket
 # Other workspaces are hidden: ~/projects and ~/sensitive are empty but
-# for this workspace and its dossier's inbox and outbox. nono denies
+# for this workspace and its dossier's inbox and outbox (for the agent)
+# and logs (for nono itself, which writes its log there before it
+# sandboxes the agent; nono grants the agent none of it). nono denies
 # their files anyway, but it can't stop connecting to a socket in one
-# (e.g., another agent's browser, or its nono supervisor).
+# (e.g., another agent's browser, or its nono supervisor). We bind
+# directories, not files: compart renames the log to rotate it, and a
+# bind (like nono's grants) follows the object, not the name.
 for d in "$HOME/projects" "$HOME/sensitive"; do
   [ -d "$d" ] || continue
   d="$(cd "$d" && pwd -P)"
   set -- "$@" --tmpfs "$d"
-  for keep in "$root" "$dossier/inbox" "$dossier/outbox"; do
+  for keep in "$root" "$dossier/inbox" "$dossier/outbox" "$dossier/logs"; do
     case "$keep/" in "$d"/*) set -- "$@" --bind "$keep" "$keep" ;; esac
   done
 done
