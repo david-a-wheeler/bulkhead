@@ -288,8 +288,9 @@ What each file in this repository does. For what bulkhead is, see
   waits while the Mac loads it.
 - `compart goose` runs goose (see `goose.md`) like `compart pi` runs pi,
   against the Mac's models, through goose's OpenAI-compatible provider.
-  It sets goose up entirely through its environment, since goose's
-  settings are read-only in a compartment, and uses the engine's
+  It sets goose up through its environment, gives each compartment's own
+  `~/.config/goose` a `config.yaml` naming the provider (so goose asks
+  only its remaining first-run questions, e.g., about telemetry), and uses the engine's
   default model unless you set `GOOSE_MODEL`, e.g.,
   `compart goose run --text 'Say hello'` or plain `compart goose`.
   `vm-setup.sh` installs goose from its GitHub release, checked against

@@ -135,19 +135,23 @@ if [ -d "$HOME/.pi" ]; then
 fi
 if [ -d "$HOME/.config/goose" ]; then
   # nolabs-ai/goose grants its settings read-write, and they can name
-  # commands goose runs (extensions); its sessions and logs are private.
+  # commands goose runs (extensions), so they're each compartment's own,
+  # as are its sessions and logs; your shared setup there is read-only.
   gooserun() { run_in "$1" "nono run -s --profile nolabs-ai/goose --allow-cwd -- sh -c '$2'"; }
-  r=$(gooserun "$a" "touch ~/.config/goose/$marker 2>/dev/null && echo wrote || echo refused")
-  rm -f "$HOME/.config/goose/$marker"
-  check "shared ~/.config/goose is read-only, even for goose" "$r" refused
-  r=$(gooserun "$a" "echo a > ~/.local/share/goose/$marker && echo a > ~/.local/state/goose/$marker && echo wrote")
-  check "goose can write its own sessions and logs" "$r" wrote
-  for f in "\$HOME/.local/share/goose/$marker" "\$HOME/.local/state/goose/$marker"; do
+  r=$(gooserun "$a" "echo a > ~/.config/goose/$marker && echo a > ~/.local/share/goose/$marker && echo a > ~/.local/state/goose/$marker && echo wrote")
+  check "goose can write its own settings, sessions, and logs" "$r" wrote
+  for f in "\$HOME/.config/goose/$marker" "\$HOME/.local/share/goose/$marker" "\$HOME/.local/state/goose/$marker"; do
     r=$(gooserun "$b" "[ -e $f ] && echo seen || echo unseen")
     check "another compartment can't see $f" "$r" unseen
     r=$(sh -c "[ -e $f ] && echo seen || echo unseen")
     check "outside, $f isn't there" "$r" unseen
   done
+  if [ -e "$HOME/.config/goose/AGENTS.md" ]; then
+    r=$(gooserun "$a" "{ echo >> ~/.config/goose/AGENTS.md; } 2>/dev/null && echo wrote || echo refused")
+    check "shared ~/.config/goose/AGENTS.md is read-only, even for goose" "$r" refused
+    r=$(gooserun "$a" "[ -s ~/.config/goose/AGENTS.md ] && echo readable || echo missing")
+    check "shared ~/.config/goose/AGENTS.md is readable" "$r" readable
+  fi
 fi
 # Its own /dev: none of the VM's terminals (yours included) are there.
 r=$(run_in "$a" "ls /dev/pts | grep -c '^[0-9]'" || :)

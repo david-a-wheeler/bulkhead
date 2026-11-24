@@ -43,12 +43,24 @@ ro ~/.agents
 # move it here yourself.
 ro ~/.config/nono/profile-drafts
 
-# goose (see goose.md). nolabs-ai/goose grants its settings read-write,
-# but they include extensions, commands goose runs at startup, so one
-# compartment's agent could plant one that runs in every other. Change
-# them from outside a compartment. Its sessions and logs are per
-# compartment.
-ro ~/.config/goose
+# goose (see goose.md). nolabs-ai/goose grants its settings directory
+# read-write, and its config.yaml can name extensions, commands goose
+# runs at startup, so a shared one would let one compartment's agent run
+# code in every other. So it's each compartment's own: goose asks its
+# first-run questions (e.g., telemetry) in each, and saves the answers,
+# its tool permissions, and any secrets there. Your shared goose setup,
+# which shapes what every compartment's goose does, is read-only inside
+# it; change it from outside a compartment. Its sessions and logs are
+# per compartment too.
+private ~/.config/goose
+ro ~/.config/goose/AGENTS.md
+ro ~/.config/goose/.goosehints
+ro ~/.config/goose/adversary.md
+ro ~/.config/goose/prompts
+ro ~/.config/goose/skills
+ro ~/.config/goose/agents
+ro ~/.config/goose/recipes
+ro ~/.config/goose/custom_providers
 private ~/.local/share/goose
 private ~/.local/state/goose
 

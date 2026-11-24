@@ -23,13 +23,13 @@ on them.
 | Mechanism | What it does | Default | Compared to ours |
 |---|---|---|---|
 | Permission modes (`GOOSE_MODE`: `auto`, `approve`, `smart_approve`) | Asks before tools it classifies as "write" tools. | `auto` (asks nothing) | The docs say the read/write classification is "interpreted by your LLM provider", so a confused or manipulated model can misclassify. A shell command the agent runs can do anything its sandbox allows, whatever the mode. |
-| Per-tool permissions | Always allow, ask, or never allow, per tool. | None | Advisory, like the modes. Stored in `~/.config/goose`, which an agent could edit if it were writable (it isn't here). |
+| Per-tool permissions | Always allow, ask, or never allow, per tool. | None | Advisory, like the modes. Stored in `~/.config/goose`, which is each compartment's own here, so an agent can change them only for its own compartment's goose. |
 | Prompt-injection check (`SECURITY_PROMPT_ENABLED`) | Pattern matching on tool calls, optionally an ML classifier at an endpoint you supply. | Off | A heuristic; new attacks get past it. |
 | "Adversary" reviewer (`~/.config/goose/adversary.md`) | A second model call reviews each `shell` tool call against your rules, and blocks it if the reviewer says so. | Off unless the file exists | I read the source (`adversary_inspector.rs`): if the review fails, or there's no provider, it allows the call. It reviews only `shell` unless you list more tools. It costs a model call per tool call. |
 | "Egress inspector" | Finds destinations (URLs, git remotes, `scp` targets, ...) in tool calls. | On | I read the source (`egress_inspector.rs`): it only logs. Every result is hard-coded to allow. nono's proxy is what actually limits where an agent can go. |
 | Extension allowlist (`GOOSE_ALLOWLIST`) | Refuses to install an MCP extension whose command isn't on a list fetched from a URL. | Off | Useful for an organization; here, an extension runs inside the compartment anyway. |
 | Keyring | Keeps API keys in the system keyring over D-Bus, else in a plain-text `~/.config/goose/secrets.yaml`. | Keyring | A compartment has no session bus, and `compart goose` passes the engine's key in the environment, so it sets `GOOSE_DISABLE_KEYRING` and nothing goes in `secrets.yaml`. |
-| Telemetry | Anonymous usage data. | Off | `compart goose` turns it off explicitly too. |
+| Telemetry | Anonymous usage data, sent by POST to PostHog (`us.i.posthog.com`). | Off until you say yes; goose asks on first run | goose asks in each compartment, since each has its own settings. If you say yes, our network policy refuses the POST anyway, and allowing it would give agents a way to upload data (to their own PostHog project, with the same public key). |
 
 ## Where goose would undo our protections, and what we do about it
 
@@ -41,14 +41,21 @@ there that runs in every other compartment, turn off approvals or the
 adversary reviewer for all of them, or read any key in `secrets.yaml`.
 So:
 
-- `compartment-paths` makes `~/.config/goose` read-only. goose works
-  with that: it takes its whole provider setup from the environment, and
-  writes nothing there in a normal session. It does need a
-  `config.yaml` to exist, or plain `goose` runs its first-time setup,
-  which saves your answers there and so fails; `vm-setup.sh` writes a
-  one-line one (no telemetry), unless you have your own. A change it would save
-  there (e.g., "always allow" for a tool, or `/mode`) fails; set those
-  from outside a compartment.
+- `compartment-paths` makes `~/.config/goose` each compartment's own,
+  so goose's settings (`config.yaml`, with its extensions, `/mode`, and
+  the telemetry answer), tool permissions, and any secrets there affect
+  only that compartment. An extension an agent plants there runs only
+  in its own compartment, which can't do more than the agent already
+  can. Your shared setup there, which shapes what every compartment's
+  goose does (`AGENTS.md`, `.goosehints`, `adversary.md`, and the
+  `prompts`, `skills`, `agents`, `recipes`, and `custom_providers`
+  directories), is read-only inside it; change it from outside a
+  compartment.
+- Without a `config.yaml`, plain `goose` runs its whole first-time
+  setup, provider and all. So `compart goose` gives each compartment a
+  `config.yaml` that names only the provider (it sets the rest in
+  goose's environment), and goose asks just what's left, e.g., about
+  telemetry, as it normally would.
 - goose's sessions (`~/.local/share/goose`) and logs
   (`~/.local/state/goose`) are private to each compartment. The pack's
   other writable grants were already covered: all of `~/.cache` is

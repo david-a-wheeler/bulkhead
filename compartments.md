@@ -952,10 +952,10 @@ Use these only to work around a breakage.
 - pi can't change its shared settings from inside a compartment (e.g.,
   with `/settings`), since they're read-only there; how pi reacts to
   that isn't tested yet.
-- goose can't save a setting from inside a compartment (e.g., `/mode`,
-  or "always allow" for a tool), since `~/.config/goose` is read-only
-  there: it can hold extensions, commands goose runs at startup (see
-  `goose.md`). Change goose's settings from outside a compartment.
+- goose's settings (e.g., `/mode`, "always allow" for a tool, and its
+  telemetry answer) are per compartment, so goose asks its first-run
+  questions in each; your shared goose setup (e.g., its `AGENTS.md` and
+  skills) is read-only there (see `goose.md`).
 
 ## Testing
 

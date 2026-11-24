@@ -288,16 +288,15 @@ case "$harness" in
   goose)
     # goose (see goose.md) runs against the Mac's local AI models (see
     # engine_setup), through its OpenAI-compatible provider, set up
-    # entirely here, since its settings (~/.config/goose) are read-only
-    # in a compartment. Set GOOSE_MODEL to use a model other than the
+    # here. Each compartment has its own ~/.config/goose (see
+    # compartment-paths), so goose asks its first-run questions (e.g.,
+    # telemetry) in each. Set GOOSE_MODEL to use a model other than the
     # engine's default. goose's own checks (e.g., GOOSE_MODE) are yours
     # to set; they add to the compartment, but don't replace it.
     # GOOSE_DISABLE_KEYRING: a compartment has no keyring service, and
     # the key is in the environment anyway. vm-setup.sh installs goose.
     [ -x /usr/local/bin/goose ] ||
       die "goose isn't installed on this VM; run ./vm-setup.sh."
-    [ -f "$HOME/.config/goose/config.yaml" ] ||
-      die "there's no ~/.config/goose/config.yaml, so goose would try to set itself up; run ./vm-setup.sh."
     engine_setup goose
     GOOSE_MODEL="${GOOSE_MODEL:-$default}"
     [ -n "$GOOSE_MODEL" ] ||
@@ -312,12 +311,8 @@ case "$harness" in
     OPENAI_HOST="http://127.0.0.1:$port"
     OPENAI_API_KEY="$INFER_API_KEY"
     GOOSE_DISABLE_KEYRING=1
-    # The docs name GOOSE_TELEMETRY_ENABLED; the source also reads
-    # GOOSE_TELEMETRY_OFF.
-    GOOSE_TELEMETRY_ENABLED=false
-    GOOSE_TELEMETRY_OFF=1
     export GOOSE_MODEL GOOSE_CONTEXT_LIMIT GOOSE_PROVIDER OPENAI_HOST OPENAI_API_KEY \
-      GOOSE_DISABLE_KEYRING GOOSE_TELEMETRY_ENABLED GOOSE_TELEMETRY_OFF
+      GOOSE_DISABLE_KEYRING
     profile=nolabs-ai/goose
     set -- --open-port "$port" -- /usr/local/bin/goose "$@"
     ;;
@@ -329,6 +324,22 @@ case "$harness" in
 esac
 
 launch_checks false || exit 1
+# Without a config.yaml, plain goose runs its whole first-time setup,
+# provider and all; with one that names the provider (compart goose
+# sets the rest), it asks only what's left, e.g., about telemetry. So we
+# give the compartment's own ~/.config/goose one (or, with
+# BULKHEAD_NO_COMPARTMENT, yours), unless it has one. That directory
+# is named as bulkhead-compartment names it.
+if [ "$harness" = goose ]; then
+  goose_dir="$HOME/.config/goose"
+  [ -n "${BULKHEAD_NO_COMPARTMENT:-}" ] ||
+    goose_dir="$dossier/state/$(printf '%s' "${goose_dir#/}" | tr '/' '%')"
+  if [ ! -e "$goose_dir/config.yaml" ]; then
+    [ -d "$goose_dir" ] || mkdir -m 700 "$goose_dir"
+    printf '%s\n' "# Written by compart goose, which sets the rest in goose's environment." \
+      "GOOSE_PROVIDER: openai" > "$goose_dir/config.yaml"
+  fi
+fi
 # Claude's ~/.claude, as the agent will see it: the compartment's private
 # copy (named as bulkhead-compartment names it), or, with
 # BULKHEAD_NO_COMPARTMENT, your own.
