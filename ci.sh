@@ -307,7 +307,7 @@ rm -r "$fh/.pi" "$fh/run"
 # Its own /dev, /run, and keyring, and no list of our keys.
 dry="$(printf '%s\n' "$out" | tr '\n' '|')"
 for want in "|--dev|/dev|--tmpfs|/dev/shm|" "|--tmpfs|/run|" "|--perms|0700|--dir|/run/user/9|" \
-  "|--ro-bind|/dev/null|/run/nscd/socket|" "|--dev-bind|/dev/null|/proc/keys|" "|--dev-bind|/dev/null|/proc/key-users|" \
+  "|--ro-bind|$fhp/projects/p1.dossier/state/no-listener.sock|/run/nscd/socket|" "|--dev-bind|/dev/null|/proc/keys|" "|--dev-bind|/dev/null|/proc/key-users|" \
   "|--|$SCRIPT_DIR/new-session-keyring|cmd|a b|"; do
   case "$dry" in *"$want"*) ;; *) failed "compartment arguments lack $want" ;; esac
 done
