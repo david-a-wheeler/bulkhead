@@ -133,6 +133,22 @@ if [ -d "$HOME/.pi" ]; then
     check "shared ~/.pi/agent/settings.json is read-only" "$r" refused
   fi
 fi
+if [ -d "$HOME/.config/goose" ]; then
+  # nolabs-ai/goose grants its settings read-write, and they can name
+  # commands goose runs (extensions); its sessions and logs are private.
+  gooserun() { run_in "$1" "nono run -s --profile nolabs-ai/goose --allow-cwd -- sh -c '$2'"; }
+  r=$(gooserun "$a" "touch ~/.config/goose/$marker 2>/dev/null && echo wrote || echo refused")
+  rm -f "$HOME/.config/goose/$marker"
+  check "shared ~/.config/goose is read-only, even for goose" "$r" refused
+  r=$(gooserun "$a" "echo a > ~/.local/share/goose/$marker && echo a > ~/.local/state/goose/$marker && echo wrote")
+  check "goose can write its own sessions and logs" "$r" wrote
+  for f in "\$HOME/.local/share/goose/$marker" "\$HOME/.local/state/goose/$marker"; do
+    r=$(gooserun "$b" "[ -e $f ] && echo seen || echo unseen")
+    check "another compartment can't see $f" "$r" unseen
+    r=$(sh -c "[ -e $f ] && echo seen || echo unseen")
+    check "outside, $f isn't there" "$r" unseen
+  done
+fi
 # Its own /dev: none of the VM's terminals (yours included) are there.
 r=$(run_in "$a" "ls /dev/pts | grep -c '^[0-9]'" || :)
 check "a compartment sees none of the VM's terminals" "$r" 0
@@ -157,7 +173,7 @@ check "a compartment can't see another workspace" "$r" unseen
 # profile may grant more than it seems, e.g., all of /run); what it
 # grants is.
 if [ "${BULKHEAD_VIEW:-allowlist}" = allowlist ]; then
-  for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
+  for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose; do
     for p in /etc/shadow /var/log /run/docker.sock /run/dbus/system_bus_socket \
       "${XDG_RUNTIME_DIR:-/nonexistent}/bus" "$HOME/.ssh" "$HOME/.gnupg" \
       "$HOME/.bash_history" "$HOME/.local/share/keyrings"; do
@@ -438,7 +454,7 @@ r=$([ "$(wc -l < "$a/,sockets.list")" -gt 0 ] && echo some || echo none)
 check "the sweep listed the VM's sockets" "$r" some
 # Shared on purpose, as compartment-paths says.
 shared=$(awk -v home="$HOME" '$1 == "shared" { sub("^~", home, $2); print $2 }' "$repo/compartment-paths" | tr '\n' ' ')
-for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
+for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose; do
   r=$(run_in "$a" "nono run -s --profile $prof --allow-cwd -- python3 ,compartment-sweep.py sockets ,sockets.list $spd" --nono-profile "$prof")
   check "$prof: no socket on the VM is reachable, but those allowed" "$(printf '%s\n' "$r" | grep '^CONNECTS' || :)" ""
   if [ -S "$spd" ]; then
@@ -474,7 +490,7 @@ done
 
 # Every path the installed profiles let agents write is covered.
 r=$(cd "$a" && BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
-  "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi 2>&1 && echo covered || :)
+  "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose 2>&1 && echo covered || :)
 check "compartment-paths covers every write the installed profiles grant" "$r" covered
 
 report_end "$fails" "$checks"

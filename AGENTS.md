@@ -20,6 +20,7 @@ Don't read the long docs up front; look things up as you need them:
 - `architecture.md`: why the security design is the way it is.
 - `local-ai-plan.md` (long): the inference engine's design notes and
   history. Read only the section you need.
+- `goose.md`: goose's own security checks, and how it fits here.
 - `model-candidates.md`: notes on candidate models. Rarely relevant.
 
 You're probably running inside one of those VMs, under nono, right now.

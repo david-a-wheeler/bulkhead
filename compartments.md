@@ -952,10 +952,10 @@ Use these only to work around a breakage.
 - pi can't change its shared settings from inside a compartment (e.g.,
   with `/settings`), since they're read-only there; how pi reacts to
   that isn't tested yet.
-- `nolabs-ai/goose` grants `~/.config/goose`, `~/.cache/goose`,
-  `~/.local/share/goose`, and `~/.local/state/goose` read-write, and
-  none is in `compartment-paths` yet. `compart` has no goose harness,
-  so nothing uses them; add them before adding one.
+- goose can't save a setting from inside a compartment (e.g., `/mode`,
+  or "always allow" for a tool), since `~/.config/goose` is read-only
+  there: it can hold extensions, commands goose runs at startup (see
+  `goose.md`). Change goose's settings from outside a compartment.
 
 ## Testing
 

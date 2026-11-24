@@ -230,7 +230,7 @@ What each file in this repository does. For what bulkhead is, see
   gets a case that adds only what it alone needs (its nono profile,
   setup, and extra nono options); every one ends in the same `anon-access
   nono run --profile PROFILE --allow-cwd ...`, so adding a
-  harness (e.g., goose) means adding one case. For every harness, it
+  harness means adding one case. For every harness, it
   adds the workspace's nono options: `--extends bulkhead-broad` outside
   `~/sensitive`, `--log-file` with the workspace's log (so nono's
   warnings don't land on the harness's screen; `nono.log` is rotated to
@@ -282,8 +282,17 @@ What each file in this repository does. For what bulkhead is, see
   model. `compart pi --list-models` lists the models it would serve (the
   generalists, by their ID in `models.local.yaml`), and
   `compart pi --model FOO` runs pi against the model named FOO for that
-  session, instead of the default. Another client (e.g., goose) would
-  do the same, with its own small jq file.
+  session, instead of the default.
+- `compart goose` runs goose (see `goose.md`) like `compart pi` runs pi,
+  against the Mac's models, through goose's OpenAI-compatible provider.
+  It sets goose up entirely through its environment, since goose's
+  settings are read-only in a compartment, and uses the engine's
+  default model unless you set `GOOSE_MODEL`, e.g.,
+  `compart goose run --text 'Say hello'` or plain `compart goose`.
+  `vm-setup.sh` installs goose from its GitHub release, checked against
+  GitHub's SHA-256 and goose's build attestation, after the same
+  cooling period as the engine's releases (`GOOSE_MIN` and `GOOSE_PIN`
+  in `config.sh`).
 - `pi-prose-style.js`: a pi extension that checks the text pi writes
   with `check-prose-style`, as Claude Code's hook does, and blocks a
   write or edit that breaks the rules. `vm-setup.sh` installs it in
@@ -375,6 +384,8 @@ What each file in this repository does. For what bulkhead is, see
 - `FILES.md`: this file.
 - `agent-network-plan.md`: the shared network policy's design, test
   results, and rollout steps.
+- `goose.md`: what goose's own security checks do, why ours are
+  stronger, and how goose fits in a compartment.
 - `compartments.md`: what each agent's compartment can and can't do,
   each workspace's dossier (its layout, ports, inbox, and outbox) and
   where an agent may not start, and how `anon-access`, pasta, bwrap,

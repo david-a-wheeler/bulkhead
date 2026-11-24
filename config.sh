@@ -49,7 +49,9 @@ MODELS_DIR="/Users/Shared/models"
 #
 # vm-setup.sh installs pi the same way, with PI_MIN and PI_PIN (versions
 # like "1.3.0"), using npm's --before, which also limits pi's
-# dependencies to versions published by then.
+# dependencies to versions published by then. It installs goose the
+# same way too, with GOOSE_MIN and GOOSE_PIN (release tags like
+# "v1.59.2"); see goose.md.
 INFER_COOLING_DAYS="7"
 LLAMA_CPP_MIN="v0.7.0"
 LLAMA_CPP_PIN=""
@@ -61,6 +63,8 @@ LLAMA_SWAP_PIN=""
 SD_CPP_PIN=""
 PI_MIN="1.3.0"
 PI_PIN=""
+GOOSE_MIN="v1.59.2"
+GOOSE_PIN=""
 
 # Port the local AI engine (llama-swap) listens on, on the Mac's
 # 127.0.0.1. A VM's SSH reverse tunnel forwards the same port on the VM's

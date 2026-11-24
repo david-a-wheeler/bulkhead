@@ -77,7 +77,7 @@ re-run `./host-setup.sh` once the VM's actually reachable.
 `host-setup.sh` creates the engine's API key in
 `~/.config/bulkhead/infer-api-key` on the Mac (see `local-ai-plan.md`).
 A VM can use the engine only if it has a copy of that file (and a
-tunnel; see `infer-access.sh`). `vm-setup.sh` installs pi, `compart pi`,
+tunnel; see `infer-access.sh`). `vm-setup.sh` installs pi, goose, `compart pi`, `compart goose`,
 and `infer-logs` on every VM, and creates the VM's `~/.config/bulkhead`.
 `host-setup.sh` then copies the key into that directory on each running
 VM, except those in `config.sh`'s `INFER_NO_KEY_VMS`, and restarts the

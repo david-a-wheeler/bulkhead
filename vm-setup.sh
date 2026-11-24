@@ -553,4 +553,57 @@ systemctl --user restart infer-logs@proxy.service infer-logs@upstream.service
 echo "Once the Mac gives this VM access (./infer-access.sh shared), try: compart pi --print 'Say hello in five words.'"
 echo "Engine logs: journalctl --user -u 'infer-logs@*'"
 
+echo "== goose (see goose.md) =="
+# The newest goose release that's at least INFER_COOLING_DAYS old, but
+# not older than GOOSE_MIN; or GOOSE_PIN (see config.sh). Not through
+# goose's installer, which checks nothing and runs goose unsandboxed
+# (see goose.md). We accept its release file only if it matches the
+# SHA-256 GitHub publishes and wasn't replaced after release (see
+# fetch_asset), and GitHub attests that goose's own release workflow
+# built it from that tag. gh needs a token to check that; the public
+# read-only one is enough. Installed root-owned, so no agent can change
+# it (e.g., with "goose update").
+release_tmp="$TMPDIR/goose"
+rm -rf "${release_tmp:?}"
+mkdir -p "$release_tmp"
+cooling_cutoff="$(cooling_cutoff)"
+goose_tag="$(pick_release aaif-goose/goose '^v[0-9]+\.[0-9]+\.[0-9]+$' "$GOOSE_MIN" "$GOOSE_PIN")" ||
+  die "can't choose a goose release (is GitHub reachable?)."
+goose_have="v$(/usr/local/bin/goose --version 2> /dev/null | tr -d ' ')"
+if [ "$goose_have" = "$goose_tag" ]; then
+  echo "goose $goose_tag is already installed."
+else
+  goose_file="goose-$(uname -m)-unknown-linux-gnu.tar.bz2"
+  fetch_asset aaif-goose/goose "$goose_tag" "$goose_file" ||
+    die "can't download goose $goose_tag's $goose_file."
+  goose_gh_token="$(secrets-client --context "vm-setup.sh: check goose's build" --get GH_PUBLIC_TOKEN)" ||
+    die "can't get GH_PUBLIC_TOKEN, which gh needs to check goose's build."
+  GH_TOKEN="$goose_gh_token" gh attestation verify "$release_tmp/$goose_file" \
+    --repo aaif-goose/goose --source-ref "refs/tags/$goose_tag" \
+    --signer-workflow aaif-goose/goose/.github/workflows/release.yml > /dev/null ||
+    die "GitHub doesn't attest that goose's release workflow built $goose_file for $goose_tag."
+  tar tjf "$release_tmp/$goose_file" > "$release_tmp/names"
+  archive_names_ok < "$release_tmp/names" || die "$goose_file has an unsafe file name."
+  mkdir "$release_tmp/unpack"
+  tar xjf "$release_tmp/$goose_file" -C "$release_tmp/unpack"
+  unpacked_tree_ok "$release_tmp/unpack" || die "$goose_file has an unsafe file."
+  [ -f "$release_tmp/unpack/goose" ] || die "$goose_file has no goose."
+  sudo install -m 755 "$release_tmp/unpack/goose" /usr/local/bin/goose
+  echo "goose $goose_tag installed."
+fi
+rm -rf "${release_tmp:?}"
+# goose's settings, read-only in every compartment (see
+# compartment-paths): compart goose gives it what it needs in its
+# environment. goose reads global instructions from
+# ~/.config/goose/AGENTS.md, so point that at the shared ones, unless
+# you've put your own file there.
+goose_agents="$HOME/.config/goose/AGENTS.md"
+mkdir -p "$HOME/.config/goose"
+if [ ! -e "$goose_agents" ] && [ ! -L "$goose_agents" ]; then
+  ln -s "$HOME/.agents/AGENTS.md" "$goose_agents"
+elif [ "$(readlink "$goose_agents" 2> /dev/null)" != "$HOME/.agents/AGENTS.md" ]; then
+  echo "WARNING: $goose_agents isn't a link to ~/.agents/AGENTS.md, so goose doesn't get the shared instructions." >&2
+fi
+echo "Once the Mac gives this VM access (./infer-access.sh shared), try: compart goose run --text 'Say hello in five words.'"
+
 echo "== vm-setup.sh done =="

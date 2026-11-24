@@ -3,7 +3,7 @@
 # compartments.md) under nono, e.g., "compart claude" or
 # "compart pi --print 'Say hello'". Each harness's case below adds only
 # what it alone needs: its nono profile, any setup, and any extra nono
-# options. So adding a harness (e.g., goose) means adding one case.
+# options. So adding a harness means adding one case.
 # Then, for every harness, we check the workspace, add its nono options
 # (from its dossier; see bulkhead-workspace), and run it all through
 # anon-access, which strips secrets and starts the compartment. When
@@ -39,7 +39,7 @@ LIB_DIR=/usr/local/libexec/bulkhead
 bin="$(dirname "$0")"
 
 usage() {
-  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; compart dossier; or compart check"
+  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude, pi, or goose; compart sh [COMMAND...]; compart dossier; or compart check"
   echo "Use compart sh to run code an agent wrote (e.g., compart sh make test); its exit status is COMMAND's."
 }
 
@@ -61,17 +61,41 @@ refuse_real_login() {
   esac
 }
 
-# pi_update_models: ask the engine what it serves now (infer-models), and
-# rewrite pi's list of models (~/.pi/agent/models.json, by pi-models.jq)
-# if that changed, keeping the old one as models.json.bak. So a change
-# on the Mac (see manage-models.sh there) reaches pi the next time you
-# start it. Sets $models to infer-models' answer and $default to the
-# model the Mac's list marks "default: true". compart pi always uses
-# the engine (--provider mac-local), so if the engine doesn't answer,
-# pi can't work, and we stop; infer-models says why.
+# engine_setup HARNESS: for a harness that uses the Mac's local AI
+# engine (see local-ai-plan.md), through this VM's SSH tunnel. Sets
+# $models to what the engine serves now (infer-models' answer, also
+# exported as INFER_MODELS, for tools the harness runs that need it),
+# $default to the model the Mac's list marks "default: true", $port to
+# the engine's port on 127.0.0.1 (where the tunnel ends), and $forward,
+# so that port reaches the compartment. The shared allowlist has no
+# model providers; these harnesses need only the engine, a VM service.
+# The API key comes from a file only you can read (host-setup.sh on the
+# Mac copies it here), and reaches the harness only through its
+# environment, as INFER_API_KEY. If the engine doesn't answer, the
+# harness can't work, so we stop; infer-models says why.
+engine_setup() {
+  key_file="$HOME/.config/bulkhead/infer-api-key"
+  [ -s "$key_file" ] ||
+    die "there's no $key_file; run ./host-setup.sh on the Mac to copy it here."
+  models="$(/usr/local/bin/infer-models)" || die "can't reach the engine (see above)."
+  default="$(printf '%s' "$models" | jq -r '.default // empty')"
+  [ -n "$default" ] ||
+    echo "compart $1: WARNING: the engine has no default model (see ./manage-models.sh default on the Mac)." >&2
+  url="$(/usr/local/bin/infer-models --url)"
+  port="${url#http://127.0.0.1:}"
+  port="${port%%/*}"
+  forward="$port"
+  INFER_API_KEY="$(cat "$key_file")"
+  INFER_MODELS="$models"
+  export INFER_API_KEY INFER_MODELS
+}
+
+# pi_update_models: rewrite pi's list of models (~/.pi/agent/models.json,
+# by pi-models.jq) from $models, if that changed, keeping the old one as
+# models.json.bak. So a change on the Mac (see manage-models.sh there)
+# reaches pi the next time you start it.
 pi_update_models() {
   agent_dir="$HOME/.pi/agent"
-  models="$(/usr/local/bin/infer-models)" || die "can't reach the engine (see above)."
   mkdir -p "$agent_dir"
   new="$(mktemp "$agent_dir/models.json.XXXXXX")"
   printf '%s' "$models" | jq -f "$LIB_DIR/pi-models.jq" > "$new" ||
@@ -82,17 +106,6 @@ pi_update_models() {
     [ ! -f "$agent_dir/models.json" ] || cp "$agent_dir/models.json" "$agent_dir/models.json.bak"
     mv "$new" "$agent_dir/models.json"
   fi
-  default="$(printf '%s' "$models" | jq -r '.default // empty')"
-  [ -n "$default" ] ||
-    echo "compart pi: WARNING: the engine has no default model (see ./manage-models.sh default on the Mac)." >&2
-}
-
-# pi_engine_port: the engine's port on 127.0.0.1, where the VM's SSH
-# tunnel to the Mac ends.
-pi_engine_port() {
-  url="$(/usr/local/bin/infer-models --url)"
-  port="${url#http://127.0.0.1:}"
-  printf '%s\n' "${port%%/*}"
 }
 
 # Each line of a policy file is a port number, except blank lines and
@@ -147,7 +160,7 @@ check_workspace() {
   fi
   # Every profile a case below uses. A pack update can add a path that
   # every compartment would share.
-  "$bin/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi || cw_ok=false
+  "$bin/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose || cw_ok=false
   cw_orphans="$("$bin/bulkhead-workspace" orphans)"
   if [ -n "$cw_orphans" ]; then
     printf 'compart check: WARNING: these dossiers'"'"' workspaces are gone (see compartments.md, "Moving a workspace"):\n%s\n' "$cw_orphans" >&2
@@ -217,20 +230,14 @@ case "$harness" in
     set -- -- claude "$@"
     ;;
   pi)
-    # pi runs against the Mac's local AI models, which llama-swap serves
-    # through this VM's SSH tunnel (see local-ai-plan.md), with no
-    # network activity of its own (no model catalog refresh, version
-    # check, or telemetry). The API key comes from a file only you can
-    # read (host-setup.sh on the Mac copies it here), and reaches pi only
-    # through its environment. We also export infer-models' answer in
-    # INFER_MODELS, for tools pi runs that need it. vm-setup.sh installs
-    # pi where "npm install -g" would.
+    # pi runs against the Mac's local AI models (see engine_setup), with
+    # no network activity of its own (no model catalog refresh, version
+    # check, or telemetry). vm-setup.sh installs pi where
+    # "npm install -g" would.
     pi_dir=/usr/local/lib/node_modules/@earendil-works/pi-coding-agent
-    key_file="$HOME/.config/bulkhead/infer-api-key"
     [ -x /usr/local/bin/pi ] ||
       die "pi isn't installed on this VM; run ./vm-setup.sh."
-    [ -s "$key_file" ] ||
-      die "there's no $key_file; run ./host-setup.sh on the Mac to copy it here."
+    engine_setup pi
     pi_update_models
     # A later --model (in "$@") overrides this. pi refuses --provider
     # without --model, so with no default you must give one.
@@ -242,18 +249,41 @@ case "$harness" in
         *) die "there's no default model to use (see the warning above); pass --model, or set a default on the Mac with ./manage-models.sh default." ;;
       esac
     fi
-    INFER_API_KEY="$(cat "$key_file")"
-    INFER_MODELS="$models"
     PI_OFFLINE=1
     PI_SKIP_VERSION_CHECK=1
     PI_TELEMETRY=0
-    export INFER_API_KEY INFER_MODELS PI_OFFLINE PI_SKIP_VERSION_CHECK PI_TELEMETRY
-    # The shared allowlist has no model providers; pi needs only the
-    # engine, a VM service, so we forward its port into the compartment.
-    port="$(pi_engine_port)"
-    forward="$port"
+    export PI_OFFLINE PI_SKIP_VERSION_CHECK PI_TELEMETRY
     profile=nolabs-ai/pi
     set -- --read "$pi_dir" --open-port "$port" -- /usr/local/bin/pi --provider mac-local "$@"
+    ;;
+  goose)
+    # goose (see goose.md) runs against the Mac's local AI models (see
+    # engine_setup), through its OpenAI-compatible provider, set up
+    # entirely here, since its settings (~/.config/goose) are read-only
+    # in a compartment. Set GOOSE_MODEL to use a model other than the
+    # engine's default. goose's own checks (e.g., GOOSE_MODE) are yours
+    # to set; they add to the compartment, but don't replace it.
+    # GOOSE_DISABLE_KEYRING: a compartment has no keyring service, and
+    # the key is in the environment anyway. vm-setup.sh installs goose.
+    [ -x /usr/local/bin/goose ] ||
+      die "goose isn't installed on this VM; run ./vm-setup.sh."
+    engine_setup goose
+    GOOSE_MODEL="${GOOSE_MODEL:-$default}"
+    [ -n "$GOOSE_MODEL" ] ||
+      die "there's no default model to use (see the warning above); set GOOSE_MODEL, or set a default on the Mac with ./manage-models.sh default."
+    GOOSE_CONTEXT_LIMIT="$(printf '%s' "$models" |
+      jq -r --arg m "$GOOSE_MODEL" '.models[] | select(.id == $m) | .context // empty')"
+    [ -n "$GOOSE_CONTEXT_LIMIT" ] ||
+      die "the engine serves no text model $GOOSE_MODEL (see infer-models)."
+    GOOSE_PROVIDER=openai
+    OPENAI_HOST="http://127.0.0.1:$port"
+    OPENAI_API_KEY="$INFER_API_KEY"
+    GOOSE_DISABLE_KEYRING=1
+    GOOSE_TELEMETRY_ENABLED=false
+    export GOOSE_MODEL GOOSE_CONTEXT_LIMIT GOOSE_PROVIDER OPENAI_HOST OPENAI_API_KEY \
+      GOOSE_DISABLE_KEYRING GOOSE_TELEMETRY_ENABLED
+    profile=nolabs-ai/goose
+    set -- --open-port "$port" -- /usr/local/bin/goose "$@"
     ;;
   *)
     echo "compart: unknown harness: $harness" >&2

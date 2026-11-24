@@ -1,9 +1,9 @@
 # bulkhead
 
-bulkhead is how I run AI coding agents, such as Claude Code and pi, so
-that one that's out of control can do only limited damage. It's a set
-of setup scripts and small wrappers for a macOS host running Ubuntu
-Linux virtual machines (VMs).
+bulkhead is how I run AI coding agents, such as Claude Code, pi, and
+goose, so that one that's out of control can do only limited damage.
+It's a set of setup scripts and small wrappers for a macOS host
+running Ubuntu Linux virtual machines (VMs).
 
 An agent that can read files, run commands, and browse the web is
 useful, but it can also be wrong, be steered by a prompt injection in
@@ -60,9 +60,9 @@ flowchart LR
 Each project in a VM (`~/projects/NAME` or `~/sensitive/NAME`) is a
 *compartment*, so an agent that's out of control in one can't read,
 change, or reach what belongs to another, or to the VM itself. You
-start an agent with `compart`, e.g., `compart claude` or `compart pi`,
-and run code an agent wrote with `compart sh` (e.g., `compart sh make
-test`). Each launch nests these:
+start an agent with `compart`, e.g., `compart claude`, `compart pi`, or
+`compart goose`, and run code an agent wrote with `compart sh` (e.g.,
+`compart sh make test`). Each launch nests these:
 
 1. **`anon-access`** strips your credentials and session handles from
    the environment.
@@ -158,5 +158,7 @@ of the design isn't tied to those.
   design and history.
 - [agent-network-plan.md](agent-network-plan.md): the agents' network
   policy.
+- [goose.md](goose.md): goose's own security checks, and why ours are
+  stronger.
 - [git-check-rationale.md](git-check-rationale.md): which git setting
   changes need your approval, and why.

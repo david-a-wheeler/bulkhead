@@ -695,7 +695,7 @@ copyhist > /dev/null 2>&1
 [ "$(cat "$claude_src/projects/${hist##*/}/s1.jsonl")" = new ] ||
   failed "bulkhead-copy-claude-history overwrote a file"
 
-# compart pi opens the engine's port from what infer-models --url prints.
+# compart pi and compart goose open the engine's port from what infer-models --url prints.
 [ "$(sh "$tmp/infer-models" --url)" = "http://127.0.0.1:$INFER_PORT/v1" ] ||
   failed "infer-models --url"
 # With nothing on the port (curl's status 7), it says this VM has no tunnel.

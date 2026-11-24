@@ -43,6 +43,15 @@ ro ~/.agents
 # move it here yourself.
 ro ~/.config/nono/profile-drafts
 
+# goose (see goose.md). nolabs-ai/goose grants its settings read-write,
+# but they include extensions, commands goose runs at startup, so one
+# compartment's agent could plant one that runs in every other. Change
+# them from outside a compartment. Its sessions and logs are per
+# compartment.
+ro ~/.config/goose
+private ~/.local/share/goose
+private ~/.local/state/goose
+
 # Claude Code. Transcripts, history, todos, plans, and its config file
 # (~/.claude/.claude.json, since bulkhead-claude sets CLAUDE_CONFIG_DIR)
 # become per compartment. Credentials aren't here: compart claude keeps
