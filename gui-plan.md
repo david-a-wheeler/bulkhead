@@ -151,8 +151,9 @@ Open questions for that experiment:
   (the copy in this workspace, `,snap-chromium-bp-badge`).
 - What I checked on our VMs on 2026-11-24: the session (GNOME 50,
   Wayland, `DISPLAY=:0`), that Firefox and Chromium are snaps, the
-  variables nono sets for its CA and proxy, and that a compartment
-  hides `wayland-0`.
+  variables nono sets for its CA and proxy. That a compartment can't
+  see `wayland-0` follows from its own `/run`, but no test checks it
+  yet.
 - The rest (how browsers keep CAs, proxy logins, VNC, and Wayland's
   clipboard rules) is from general knowledge I haven't checked against
   a source yet; check it before relying on it.
