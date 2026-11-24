@@ -141,7 +141,7 @@ check "a compartment sees only its dossier's inbox and outbox" "$r" ok
 # nono mediates Unix sockets: a socket outside the compartment's own
 # places is refused, even where nothing hides it; its own work.
 sock="$HOME/,compartment-test-$$.sock"
-python3 -I -c 'import socket, sys, time; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(); time.sleep(60)' "$sock" &
+python3 -I -c 'import socket, sys, time; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(); time.sleep(60)' "$sock" > /dev/null 2>&1 &
 listener=$!
 sleep 1
 # Python prints nothing (quotes don't survive the nesting); sh says.
@@ -354,14 +354,27 @@ cc-socks "
 [ ! -S "$spd" ] || want="${want}speech-dispatcher "
 check "a compartment's XDG_RUNTIME_DIR is its own, with only what's allowed" "$r" "$want"
 # Another compartment's processes are invisible.
-run_in "$a" "exec sleep 20" &
+# Killing run_in wouldn't stop the sleep inside the compartment, which
+# would then hold our output open (e.g., a pipe to tee) until it ended,
+# so it's short, and we wait for it. Its output isn't ours.
+run_in "$a" "exec sleep 3.141" > /dev/null 2>&1 &
 sleeper=$!
-sleep 1
-r=$(run_in "$b" "grep -lx sleep /proc/[0-9]*/comm 2>/dev/null | wc -l")
+# Make sure it's running (seen from outside), so the check below means
+# something.
+i=0
+until pgrep -f '^sleep 3\.141$' > /dev/null || [ "$i" -ge 20 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+r=$(pgrep -f '^sleep 3\.141$' > /dev/null && echo running || echo missing)
+check "a compartment's process is running, seen from outside" "$r" running
+# cmdline separates arguments with NULs, which grep takes as binary. A
+# process can end mid-loop, so the shell's own error is hidden too.
+# shellcheck disable=SC2016 # It expands in the compartment, not here.
+seen='for f in /proc/[0-9]*/cmdline; do [ "$( { tr "\\0" " " < $f; } 2> /dev/null)" = "sleep 3.141 " ] && echo $f; done | wc -l'
+r=$(run_in "$b" "$seen")
 check "a compartment can't see another's processes" "$r" 0
-# wait gives the killed process's status, which isn't an error here.
-kill "$sleeper" 2> /dev/null || :
-wait "$sleeper" 2> /dev/null || :
+wait "$sleeper" || :
 # Every path the installed profiles let agents write is covered.
 r=$(cd "$a" && BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
   "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi 2>&1 && echo covered || :)
