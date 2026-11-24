@@ -378,7 +378,8 @@ r=$(run_in "$b" "$seen")
 check "a compartment can't see another's processes" "$r" 0
 wait "$sleeper" || :
 # The sweeps: everything a compartment can reach or write, checked
-# against what it should. Each has a positive control, so a sweep that
+# against what it should, with each compartment started as compart
+# starts it for that profile (--nono-profile). Each has a positive control, so a sweep that
 # found nothing (e.g., a broken pattern) can't pass.
 echo "Sweeping the VM's sockets and each profile's grants (this takes a moment)..."
 for d in "$a" "$b"; do
@@ -396,7 +397,7 @@ check "the sweep listed the VM's sockets" "$r" some
 # Shared on purpose, as compartment-paths says.
 shared=$(awk -v home="$HOME" '$1 == "shared" { sub("^~", home, $2); print $2 }' "$repo/compartment-paths" | tr '\n' ' ')
 for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
-  r=$(run_in "$a" "nono run -s --profile $prof --allow-cwd -- python3 ,compartment-sweep.py sockets ,sockets.list $spd")
+  r=$(run_in "$a" "nono run -s --profile $prof --allow-cwd -- python3 ,compartment-sweep.py sockets ,sockets.list $spd" --nono-profile "$prof")
   check "$prof: no socket on the VM is reachable, but those allowed" "$(printf '%s\n' "$r" | grep '^CONNECTS' || :)" ""
   if [ -S "$spd" ]; then
     check "$prof: the socket sweep reaches speech-dispatcher (so it works)" "$(printf '%s\n' "$r" | grep -c '^allowed' || :)" 1
@@ -406,7 +407,7 @@ for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
   # VM nor another compartment may see one, but its outbox's.
   mark=",compartment-sweep-$$"
   grants="--allow-cwd --read $a.dossier/inbox --write $a.dossier/outbox"
-  r=$(run_in "$a" "nono run -s --profile $prof $grants -- python3 ,compartment-sweep.py plant $mark $a $shared")
+  r=$(run_in "$a" "nono run -s --profile $prof $grants -- python3 ,compartment-sweep.py plant $mark $a $shared" --nono-profile "$prof")
   printf '%s\n' "$r" | sed -n 's/^planted //p' > "$a/,planted.list"
   cp "$a/,planted.list" "$b/,planted.list"
   r=$(grep -c . "$a/,planted.list" || :)
@@ -421,7 +422,7 @@ for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
   done < "$a/,planted.list"
   check "$prof: nothing else it wrote shows outside its compartment" "$leaked" ""
   b_grants="--allow-cwd --read $b.dossier/inbox --write $b.dossier/outbox"
-  r=$(run_in "$b" "nono run -s --profile $prof $b_grants -- python3 ,compartment-sweep.py seen ,planted.list")
+  r=$(run_in "$b" "nono run -s --profile $prof $b_grants -- python3 ,compartment-sweep.py seen ,planted.list" --nono-profile "$prof")
   check "$prof: another compartment sees nothing it wrote" "$r" ""
   # The markers outside are only the outbox's (and any leaks).
   while IFS= read -r f; do rm -f "$f"; done < "$a/,planted.list"
