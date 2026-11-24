@@ -91,6 +91,11 @@ ncmd=$#
 # uid and gid; otherwise programs see uid 0 (e.g., Claude Code then
 # picks /tmp/claude-0 and refuses it).
 set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)" --dev-bind / /
+# Its own minimal /dev, with its own ptys: the VM's /dev/pts holds
+# every terminal (yours and other agents'), and they're all ours, so an
+# agent could read their input or write into them. The agent keeps its
+# own terminal through the descriptors it inherits.
+set -- "$@" --dev /dev
 # The compartment's temp directory is the directory's .tmp (on disk,
 # not in RAM), as /tmp and as TMPDIR. We always set TMPDIR: pasta's
 # AppArmor profile runs its command with "Ux", which has glibc drop

@@ -45,6 +45,8 @@ An agent in a compartment **can**:
 An agent in a compartment **can't**:
 
 - Read or change another compartment's state, `/tmp`, or workspace.
+- Open another terminal (yours or another agent's): it has its own
+  `/dev`, with only its own ptys.
 - Read or change its own dossier, except `inbox/` (read only) and
   `outbox/` (write only). So it can't change its own policy, read back
   what it gave you, or erase its own log.
@@ -608,7 +610,11 @@ filesystem, so agents use the tools installed on the VM, and it leaves
 access control to nono.
 
 bwrap (bubblewrap) runs unprivileged in a nested user namespace and
-starts from the real filesystem (`--dev-bind / /`). It then mounts
+starts from the real filesystem (`--dev-bind / /`), except `/dev`,
+which is the compartment's own minimal one (`--dev /dev`) with its own
+ptys. The VM's `/dev/pts` holds every terminal, yours and other
+agents', all owned by you, so with it an agent could read another
+terminal's input (e.g., a password you type) or write into it. It then mounts
 over the paths `compartment-paths` lists, each as one of these kinds:
 
 - `private`: the compartment's own copy, from `DOSSIER/state/` (named

@@ -104,6 +104,11 @@ if [ -d "$HOME/.pi" ]; then
     check "shared ~/.pi/agent/settings.json is read-only" "$r" refused
   fi
 fi
+# Its own /dev: none of the VM's terminals (yours included) are there.
+r=$(run_in "$a" "ls /dev/pts | grep -c '^[0-9]'" || :)
+check "a compartment sees none of the VM's terminals" "$r" 0
+r=$(run_in "$a" "echo x > /dev/null && echo ok")
+check "a compartment's /dev/null works" "$r" ok
 r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"
 r=$(git -C "$a" init -q && git -C "$a" status --porcelain | grep -v '^?? .tmp/$' || :)
