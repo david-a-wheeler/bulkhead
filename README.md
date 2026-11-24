@@ -59,8 +59,22 @@ flowchart LR
 
 Each project in a VM (`~/projects/NAME` or `~/sensitive/NAME`) is a
 *compartment*, so an agent that's out of control in one can't read,
-change, or reach what belongs to another, or to the VM itself. You
-start an agent with `compart`, e.g., `compart claude`, `compart pi`, or
+change, or reach what belongs to another, or to the VM itself. The two
+places differ only in network policy, and you choose by where you put
+the project:
+
+- **`~/projects/NAME`** is for most work. Its agents may read (GET and
+  HEAD) the whole web, which is what makes them useful, but a URL can
+  carry data out.
+- **`~/sensitive/NAME`** is for work whose data matters more than the
+  agents' reach. Its agents may reach only a short allowlist of sites
+  (e.g., package registries, GitHub, and documentation), which makes
+  sending data out harder.
+
+Under both, an agent may write (e.g., POST) only where the policy
+lists it, such as its model's API.
+
+You start an agent with `compart`, e.g., `compart claude`, `compart pi`, or
 `compart goose`, and run code an agent wrote with `compart sh` (e.g.,
 `compart sh make test`). Each launch nests these:
 
@@ -79,12 +93,15 @@ start an agent with `compart`, e.g., `compart claude`, `compart pi`, or
    agent never sees your real Claude login, and Unix socket mediation.
 
 Each compartment's state, policy, and logs live in its *dossier*,
-outside the workspace, where no agent can reach. The agent can read
-files you give it (`inbox/`) and leave files for you (`outbox/`, which
-it can write but not read back). `compart` also watches for risky
-changes to the workspace's git settings (e.g., a planted filter that
-would run a program the next time *you* run git there), and asks you
-to approve them. See [compartments.md](compartments.md).
+beside the workspace (e.g., `~/projects/NAME.dossier`). An agent
+reaches only the parts it needs, and only in the way each needs: its
+harness's private state (e.g., its own `~/.claude`), files you give it
+(`inbox/`, read-only), and files it leaves for you (`outbox/`,
+write-only, so it can't read them back). It can't reach the rest,
+such as its policy, the git settings you've approved, or nono's log.
+`compart` also watches for risky changes to the workspace's git
+settings (e.g., a planted filter that would run a program the next
+time *you* run git there), and asks you to approve them. See [compartments.md](compartments.md).
 
 ## Threat model
 
@@ -113,15 +130,30 @@ Such an agent mustn't be able to:
 Making it hard for two compartments to *collude* is a secondary goal:
 covert channels can't be closed entirely, but they shouldn't be easy.
 
+### Kernel and hypervisor exploits
+
+These matter, and no single layer stops them. Everything in a VM
+shares one kernel, so an exploit there (e.g., one that gets root)
+breaks out of every compartment in that VM. So the design makes an
+attacker break through more than one level to do real harm:
+
+1. Out of nono's sandbox and the compartment, into the VM. That
+   reaches the VM's other projects, but still no credentials: the VM
+   holds none, and the Mac releases each one only when I approve it.
+2. Out of the VM, through the virtual machine monitor (UTM, running
+   QEMU with Apple's Hypervisor framework), onto the Mac. The VMM
+   limits the damage: it's a narrow interface, and each VM runs in its
+   own process on the Mac, so an escape lands in one VM's process, not
+   in another VM or the Mac's secrets.
+
+Keep up with kernel and UTM updates (see [INSTALL.md](INSTALL.md)), and
+use the secure VM for work that needs a stronger boundary.
+
 ### Non-goals
 
 These are out of scope, or accepted risks:
 
-- **Kernel or hypervisor exploits.** Everything in a VM shares one
-  kernel; an exploit there breaks out of every compartment. The VM is
-  the next boundary, and the secure VM is for work that needs a
-  stronger one.
-- **Root inside a VM,** or a compromised Mac.
+- **A compromised Mac.**
 - **Sending data out over allowed traffic.** Outside `~/sensitive`,
   an agent can GET any URL, so it could put data in one. That's a
   deliberate trade for usefulness; put sensitive work under
