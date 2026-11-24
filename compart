@@ -90,6 +90,22 @@ engine_setup() {
   export INFER_API_KEY INFER_MODELS
 }
 
+# engine_note MODEL: if the engine hasn't loaded MODEL yet (for a
+# variant, the model it's a variant of), say so, since then the first
+# reply waits while the Mac loads it. Says nothing if the engine doesn't
+# answer, so a session still starts.
+engine_note() {
+  en_id="$(printf '%s' "$models" |
+    jq -r --arg m "$1" 'first(.models[] | select(.id == $m) | .variant_of // .id) // $m')"
+  en_running="$(printf 'Authorization: Bearer %s\n' "$INFER_API_KEY" |
+    curl -s -m 2 -H @- "${url%/v1}/running")" || return 0
+  en_state="$(printf '%s' "$en_running" |
+    jq -r --arg m "$en_id" 'first(.running[] | select(.model == $m) | .state) // "none"' 2> /dev/null)" ||
+    return 0
+  [ "$en_state" = ready ] ||
+    echo "compart: the engine hasn't loaded $1 yet, so its first reply may take a minute or more." >&2
+}
+
 # pi_update_models: rewrite pi's list of models (~/.pi/agent/models.json,
 # by pi-models.jq) from $models, if that changed, keeping the old one as
 # models.json.bak. So a change on the Mac (see manage-models.sh there)
@@ -178,6 +194,9 @@ shift
 # set $forward, VM ports to forward into the compartment (see
 # bulkhead-compartment).
 forward=""
+# A harness that uses the engine sets this to the model it'll use (see
+# engine_note).
+note_model=""
 case "$harness" in
   -h | --help)
     usage
@@ -249,6 +268,16 @@ case "$harness" in
         *) die "there's no default model to use (see the warning above); pass --model, or set a default on the Mac with ./manage-models.sh default." ;;
       esac
     fi
+    # The model pi will use: the last --model.
+    prev=""
+    for a; do
+      [ "$prev" != --model ] || note_model="$a"
+      case "$a" in --model=*) note_model="${a#--model=}" ;; esac
+      prev="$a"
+    done
+    case " $* " in
+      *" --list-models "* | *" --help "* | *" -h "* | *" --version "*) note_model="" ;;
+    esac
     PI_OFFLINE=1
     PI_SKIP_VERSION_CHECK=1
     PI_TELEMETRY=0
@@ -275,6 +304,8 @@ case "$harness" in
       jq -r --arg m "$GOOSE_MODEL" '.models[] | select(.id == $m) | .context // empty')"
     [ -n "$GOOSE_CONTEXT_LIMIT" ] ||
       die "the engine serves no text model $GOOSE_MODEL (see infer-models)."
+    # Only these use a model.
+    case "${1:-session}" in run | session) note_model="$GOOSE_MODEL" ;; esac
     GOOSE_PROVIDER=openai
     OPENAI_HOST="http://127.0.0.1:$port"
     OPENAI_API_KEY="$INFER_API_KEY"
@@ -359,6 +390,7 @@ set -- $compartment_opts \
 # We don't exec, so we can check the workspace when the session ends. A
 # trap (unlike ignoring a signal) doesn't pass on to the harness, so
 # Ctrl-C still reaches it, but doesn't stop us.
+[ -z "$note_model" ] || engine_note "$note_model"
 trap : INT QUIT
 status=0
 anon-access "$@" || status=$?

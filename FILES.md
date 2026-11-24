@@ -282,7 +282,10 @@ What each file in this repository does. For what bulkhead is, see
   model. `compart pi --list-models` lists the models it would serve (the
   generalists, by their ID in `models.local.yaml`), and
   `compart pi --model FOO` runs pi against the model named FOO for that
-  session, instead of the default.
+  session, instead of the default. If the engine hasn't loaded that
+  model yet (per llama-swap's `/running`), `compart pi` and
+  `compart goose` say so before starting, since the first reply then
+  waits while the Mac loads it.
 - `compart goose` runs goose (see `goose.md`) like `compart pi` runs pi,
   against the Mac's models, through goose's OpenAI-compatible provider.
   It sets goose up entirely through its environment, since goose's
