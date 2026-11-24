@@ -152,16 +152,24 @@ check "nono refuses a socket outside the compartment" "$r" refused
 bind="python3 -I -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])'"
 r=$(run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c \"$bind $a/,s && echo bound\""; rm -f "$a/,s")
 check "nono lets an agent make a socket in its workspace" "$r" bound
-# Its own session keyring, and no list of our keys.
-r=$(run_in "$a" "wc -c < /proc/keys")
-check "a compartment's /proc/keys is empty" "$r" 0
-# keyctl's syscall number; KEYCTL_GET_KEYRING_ID (0) of the session keyring (-3).
-case "$(uname -m)" in x86_64) nr=250 ;; *) nr=219 ;; esac
-sesid="python3 -I -c 'import ctypes; print(ctypes.CDLL(None).syscall($nr, 0, -3, 0))'"
-outside=$(sh -c "$sesid")
-r=$(run_in "$a" "$sesid")
-[ "$r" != "$outside" ] && r=different || r=same
-check "a compartment has its own session keyring" "$r" different
+# A key one compartment holds, another can't see (by /proc/keys or a
+# keyring search). The VM can, which shows the key was really there.
+cp "$repo/tests/compartment-sweep.py" "$a/,compartment-sweep.py"
+cp "$repo/tests/compartment-sweep.py" "$b/,compartment-sweep.py"
+key="bulkhead-test-key-$$"
+run_in "$a" "python3 ,compartment-sweep.py key-hold $key 4" > "$a/,key-held" 2>&1 &
+holder=$!
+i=0
+until grep -qx held "$a/,key-held" 2> /dev/null || [ "$i" -ge 30 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+r=$(grep -q "$key" /proc/keys && echo found || echo "not found")
+check "a compartment's key is really there (seen from the VM)" "$r" found
+r=$(run_in "$b" "python3 ,compartment-sweep.py key-find $key")
+check "another compartment can't see a compartment's key" "$r" "not found"
+wait "$holder" || :
+rm -f "$a/,key-held" "$a/,compartment-sweep.py" "$b/,compartment-sweep.py"
 r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"
 r=$(git -C "$a" init -q && git -C "$a" status --porcelain | grep -v '^?? .tmp/$' || :)
@@ -347,12 +355,6 @@ except OSError as e:
     print(errno.errorcode[e.errno])' /var/run/nscd/socket"
 r=$(run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c \"$nscd\"")
 check "nscd's socket is refused, not blocked" "$r" ECONNREFUSED
-# The VM's runtime directory: only ours, and only what's allowed in it.
-r=$(run_in "$a" "stat -c %a \$XDG_RUNTIME_DIR; ls -A \$XDG_RUNTIME_DIR | tr '\n' ' '")
-want="700
-cc-socks "
-[ ! -S "$spd" ] || want="${want}speech-dispatcher "
-check "a compartment's XDG_RUNTIME_DIR is its own, with only what's allowed" "$r" "$want"
 # Another compartment's processes are invisible.
 # Killing run_in wouldn't stop the sleep inside the compartment, which
 # would then hold our output open (e.g., a pipe to tee) until it ended,
@@ -375,6 +377,54 @@ seen='for f in /proc/[0-9]*/cmdline; do [ "$( { tr "\\0" " " < $f; } 2> /dev/nul
 r=$(run_in "$b" "$seen")
 check "a compartment can't see another's processes" "$r" 0
 wait "$sleeper" || :
+# The sweeps: everything a compartment can reach or write, checked
+# against what it should. Each has a positive control, so a sweep that
+# found nothing (e.g., a broken pattern) can't pass.
+echo "Sweeping the VM's sockets and each profile's grants (this takes a moment)..."
+cp "$repo/tests/compartment-sweep.py" "$a/,compartment-sweep.py"
+# Every Unix socket on the VM, as seen from outside, and every abstract
+# one in the VM's network namespace.
+{
+  find / /run /tmp /dev/shm "${XDG_RUNTIME_DIR:-/nonexistent}" -xdev \
+    \( -path /proc -o -path /sys \) -prune -o -type s -print 2> /dev/null
+  awk 'NR > 1 && $8 ~ /^@/ { print $8 }' /proc/net/unix
+} | sort -u > "$a/,sockets.list"
+r=$([ "$(wc -l < "$a/,sockets.list")" -gt 0 ] && echo some || echo none)
+check "the sweep listed the VM's sockets" "$r" some
+# Shared on purpose, as compartment-paths says.
+shared=$(awk -v home="$HOME" '$1 == "shared" { sub("^~", home, $2); print $2 }' "$repo/compartment-paths" | tr '\n' ' ')
+for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
+  r=$(run_in "$a" "nono run -s --profile $prof --allow-cwd -- python3 ,compartment-sweep.py sockets ,sockets.list $spd")
+  check "$prof: no socket on the VM is reachable, but those allowed" "$(printf '%s\n' "$r" | grep '^CONNECTS' || :)" ""
+  if [ -S "$spd" ]; then
+    check "$prof: the socket sweep reaches speech-dispatcher (so it works)" "$(printf '%s\n' "$r" | grep -c '^allowed' || :)" 1
+  fi
+  # What an agent writes outside its workspace stays in its compartment:
+  # it plants a marker in every directory it may write, and neither the
+  # VM nor another compartment may see one, but its outbox's.
+  mark=",compartment-sweep-$$"
+  grants="--allow-cwd --read $a.dossier/inbox --write $a.dossier/outbox"
+  r=$(run_in "$a" "nono run -s --profile $prof $grants -- python3 ,compartment-sweep.py plant $mark $a $shared")
+  printf '%s\n' "$r" | sed -n 's/^planted //p' > "$a/,planted.list"
+  cp "$a/,planted.list" "$b/,planted.list"
+  r=$(grep -c . "$a/,planted.list" || :)
+  [ "$r" -gt 1 ] && r=some || r=none
+  check "$prof: the sweep could write outside the workspace (so it works)" "$r" some
+  r=$([ -e "$a.dossier/outbox/$mark" ] && echo shows || echo missing)
+  check "$prof: what it writes in its outbox shows outside (so the check works)" "$r" shows
+  leaked=""
+  while IFS= read -r f; do
+    [ "$f" != "$a.dossier/outbox/$mark" ] || continue
+    [ ! -e "$f" ] || leaked="$leaked $f"
+  done < "$a/,planted.list"
+  check "$prof: nothing else it wrote shows outside its compartment" "$leaked" ""
+  b_grants="--allow-cwd --read $b.dossier/inbox --write $b.dossier/outbox"
+  r=$(run_in "$b" "nono run -s --profile $prof $b_grants -- python3 ,compartment-sweep.py seen ,planted.list")
+  check "$prof: another compartment sees nothing it wrote" "$r" ""
+  # The markers outside are only the outbox's (and any leaks).
+  while IFS= read -r f; do rm -f "$f"; done < "$a/,planted.list"
+done
+
 # Every path the installed profiles let agents write is covered.
 r=$(cd "$a" && BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
   "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi 2>&1 && echo covered || :)

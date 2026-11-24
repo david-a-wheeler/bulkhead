@@ -942,3 +942,14 @@ doesn't, that you can reach an exposed port and another compartment
 can't, that an agent reaches an allowed site through nono's proxy,
 that an agent can't reach the host's secrets server (directly or
 through the proxy), and that abstract sockets stay apart.
+
+It also sweeps for anything a compartment shares, under each harness's
+profile (`tests/compartment-sweep.py`): it tries every Unix socket on
+the VM (only the allowed ones may connect), plants a marker in every
+directory nono lets the agent write (none may show outside the
+compartment, or in another, but its outbox's), and holds a kernel key
+(another compartment mustn't see it). These test what matters, not how
+we do it, so they still mean something if the mechanism changes. Each
+has a positive control (e.g., the outbox's marker must show), so a
+sweep that found nothing can't pass. Run it after a nono or pack
+update.

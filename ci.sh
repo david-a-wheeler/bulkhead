@@ -82,7 +82,7 @@ shellcheck -x -s bash vm-bash-aliases-block.sh || failed "$step_name"
 render_template secrets-client.template.py "$tmp/secrets-client" SECRETS_SERVER_PORT
 render_template secrets-server.template.py "$tmp/secrets-server.py" \
   SECRETS_SERVER_PORT KEYCHAIN_PREFIX UTMCTL
-for f in "$tmp/secrets-client" "$tmp/secrets-server.py" new-session-keyring extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py tests/net-probe.py; do
+for f in "$tmp/secrets-client" "$tmp/secrets-server.py" new-session-keyring tests/compartment-sweep.py extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py tests/net-probe.py; do
   python3 -m py_compile "$f" || failed "$f (py_compile)"
 done
 # Inside a compartment (or nono), secrets-client refuses at once, saying
