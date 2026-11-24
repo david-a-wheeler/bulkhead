@@ -8,13 +8,14 @@
 # The level says whether adding a match needs your approval. "ask"
 # means it can (1) run a program without your spelling it out, or (2)
 # change where a plain git push goes (or let someone read it on the
-# way); else it's "note", shown but recorded without asking. Something
+# way), and we show it with the text; else it's "note", recorded
+# without a word, and the text says why that's safe. Something
 # you have to spell out (e.g., "git push NAME") you'll notice anyway.
 # git-check-rationale.md says why each kind is in or out.
-repo:* note a repository you hadn't seen: its risky settings, if any, are marked below.
+repo:* note a repository you hadn't seen: we judge its settings one by one.
 error:* ask git couldn't read this, so the check can't see what's there; look at it by hand.
-git-dir:* note where git keeps this repository: a change can mean a planted .git file pointing elsewhere (its settings are listed here).
-common-dir:* note where git reads this repository's config and hooks: a planted .git/commondir redirects them (they're listed here).
+git-dir:* note where git keeps this repository: a planted .git file can point elsewhere, but we judge the settings there.
+common-dir:* note where git reads this repository's config and hooks: a planted .git/commondir redirects them, but we judge what it points to.
 push-to:* ask where a plain git push sends a branch: check you meant to push there.
 hook:* note a hook: git-hook-passthrough runs it only once you approve its hash, so that's where you judge it.
 config:filter.* ask a filter driver: runs a command when git checks out or adds a file that .gitattributes assigns to it.
@@ -44,9 +45,9 @@ config:pager.* ask runs a command to show some git command's output.
 config:alias.* ask an alias: overrides yours of that name, and one starting with "!" runs a command.
 config:gpg.* ask picks the program git runs to sign or verify.
 config:submodule.*.update ask a submodule's update: one starting with "!" runs a command on git submodule update (or a plain pull or checkout, with submodule.recurse).
-config:submodule.* note a submodule's settings, e.g., where it fetches.
+config:submodule.* note a submodule's other settings, e.g., where it fetches.
 config:lfs.* ask Git LFS settings: e.g., lfs.url sends your LFS pushes elsewhere, and custom transfer agents run commands.
 config:url.* note rewrites URLs (where a plain push goes is checked separately).
-config:remote.* note a remote's settings: check it in git-config(1).
-config:core.* note a core setting: check it in git-config(1).
-config:* note not one I know to be risky; check it in git-config(1).
+config:remote.* note a remote's other settings.
+config:core.* note a core setting not listed above.
+config:* note not one we know to be risky; when you learn of one, add it above.

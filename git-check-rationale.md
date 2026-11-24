@@ -1,9 +1,11 @@
 # What bulkhead-git-check asks about, and why
 
-`bulkhead-git-check` shows you every change to the settings a
-workspace's git repositories give git, but it asks you to approve only
-a few. Too many questions train you to say yes without reading, so we
-ask only where a change can hurt you without your noticing. This file
+`bulkhead-git-check` notices every change to the settings a
+workspace's git repositories give git, but it shows you, and asks you
+to approve, only the risky ones. Too many questions train you to say
+yes without reading, and a change that isn't risky gives you nothing
+to act on, only something to worry about. So we speak up only where a
+change can hurt you without your noticing. This file
 records where we drew that line and why; `git-config-risks` holds the
 line itself, as data.
 
@@ -17,7 +19,7 @@ We ask about a change that can:
 
 Anything you have to spell out (e.g., `git push NAME` or `git
 submodule update`) you'll notice anyway, so a change that only affects
-that is shown but doesn't ask.
+that is recorded without a word.
 
 The checks run outside every sandbox, as do your own git commands, so
 compartment restrictions don't help here: a planted setting runs with
@@ -54,7 +56,7 @@ your full access.
 - **`error`:** if git can't read a repository, we can't tell whether
   anything above applies.
 
-## What's only shown
+## What's recorded without a word
 
 - **Hooks:** `git-hook-passthrough` already refuses to run a hook until
   you approve its hash. One gate is enough; a second only trains you to
@@ -70,17 +72,17 @@ your full access.
 - **Fetch destinations:** an agent can already write your working
   tree, so redirecting a fetch gains it little.
 - **Everything else** (other `core.*`, `remote.*`, and `submodule.*`
-  keys, and keys we don't know): shown so you can look, but not asked
-  about. A new git version could add a key that runs a program; when
+  keys, and keys we don't know). A new git version could add a key that runs a program; when
   you learn of one, add it to `git-config-risks`.
 
-## What isn't even shown
+## What isn't even recorded
 
-These would bury the rest, so `git-config-entries.awk` skips them:
+These change often for harmless reasons, so `git-config-entries.awk`
+skips them:
 the keys `git init` and `git clone` write in every repository (e.g.,
 `core.filemode` and `remote.NAME.fetch`), and the keys `push-to`
 replaces (`branch.*`, `remote.pushdefault`, and `remote.NAME.url` and
 `pushurl`).
 
-Removing a setting never asks: removal can't add a program to run or a
-new destination, and anything it uncovers shows up as an addition.
+Removing a setting is never shown: removal can't add a program to run
+or a new destination, and anything it uncovers shows up as an addition.

@@ -379,13 +379,12 @@ git -C "$g" config "branch.$(git -C "$g" branch --show-current).pushremote" othe
 gcheck | grep -qF 'RISKY:     . push-to https://example.org/other.git' ||
   failed "git check: missed a branch pushing to a new remote"
 gcheck --yes > /dev/null
-# A nested repository and a planted hook are shown, but don't ask
-# (git-hook-passthrough gates hooks); a mirroring remote asks.
+# A nested repository and a planted hook aren't risky
+# (git-hook-passthrough gates hooks), so they're recorded without a
+# word; a mirroring remote asks.
 git init -q "$g/sub/inner"
 printf '#!/bin/sh\n' > "$g/.git/hooks/pre-commit"
-out="$(gcheck)" || failed "git check: asked about a new repository and hook: $out"
-printf '%s\n' "$out" | grep -qF 'added:     sub/inner repo sub/inner' || failed "git check: saw the new repository"
-printf '%s\n' "$out" | grep -qF 'added:     . hook pre-commit ' || failed "git check: saw the new hook"
+out="$(gcheck)" && [ -z "$out" ] || failed "git check: spoke of a new repository and hook: $out"
 git -C "$g" config remote.other.mirror true
 out="$(gcheck)" && failed "git check: accepted a mirroring remote"
 printf '%s\n' "$out" | grep -qF 'RISKY:     . config remote.other.mirror=true' || failed "git check: showed a mirroring remote"
@@ -394,17 +393,19 @@ git -C "$g" config include.path inc
 printf '[x]\n\ty = 1\n' > "$g/.git/inc"
 gcheck --yes > /dev/null
 printf '[x]\n\ty = 2\n' > "$g/.git/inc"
-# x.y isn't risky, so it's shown and recorded without asking.
-out="$(gcheck)" || failed "git check: asked about a harmless change: $out"
-printf '%s\n' "$out" | grep -qF 'added:     . config x.y=2' || failed "git check: saw a change in an included file"
-gcheck > /dev/null || failed "git check: recorded a harmless change"
+# x.y isn't risky, so it's recorded without a word.
+out="$(gcheck)" && [ -z "$out" ] || failed "git check: spoke of a harmless change: $out"
+# A risky key in an included file asks.
+printf '[x]\n\ty = 2\n[alias]\n\tst = !true\n' > "$g/.git/inc"
+out="$(gcheck)" && failed "git check: accepted an alias in an included file"
+printf '%s\n' "$out" | grep -qF 'RISKY:     . config alias.st=!true' || failed "git check: showed an alias in an included file: $out"
+gcheck --yes > /dev/null
 # A planted commondir, and a .git file git can't use.
 git init -q --bare "$fh/projects/evil.git"
 echo ../../evil.git > "$g/.git/commondir"
-# It's only a note (we list the settings it points to), so it's recorded
-# without asking; undoing it brings back where a push goes, which asks.
-out="$(gcheck)" || failed "git check: asked about a planted commondir: $out"
-printf '%s\n' "$out" | grep -qF "added:     . common-dir $fhp/projects/evil.git" || failed "git check: saw a planted commondir"
+# It isn't risky (we judge the settings it points to), so it's recorded
+# without a word; undoing it brings back where a push goes, which asks.
+out="$(gcheck)" && [ -z "$out" ] || failed "git check: spoke of a planted commondir: $out"
 rm "$g/.git/commondir"
 out="$(gcheck)" && failed "git check: didn't ask about the returning push destination"
 printf '%s\n' "$out" | grep -qF 'RISKY:     . push-to https://example.org/other.git' ||

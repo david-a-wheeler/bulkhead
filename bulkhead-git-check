@@ -20,8 +20,8 @@
 # riskiest keys, but it can't pin keys whose names a repository picks
 # (e.g., filter.NAME.smudge or url.NAME.insteadOf). So we record what
 # you've approved in the dossier's git/approved, where no agent can
-# reach, show you anything new, and ask you to approve it if it's
-# risky (see git-config-risks).
+# reach, and show you a risky change and ask you to approve it (see
+# git-config-risks); we record any other change without a word.
 #
 # For each .git (directory or file) anywhere in the workspace, we
 # record where git keeps the repository, its local and worktree config
@@ -138,7 +138,7 @@ cat "$work/repos"/* > "$work/current" 2> /dev/null || : > "$work/current"
 
 if [ ! -f "$approved" ]; then
   mv "$work/current" "$approved"
-  say "recorded the git settings of $root's repositories in $approved; I'll tell you when they change."
+  say "recorded the git settings of $root's repositories in $approved; I'll tell you when a risky one changes."
   exit 0
 fi
 cmp -s "$approved" "$work/current" && exit 0
@@ -162,27 +162,25 @@ risk() {
   echo ask
 }
 
-# Show every change, marking the risky ones. Only an added risky line
-# needs your approval; we record the rest without asking.
-say "the git settings in $root changed since you approved them:"
+# Only an added risky line needs your approval, so that's all we show;
+# we record the rest without a word (git-check-rationale.md says why).
 diff "$approved" "$work/current" | while IFS= read -r line; do
   case "$line" in
-    '< '*) printf '  removed:   %s\n' "$(printf '%s' "${line#'< '}" | tr '\t' ' ')" ;;
     '> '*)
       r="$(risk "${line#'> '}")"
-      label=added:
-      [ "${r%% *}" != ask ] || { label=RISKY:; : > "$work/ask"; }
-      printf '  %-10s %s\n' "$label" "$(printf '%s' "${line#'> '}" | tr '\t' ' ')"
+      [ "${r%% *}" = ask ] || continue
+      printf '  RISKY:     %s\n' "$(printf '%s' "${line#'> '}" | tr '\t' ' ')"
       [ "${r#* }" = "$r" ] || printf '             %s\n' "${r#* }"
       ;;
   esac
-done >&2
+done > "$work/risky"
 
-if [ ! -f "$work/ask" ]; then
+if [ ! -s "$work/risky" ]; then
   mv "$work/current" "$approved"
-  say "none of these is risky, so I've recorded them in $approved."
   exit 0
 fi
+say "risky changes to the git settings in $root since you approved them:"
+cat "$work/risky" >&2
 if "$yes"; then
   answer=y
 else
