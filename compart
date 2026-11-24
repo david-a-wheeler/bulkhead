@@ -63,16 +63,12 @@ refuse_real_login() {
 # if that changed, keeping the old one as models.json.bak. So a change
 # on the Mac (see manage-models.sh there) reaches pi the next time you
 # start it. Sets $models to infer-models' answer and $default to the
-# model the Mac's list marks "default: true"; if the engine doesn't
-# answer, both are "" and pi uses the list it had.
+# model the Mac's list marks "default: true". compart pi always uses
+# the engine (--provider mac-local), so if the engine doesn't answer,
+# pi can't work, and we stop; infer-models says why.
 pi_update_models() {
   agent_dir="$HOME/.pi/agent"
-  default=""
-  if ! models="$(/usr/local/bin/infer-models)"; then
-    models=""
-    echo "compart pi: WARNING: using pi's last list of models; INFER_MODELS is empty." >&2
-    return 0
-  fi
+  models="$(/usr/local/bin/infer-models)" || die "can't reach the engine (see above)."
   mkdir -p "$agent_dir"
   new="$(mktemp "$agent_dir/models.json.XXXXXX")"
   printf '%s' "$models" | jq -f "$LIB_DIR/pi-models.jq" > "$new" ||

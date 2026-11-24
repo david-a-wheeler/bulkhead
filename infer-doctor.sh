@@ -158,7 +158,25 @@ info "the last requests (accept: drafted tokens kept; mean: tokens per step):"
 printf '%s\n' "$log" | awk -v last=6 -f "$SCRIPT_DIR/infer-doctor-requests.awk" | sed 's/^/        /'
 
 echo "== Tunnels and sleep"
-"$SCRIPT_DIR/infer-access.sh" status 2>&1 | sed 's/^/      /'
+access="$("$SCRIPT_DIR/infer-access.sh" status 2>&1)"
+printf '%s\n' "$access" | sed 's/^/      /'
+# A VM started after "infer-access.sh shared" gets no tunnel until you
+# rerun it, and nothing else says so.
+mode="$(printf '%s\n' "$access" | awk '$1 == "Mode:" { print $2; exit }')"
+if missing="$("$SCRIPT_DIR/infer-access.sh" missing 2>&1)"; then
+  if [ -z "$missing" ]; then
+    ok "every VM that should reach the engine ($mode mode) has a tunnel"
+  fi
+  for vm in $missing; do
+    if [ "$mode" = shared ]; then
+      warn "$vm has no tunnel to the engine" "Run ./infer-access.sh shared; in shared mode, that opens the missing tunnels without resetting the engine."
+    else
+      warn "$vm has no tunnel to the engine" "Is $vm running? If so, run ./infer-access.sh $mode (which resets the engine)."
+    fi
+  done
+else
+  warn "couldn't tell which VMs should have tunnels: $missing" "Is UTM running?"
+fi
 if launchctl print "gui/$(id -u)/$INFER_WATCH_LABEL" 2>/dev/null | grep -q 'state = running'; then
   ok "the sleep watcher ($INFER_WATCH_LABEL) is running"
 else

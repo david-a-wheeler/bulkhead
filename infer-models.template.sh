@@ -36,11 +36,22 @@ case "$*" in
   "")
     # The key reaches curl on its stdin, not its command line, which any
     # process here can read.
+    # Exit status 7 means nothing listens on the port: there's no
+    # tunnel to this VM.
+    status=0
     listing="$(printf 'Authorization: Bearer %s\n' "$(cat "$KEY_FILE")" |
-      curl -sf -m 10 -H @- "$URL/models")" || {
-      echo "infer-models: the engine didn't answer at $URL (on the Mac, see ./infer-access.sh)." >&2
-      exit 1
-    }
+      curl -sf -m 10 -H @- "$URL/models")" || status=$?
+    case "$status" in
+      0) ;;
+      7)
+        echo "infer-models: this VM ($(hostname)) has no tunnel to the Mac's engine; on the Mac, run ./infer-access.sh shared (or secure, if this is the secure VM)." >&2
+        exit 1
+        ;;
+      *)
+        echo "infer-models: the engine didn't answer at $URL (curl's exit status $status; on the Mac, try ./infer-doctor.sh)." >&2
+        exit 1
+        ;;
+    esac
     ;;
   --stdin) listing="$(cat)" ;;
   --url) echo "$URL"; exit 0 ;;

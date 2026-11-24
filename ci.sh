@@ -575,6 +575,17 @@ copyhist > /dev/null 2>&1
 # compart pi opens the engine's port from what infer-models --url prints.
 [ "$(sh "$tmp/infer-models" --url)" = "http://127.0.0.1:$INFER_PORT/v1" ] ||
   failed "infer-models --url"
+# With nothing on the port (curl's status 7), it says this VM has no tunnel.
+mkdir -p "$tmp/im-bin" "$tmp/im-home/.config/bulkhead"
+printf '#!/bin/sh\nexit 7\n' > "$tmp/im-bin/curl"
+chmod +x "$tmp/im-bin/curl"
+echo k > "$tmp/im-home/.config/bulkhead/infer-api-key"
+out="$(HOME="$tmp/im-home" PATH="$tmp/im-bin:$PATH" sh "$tmp/infer-models" 2>&1)" &&
+  failed "infer-models succeeded with no tunnel"
+case "$out" in
+  *"has no tunnel"*"infer-access.sh shared"*) ;;
+  *) failed "infer-models with no tunnel said: $out" ;;
+esac
 
 step "compart (usage and unknown harnesses)"
 ./compart --help | grep -q '^Usage: compart HARNESS' || failed "compart --help"

@@ -7,6 +7,8 @@
 #   ./infer-access.sh shared   # every other running VM, but NOT INFER_SECURE_VM
 #   ./infer-access.sh off      # no VM
 #   ./infer-access.sh status   # the recorded mode and the tunnels
+#   ./infer-access.sh missing  # each VM the mode says should have a
+#                              # tunnel, but doesn't (for infer-doctor.sh)
 #
 # The engine listens only on the Mac's 127.0.0.1; a VM reaches it only
 # through an SSH reverse tunnel this opens, each one a per-user launchd
@@ -22,7 +24,9 @@
 # log), and only then opens the new mode's tunnels. So nothing from the
 # secure VM is left in the engine when other VMs gain access, or the
 # reverse. "shared" uses the VMs running now: rerun it after starting
-# another one.
+# another one. When the mode is already shared, that only opens the
+# missing tunnels, without a reset: the shared VMs already share the
+# engine, so adding one crosses no line.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -46,6 +50,29 @@ tunnel_labels() {
       basename "$plist" .plist
     fi
   done
+}
+# has_tunnel VM: whether VM's tunnel agent is running.
+has_tunnel() {
+  launchctl print "gui/$uid/$TUNNEL_PREFIX$1" 2>/dev/null |
+    awk '$1 == "state" { s = $3; exit } END { exit s != "running" }'
+}
+# shared_vms: print each running VM except the secure one, one per line.
+shared_vms() {
+  guests="$(enumerate_guests)" || die "couldn't list the running VMs (is UTM running?)."
+  printf '%s\n' "$guests" | awk -v secure="$INFER_SECURE_VM" '$1 != secure { print $1 }'
+}
+# expected_vms: print each VM that should have a tunnel in the recorded mode.
+expected_vms() {
+  case "$(cat "$STATE_FILE" 2>/dev/null)" in
+    shared) shared_vms ;;
+    secure) echo "$INFER_SECURE_VM" ;;
+  esac
+}
+# check_vm_name VM: die unless VM can go into a launchd label and a plist.
+check_vm_name() {
+  case "$1" in
+    "" | *[!A-Za-z0-9._-]*) die "can't use the VM name \"$1\"; rename it with only letters, digits, '.', '_', and '-'." ;;
+  esac
 }
 no_tunnels() {
   ! pgrep -f "$TUNNEL_PATTERN" >/dev/null
@@ -91,10 +118,7 @@ switch_to() {
   mode="$1"
   shift
   for vm in "$@"; do
-    # It goes into a launchd label and a plist.
-    case "$vm" in
-      "" | *[!A-Za-z0-9._-]*) die "can't use the VM name \"$vm\"; rename it with only letters, digits, '.', '_', and '-'." ;;
-    esac
+    check_vm_name "$vm"
   done
   close_tunnels
   reset_engine
@@ -125,12 +149,24 @@ case "${1:-}" in
     ;;
   shared)
     # Ask before closing anything, so a failure here changes nothing.
-    guests="$(enumerate_guests)" || die "couldn't list the running VMs (is UTM running?)."
-    vms="$(printf '%s\n' "$guests" | awk -v secure="$INFER_SECURE_VM" '$1 != secure { print $1 }')"
+    vms="$(shared_vms)"
     [ -n "$vms" ] || echo "WARNING: no VMs other than the secure VM are running." >&2
-    # One name per line, and names can't contain spaces (see switch_to).
-    # shellcheck disable=SC2086
-    switch_to shared $vms
+    if [ "$(cat "$STATE_FILE" 2>/dev/null)" = shared ]; then
+      for vm in $vms; do
+        check_vm_name "$vm"
+        if ! has_tunnel "$vm"; then
+          launchctl bootout "gui/$uid/$TUNNEL_PREFIX$vm" 2>/dev/null || true
+          mkdir -p "$AGENTS"
+          open_tunnel "$vm"
+        fi
+      done
+      echo "Mode: shared (it already was, so the engine wasn't reset)."
+    else
+      # One name per line, and names can't contain spaces (see
+      # check_vm_name).
+      # shellcheck disable=SC2086
+      switch_to shared $vms
+    fi
     ;;
   off)
     switch_to off
@@ -138,8 +174,14 @@ case "${1:-}" in
   status)
     status
     ;;
+  missing)
+    vms="$(expected_vms)"
+    for vm in $vms; do
+      has_tunnel "$vm" || echo "$vm"
+    done
+    ;;
   *)
-    echo "Usage: $0 secure|shared|off|status" >&2
+    echo "Usage: $0 secure|shared|off|status|missing" >&2
     exit 2
     ;;
 esac

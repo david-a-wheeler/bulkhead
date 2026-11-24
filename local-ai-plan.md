@@ -479,6 +479,7 @@ reach it, and a tunnel's port binds only to its VM's own loopback.
   ./infer-access.sh shared    # every other running VM, but NOT the secure VM
   ./infer-access.sh off       # no VM
   ./infer-access.sh status    # recorded mode and tunnels
+  ./infer-access.sh missing   # VMs the mode says need a tunnel, but lack one
   ```
 
 * Each mode change closes every tunnel, resets the engine
@@ -496,7 +497,15 @@ reach it, and a tunnel's port binds only to its VM's own loopback.
 * "shared" gets its VM list from `host-backend.sh`'s `enumerate_guests()`,
   minus the secure VM, when it runs: a VM started later gets no tunnel
   until I rerun `infer-access.sh shared` (decided 2026-10-19, rather
-  than a watcher running all the time). Each tunnel is a per-user
+  than a watcher running all the time). Since 2026-11-23, rerunning it
+  when the mode is already shared only opens the missing tunnels,
+  without a reset: the shared VMs already share the engine, so adding
+  one crosses no line, and a reset would kill any job in progress, a
+  reason to put off rerunning it. That bit me: a VM ran for 9 hours
+  with no tunnel, and pi's errors didn't say why. So now
+  `infer-doctor.sh` warns about each VM that should have a tunnel but
+  doesn't, and `infer-models` says when nothing listens on the port
+  (no tunnel to this VM). Each tunnel is a per-user
   launchd agent (`local.infer-tunnel.VM`) running `ssh -N -R`, with
   `KeepAlive`, `ExitOnForwardFailure`, and `ServerAlive*`, so it
   reconnects after a VM reboot or the Mac's sleep, and comes back after
@@ -1209,7 +1218,10 @@ Now there's one generic query, and a thin adapter per client:
   `models.json` with `pi-models.jq` (in `/usr/local/libexec/bulkhead`),
   replacing the file only if it changed (keeping a `.bak`), and starts
   pi with `--model` set to the default; a later `--model` still wins.
-  If the engine doesn't answer, it warns and pi uses its last list. A
+  If the engine doesn't answer, it warns and pi uses its last list
+  (since 2026-11-23, `compart pi` stops instead, since pi can't work
+  without the engine, and `infer-models` says when the VM has no
+  tunnel). A
   goose wrapper would do the same with its own jq file, or skip it if
   goose can read `/v1/models` itself (not checked).
 * `vm-setup.sh` only installs these. A running pi keeps the list it
