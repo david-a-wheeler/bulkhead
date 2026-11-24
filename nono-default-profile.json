@@ -55,7 +55,8 @@
       "/etc/fonts"
     ],
     "unix_socket": [
-      "$XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock"
+      "$XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock",
+      "/run/nscd/socket"
     ],
     "allow": [
       "/dev/shm"

@@ -332,6 +332,15 @@ if [ -S "$spd" ]; then
 fi
 r=$(run_in "$a" "nono run -s --profile bulkhead-claude --allow-cwd -- sh -c \"$bind \$XDG_RUNTIME_DIR/cc-socks/,t.sock && echo bound\"")
 check "Claude's profile lets it make its socket in cc-socks" "$r" bound
+# glibc's connect to nscd's socket reaches our stand-in and is refused
+# by the kernel (not blocked by nono, which would warn when it ends).
+nscd="python3 -I -c 'import errno, socket, sys
+try:
+    socket.socket(socket.AF_UNIX).connect(sys.argv[1])
+except OSError as e:
+    print(errno.errorcode[e.errno])' /var/run/nscd/socket"
+r=$(run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c \"$nscd\"")
+check "nscd's socket is refused, not blocked" "$r" ECONNREFUSED
 # The VM's runtime directory: only ours, and only what's allowed in it.
 r=$(run_in "$a" "stat -c %a \$XDG_RUNTIME_DIR; ls -A \$XDG_RUNTIME_DIR | tr '\n' ' '")
 want="700

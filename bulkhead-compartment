@@ -109,6 +109,13 @@ set -- "$@" --tmpfs /dev/shm
 # empty, and only ours.
 set -- "$@" --tmpfs /run
 [ -z "${XDG_RUNTIME_DIR:-}" ] || set -- "$@" --perms 0700 --dir "$XDG_RUNTIME_DIR"
+# glibc tries nscd's socket on every user or group lookup, then reads
+# /etc/passwd itself. That socket doesn't exist, and nono reports each
+# connect it blocks, so every session would end with a useless warning.
+# So it's /dev/null here (not a socket, so a connect is refused at
+# once), which the profiles let agents connect to; a real nscd is never
+# behind it, since this /run is ours.
+set -- "$@" --ro-bind /dev/null /run/nscd/socket
 # Other workspaces are hidden: ~/projects and ~/sensitive are empty but
 # for this workspace and its dossier's inbox and outbox. nono denies
 # their files anyway, but it can't stop connecting to a socket in one

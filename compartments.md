@@ -705,8 +705,13 @@ shared profiles turn on nono's `linux.af_unix_mediation`
 (`"pathname"`), a default-deny supervisor for those sockets, and allow
 back only the agent's own (in its workspace and `/tmp`) and the ones
 a profile lists (e.g., speech-dispatcher, and Claude's `cc-socks`).
-bwrap's empty `/run` and hidden workspaces are a second layer. The
-lesson: check what a sandbox really enforces, from inside it, rather
+bwrap's empty `/run` and hidden workspaces are a second layer. nono
+reports every connect it blocks when a session ends, so a blocked
+connect that's routine would be a useless warning, which trains you
+(and agents) to ignore warnings. glibc's connect to nscd's socket, on
+every user lookup, is one: so in a compartment that socket is
+`/dev/null`, which the profiles allow, and the kernel refuses the
+connect at once. The lesson: check what a sandbox really enforces, from inside it, rather
 than what its policy says.
 
 nono's job is to limit what the agent can touch, from policy written as
