@@ -24,10 +24,11 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$a" "$b"
 # A compartment sees no other workspace, and this repo is one, so each
-# gets its own copy of the helper bwrap runs inside.
+# gets its own copy of the helper bwrap runs inside (in .tmp, which the
+# workspace's own files check ignores).
 for d in "$a" "$b"; do
-  mkdir -p "$d/,lib"
-  cp "$repo/new-session-keyring" "$d/,lib/"
+  mkdir -p "$d/.tmp/,lib"
+  cp "$repo/new-session-keyring" "$d/.tmp/,lib/"
 done
 
 fails=0
@@ -48,7 +49,7 @@ run_in() {
   shift 2
   (cd "$d" && export BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$repo/workspace-forbidden" \
-    BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" BULKHEAD_LIB_DIR="$d/,lib" TMPDIR="$d/.tmp" &&
+    BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" BULKHEAD_LIB_DIR="$d/.tmp/,lib" TMPDIR="$d/.tmp" &&
     mkdir -p "$TMPDIR" && "$repo/bulkhead-workspace" prepare > /dev/null 2>&1 &&
     "$repo/bulkhead-compartment" "$@" sh -c "$c")
 }
@@ -313,9 +314,41 @@ sleep 2
 r=$(run_agent "$b" "python3 ,net-probe.py abstract-connect $name")
 check "another workspace's agent can't reach its abstract sockets" "$r" refused
 wait
+# nono's socket mediation denies abstract sockets outright (each
+# compartment's network namespace already kept them apart).
 r=$(cat ,compartment-test.abs)
-check "an agent can bind an abstract socket" "$r" ok
+check "an agent can't bind an abstract socket" "$r" refused
 rm -f ,compartment-test.abs
+
+# Socket mediation, as each harness's merged profile really has it.
+# Python's multiprocessing makes its sockets in TMPDIR, which nono
+# allows, so it still works.
+r=$(run_agent "$a" "python3 -I -c \"import multiprocessing as m; print(m.Pool(2).map(abs, [-1, -2]))\" 2>&1 | tail -n 1")
+check "Python multiprocessing works under nono" "$r" "[1, 2]"
+spd="${XDG_RUNTIME_DIR:-/nonexistent}/speech-dispatcher/speechd.sock"
+if [ -S "$spd" ]; then
+  r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c \"$conn $spd 2>/dev/null && echo connected || echo refused\"")
+  check "pi's profile lets an agent reach speech-dispatcher" "$r" connected
+fi
+r=$(run_in "$a" "nono run -s --profile bulkhead-claude --allow-cwd -- sh -c \"$bind \$XDG_RUNTIME_DIR/cc-socks/,t.sock && echo bound\"")
+check "Claude's profile lets it make its socket in cc-socks" "$r" bound
+# The VM's runtime directory: only ours, and only what's allowed in it.
+r=$(run_in "$a" "stat -c %a \$XDG_RUNTIME_DIR; ls -A \$XDG_RUNTIME_DIR | tr '\n' ' '")
+want="700
+cc-socks "
+[ ! -S "$spd" ] || want="${want}speech-dispatcher "
+check "a compartment's XDG_RUNTIME_DIR is its own, with only what's allowed" "$r" "$want"
+# Another compartment's processes are invisible.
+run_in "$a" "exec sleep 20" &
+sleeper=$!
+sleep 1
+r=$(run_in "$b" "grep -lx sleep /proc/[0-9]*/comm 2>/dev/null | wc -l")
+check "a compartment can't see another's processes" "$r" 0
+kill "$sleeper" 2> /dev/null; wait "$sleeper" 2> /dev/null
+# Every path the installed profiles let agents write is covered.
+r=$(cd "$a" && BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
+  "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi 2>&1 && echo covered)
+check "compartment-paths covers every write the installed profiles grant" "$r" covered
 
 echo "$fails failed."
 [ "$fails" -eq 0 ]

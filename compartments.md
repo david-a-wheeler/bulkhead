@@ -46,7 +46,8 @@ An agent in a compartment **can't**:
 
 - Read or change another compartment's state, `/tmp`, or workspace.
 - Open another terminal (yours or another agent's): it has its own
-  `/dev`, with only its own ptys.
+  `/dev`, with only its own ptys, and its own empty `/dev/shm` (where,
+  e.g., Python's `multiprocessing` makes its semaphores).
 - Read or change its own dossier, except `inbox/` (read only) and
   `outbox/` (write only). So it can't change its own policy, read back
   what it gave you, or erase its own log.
@@ -59,8 +60,8 @@ An agent in a compartment **can't**:
   servers). It has its own
   loopback, and `/proc/self/net` lists only its own sockets.
 - See the VM's other processes: it has its own PID namespace.
-- Connect to an abstract Unix socket outside its own sandbox, including
-  another agent's.
+- Use abstract Unix sockets at all: nono's socket mediation denies
+  them (each compartment's network namespace already kept them apart).
 - Connect to the VM's service sockets in `/run` (e.g., Docker's, the
   session bus, systemd's, and your SSH and GPG agents): it has its own
   empty `/run`, with only the sockets `compartment-paths` lists (e.g.,

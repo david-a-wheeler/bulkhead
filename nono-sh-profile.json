@@ -42,6 +42,9 @@
     "unix_socket": [
       "$XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock"
     ],
+    "allow": [
+      "/dev/shm"
+    ],
     "unix_socket_subtree_bind": [
       "$WORKDIR",
       "$TMPDIR",

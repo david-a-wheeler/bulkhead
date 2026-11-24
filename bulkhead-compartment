@@ -98,6 +98,9 @@ set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)" --dev-bind / /
 # agent could read their input or write into them. The agent keeps its
 # own terminal through the descriptors it inherits.
 set -- "$@" --dev /dev
+# Its own empty /dev/shm, which the profiles grant (e.g., Python's
+# multiprocessing makes its semaphores there); the VM's is everyone's.
+set -- "$@" --tmpfs /dev/shm
 # Its own empty /run, with only what compartment-paths lists there: the
 # VM's /run holds every local service's socket (e.g., Docker's, the
 # session bus, systemd's, and your SSH and GPG agents), and nono
