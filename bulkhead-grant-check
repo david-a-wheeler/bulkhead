@@ -1,0 +1,61 @@
+#!/bin/sh
+# bulkhead-grant-check: warn about each path a nono profile lets an
+# agent write that every compartment would share, so one compartment's
+# agent could leave something there for another's to read (or run).
+# nono's packs grant such paths (e.g., nolabs-ai/pi grants ~/.pi), and
+# a profile that extends a pack can't take a grant back, so
+# compartment-paths must cover each one: private (each compartment's
+# own), ro (read-only), tmpdir, or shared (shared on purpose). A pack
+# update can add a path, so compart checks this after every session,
+# and compart check does too. Run it outside every sandbox.
+#
+# Usage: bulkhead-grant-check PROFILE...
+# It skips a profile nono doesn't have (it can't be used, so it grants
+# nothing), and everything if nono isn't installed. It ignores /dev,
+# /proc, and the current directory (the workspace, as nono grants it).
+# It exits 1 if it warned, else 0.
+set -eu
+
+paths_file="${BULKHEAD_COMPARTMENT_PATHS:-/usr/local/libexec/bulkhead/compartment-paths}"
+command -v nono > /dev/null || exit 0
+here="$(pwd -P)"
+
+# Every path compartment-paths names, expanded as bulkhead-compartment
+# expands it.
+covered="$(while read -r kind path; do
+  case "$kind" in '' | '#'*) continue ;; esac
+  # These patterns are the data file's literal text, not expansions.
+  # shellcheck disable=SC2088,SC2016
+  case "$path" in
+    '~/'*) path="$HOME/${path#'~/'}" ;;
+    '$XDG_RUNTIME_DIR/'*)
+      [ -n "${XDG_RUNTIME_DIR:-}" ] || continue
+      path="$XDG_RUNTIME_DIR/${path#'$XDG_RUNTIME_DIR/'}"
+      ;;
+  esac
+  echo "$path"
+done < "$paths_file")"
+
+# is_covered PATH: whether PATH is, or is under, a path compartment-paths names.
+is_covered() {
+  printf '%s\n' "$covered" | P="$1/" awk 'index(ENVIRON["P"], $0 "/") == 1 { found = 1 } END { exit !found }'
+}
+
+uncovered=""
+for profile in "$@"; do
+  manifest="$(nono profile show "$profile" --format manifest 2> /dev/null)" || continue
+  writable="$(printf '%s' "$manifest" |
+    jq -r '.filesystem.grants[] | select(.access != "read") | .path')"
+  while IFS= read -r p; do
+    case "$p" in '' | /dev/* | /proc/*) continue ;; esac
+    case "$p/" in "$here"/*) continue ;; esac
+    is_covered "$p" || uncovered="$uncovered  $profile: $p
+"
+  done << EOF
+$writable
+EOF
+done
+
+[ -n "$uncovered" ] || exit 0
+printf 'compart check: WARNING: these nono profiles let agents write paths every compartment shares; add each to compartment-paths (see compartments.md, "bwrap: the filesystem view"):\n%s' "$uncovered" >&2
+exit 1

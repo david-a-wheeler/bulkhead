@@ -277,10 +277,12 @@ sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRI
 # everything through bulkhead-compartment (bubblewrap, in a network
 # namespace from pasta), which reads compartment-paths and
 # netns-resolv.conf. compart also runs bulkhead-git-check (which reads
-# git-config-entries.awk and git-config-risks). See compartments.md.
+# git-config-entries.awk and git-config-risks) and bulkhead-grant-check
+# (which reads compartment-paths). See compartments.md.
 # bulkhead-copy-claude-history is transitional.
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
   "$SCRIPT_DIR/bulkhead-workspace" "$SCRIPT_DIR/bulkhead-git-check" \
+  "$SCRIPT_DIR/bulkhead-grant-check" \
   "$SCRIPT_DIR/bulkhead-copy-claude-history" /usr/local/bin/
 # The helpers bulkhead-workspace replaced.
 for f in bulkhead-compartment-info bulkhead-workspace-prepare \

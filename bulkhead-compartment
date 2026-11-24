@@ -135,6 +135,7 @@ while read -r kind path; do
     tmpdir)
       set -- "$@" --bind "$tmp" "$path"
       ;;
+    shared) ;;
     *)
       echo "bulkhead-compartment: $paths_file: bad kind: $kind" >&2
       exit 1

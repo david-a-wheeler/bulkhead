@@ -63,12 +63,12 @@ check "pasta and bwrap pass on the exit status" "$r" 7
 r=0; run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c 'exit 7'" 2> /dev/null || r=$?
 check "nono passes on the exit status" "$r" 7
 
-run_in "$a" "echo a > /tmp/$marker && echo a > ~/.claude/$marker && echo a > \$XDG_RUNTIME_DIR/cc-socks/$marker"
+run_in "$a" "echo a > /tmp/$marker && echo a > ~/.claude/$marker && echo a > \$XDG_RUNTIME_DIR/cc-socks/$marker && echo a > ~/.cache/$marker"
 r=$(run_in "$a" "cat /tmp/$marker ~/.claude/$marker 2>/dev/null | tr -d '\n'")
 check "a compartment's /tmp and ~/.claude persist" "$r" aa
 r=$(cat "$a/.tmp/$marker" 2>/dev/null)
 check "a compartment's /tmp is its TMPDIR" "$r" a
-for f in "/tmp/$marker" "\$HOME/.claude/$marker" "\$XDG_RUNTIME_DIR/cc-socks/$marker"; do
+for f in "/tmp/$marker" "\$HOME/.claude/$marker" "\$XDG_RUNTIME_DIR/cc-socks/$marker" "\$HOME/.cache/$marker"; do
   r=$(run_in "$b" "[ -e $f ] && echo seen || echo unseen")
   check "another compartment can't see $f" "$r" unseen
   r=$(sh -c "[ -e $f ] && echo seen || echo unseen")
@@ -85,6 +85,15 @@ if [ -d "$HOME/.agents" ]; then
   r=$(run_in "$a" "nono run -s --profile nolabs-ai/goose --allow-cwd -- sh -c 'touch ~/.agents/$marker 2>/dev/null && echo wrote || echo refused'")
   rm -f "$HOME/.agents/$marker"
   check "shared ~/.agents is read-only, even for goose" "$r" refused
+fi
+if [ -d "$HOME/.pi" ]; then
+  # nolabs-ai/pi grants ~/.pi read-write; only its sessions are private.
+  r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'touch ~/.pi/$marker 2>/dev/null && echo wrote || echo refused'")
+  rm -f "$HOME/.pi/$marker"
+  check "shared ~/.pi is read-only, even for pi" "$r" refused
+  run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'echo a > ~/.pi/agent/sessions/$marker'"
+  r=$(run_in "$b" "[ -e ~/.pi/agent/sessions/$marker ] && echo seen || echo unseen")
+  check "another compartment can't see pi's sessions" "$r" unseen
 fi
 r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"

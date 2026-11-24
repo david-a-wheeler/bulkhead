@@ -145,6 +145,9 @@ check_workspace() {
     echo "compart check: WARNING: git's safety settings aren't in your environment; log in again." >&2
     cw_ok=false
   fi
+  # Every profile a case below uses. A pack update can add a path that
+  # every compartment would share.
+  "$bin/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi || cw_ok=false
   cw_orphans="$("$bin/bulkhead-workspace" orphans)"
   if [ -n "$cw_orphans" ]; then
     printf 'compart check: WARNING: these dossiers'"'"' workspaces are gone (see compartments.md, "Moving a workspace"):\n%s\n' "$cw_orphans" >&2

@@ -10,11 +10,20 @@
 #            change it for the others
 #   tmpdir   the current directory's .tmp, which is also TMPDIR, so
 #            tools that ignore TMPDIR use it too, on disk, not in RAM
+#   shared   nothing: every compartment shares it, on purpose (this
+#            records that for bulkhead-grant-check)
 #
 # Anything a harness writes that another compartment could read (or
 # run) belongs here. List every harness's paths in this one file.
+# bulkhead-grant-check warns about each path a nono profile we use lets
+# agents write that isn't here.
 
 tmpdir /tmp
+
+# Caches. anon-access points XDG_CACHE_HOME into the workspace, but
+# bulkhead-sh and nolabs-ai/pi grant all of ~/.cache read-write, so a
+# tool that ignores XDG_CACHE_HOME would share its cache.
+private ~/.cache
 
 # Every harness's shared instructions, skills, and plugins
 # (~/.agents/AGENTS.md is the VMs' global instructions). nono's default
@@ -35,6 +44,9 @@ ro ~/.config/nono/profile-drafts
 # them in one shared directory (CLAUDE_SECURESTORAGE_CONFIG_DIR), so
 # one login works everywhere.
 private ~/.claude
+# One Claude login for every compartment (see compartments.md,
+# "Claude's login"); it holds only nono's phantom tokens.
+shared ~/.local/state/bulkhead/claude-credentials
 # nolabs-ai/claude grants these files in your home directory read-write,
 # and a profile that extends it can't take that back. Claude doesn't
 # need them here: CLAUDE_CONFIG_DIR keeps its config in its private
@@ -56,5 +68,10 @@ private ~/.cache/claude-cli-nodejs
 private ~/.local/state/claude
 private $XDG_RUNTIME_DIR/cc-socks
 
-# pi (untested: pi isn't installed everywhere yet).
+# pi. nolabs-ai/pi grants all of ~/.pi read-write, so it's read-only
+# here (compart pi rewrites pi's list of models before the compartment
+# starts), and each compartment gets its own sessions. pi can't change
+# its settings or trust a project from inside; do that outside any
+# compartment.
+ro ~/.pi
 private ~/.pi/agent/sessions

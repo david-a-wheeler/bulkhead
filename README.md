@@ -324,15 +324,19 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   compartment; `BULKHEAD_NO_COMPARTMENT=1` skips it.
   `tests/compartment-test.sh` (run by hand, outside nono) checks it.
 - `bulkhead-git-check`: run by `compart` before and after each
-  session; shows you any change to the settings a workspace's git
+  session; notices any change to the settings a workspace's git
   repositories give git (config, includes, hooks, where each
   repository lives, and where a plain push goes) since you approved
-  them, says what each can do (from `git-config-risks`), and asks you
-  to approve a risky one. Unapproved, a session won't start.
+  them, and shows you a risky one, says what it can do (from
+  `git-config-risks`), and asks you to approve it. Unapproved, a session won't start.
   `git-config-entries.awk` turns git's config listing into its lines.
   See `compartments.md`, "Git runs commands from local files".
 - `git-check-rationale.md`: why `bulkhead-git-check` asks about some
-  changes and only shows others.
+  changes and records others without a word.
+- `bulkhead-grant-check`: run by `compart` after each session and by
+  `compart check`; warns about each path a nono profile we use lets
+  agents write that `compartment-paths` doesn't cover, so every
+  compartment would share it (e.g., after a pack update adds one).
 - `workspace-forbidden`: the data `bulkhead-workspace` reads:
   shell patterns for directories no agent may start in (e.g.,
   `~/projects`, `~/.*`, `*.dossier`, `/tmp/*`). Installed in

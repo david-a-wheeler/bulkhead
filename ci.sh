@@ -50,7 +50,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-copy-claude-history tests/compartment-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-grant-check bulkhead-copy-claude-history tests/compartment-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -160,10 +160,12 @@ for p in $(jq -r '.filesystem // {} | to_entries[] | select(.key != "deny" and .
 done
 # nono itself can check the packs' grants too, where it and the packs
 # are installed (not in GitHub's CI).
-if command -v nono > /dev/null && nono profile list 2> /dev/null | grep -q 'nolabs-ai/pi'; then
+if command -v nono > /dev/null && nono profile list 2> /dev/null > "$tmp/nono-profiles" && grep -q 'nolabs-ai/pi' "$tmp/nono-profiles"; then
   for prof in ./nono-claude-profile.json ./nono-sh-profile.json nolabs-ai/pi; do
     for secret in "$HOME/.local/state/bulkhead/claude-unsandboxed" "$HOME/.local/state/nono"; do
-      nono why --profile "$prof" --path "$secret" --op read 2> /dev/null | head -n 1 | grep -qx DENIED ||
+      # Captured first: nono aborts if its reader closes the pipe early.
+      why="$(nono why --profile "$prof" --path "$secret" --op read 2> /dev/null || :)"
+      printf '%s\n' "$why" | head -n 1 | grep -qx DENIED ||
         failed "nono profile $prof grants $secret"
     done
   done
@@ -591,6 +593,42 @@ case "$out" in
   *"has no tunnel"*"infer-access.sh shared"*) ;;
   *) failed "infer-models with no tunnel said: $out" ;;
 esac
+
+step "bulkhead-grant-check (paths every compartment would share)"
+# A stand-in nono shows one profile, "p", that grants paths to write.
+gc="$tmp/grant-check"
+mkdir -p "$gc/bin" "$gc/ws"
+gcws="$(cd "$gc/ws" && pwd -P)"
+{
+  printf '#!/bin/sh\n[ "$3" = p ] || exit 1\ncat << '"'JSON'"'\n'
+  printf '{"filesystem": {"grants": [\n'
+  printf '  {"access": "readwrite", "path": "/dev/null"},\n'
+  printf '  {"access": "readwrite", "path": "/proc/1/fd"},\n'
+  printf '  {"access": "readwrite", "path": "%s"},\n' "$gcws"
+  printf '  {"access": "read", "path": "/h/readonly"},\n'
+  printf '  {"access": "readwrite", "path": "/h/.cache/x"},\n'
+  printf '  {"access": "write", "path": "/h/shared"},\n'
+  printf '  {"access": "readwrite", "path": "/h/.pi"},\n'
+  printf '  {"access": "readwrite", "path": "/h/.private-parent"}]}}\n'
+  printf 'JSON\n'
+} > "$gc/bin/nono"
+chmod 755 "$gc/bin/nono"
+printf '%s\n' '# a comment' 'private ~/.cache' 'shared ~/shared' 'private ~/.pi/agent/sessions' 'private ~/.private-parent/x' > "$gc/paths"
+grantcheck() { (cd "$gc/ws" && HOME=/h PATH="$gc/bin:$PATH" BULKHEAD_COMPARTMENT_PATHS="$gc/paths" "$SCRIPT_DIR/bulkhead-grant-check" "$@" 2>&1); }
+out="$(grantcheck p missing)" && failed "bulkhead-grant-check passed uncovered paths"
+[ "$(printf '%s\n' "$out" | sed 1d)" = "  p: /h/.pi
+  p: /h/.private-parent" ] || failed "bulkhead-grant-check warned about: $out"
+printf 'ro ~/.pi\nro ~/.private-parent\n' >> "$gc/paths"
+out="$(grantcheck p)" || failed "bulkhead-grant-check warned about covered paths: $out"
+# compart checks every profile it uses.
+for prof in $(sed -n 's/^ *profile=//p' compart); do
+  grep 'bulkhead-grant-check"' compart | grep -qF -- " $prof" || failed "compart doesn't check $prof's grants"
+done
+# The real profiles, where nono and its packs are installed.
+if command -v nono > /dev/null && nono profile list 2> /dev/null > "$tmp/nono-profiles" && grep -q 'nolabs-ai/pi' "$tmp/nono-profiles"; then
+  BULKHEAD_COMPARTMENT_PATHS=compartment-paths ./bulkhead-grant-check bulkhead-sh bulkhead-claude nolabs-ai/pi ||
+    failed "compartment-paths doesn't cover the profiles' grants"
+fi
 
 step "compart (usage and unknown harnesses)"
 ./compart --help | grep -q '^Usage: compart HARNESS' || failed "compart --help"
