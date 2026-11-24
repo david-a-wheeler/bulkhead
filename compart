@@ -275,18 +275,20 @@ if [ "$harness" = claude ]; then
 fi
 
 # The rest of the command line, besides the harness's own part:
-#   anon-access [--forward-port P]... [--expose-port P]...
+#   anon-access --nono-profile PROFILE [--forward-port P]... [--expose-port P]...
 #     nono run --profile PROFILE --allow-cwd [--extends bulkhead-broad]
 #       [--log-file LOG] --read INBOX --write OUTBOX [--open-port P]...
 #       HARNESS-NONO-OPTIONS -- COMMAND...
 # anon-access strips secrets, then runs bulkhead-compartment with the
-# same arguments. That takes the port options and runs, nested:
+# same arguments. That takes the options and runs, nested:
 #   pasta: a private network namespace, passing only those ports;
-#   bwrap: private mounts (compartment-paths, e.g., /tmp and ~/.claude);
+#   bwrap: private mounts (compartment-paths, e.g., /tmp and ~/.claude,
+#     and each other directory PROFILE lets agents write);
 #   nono run ...: the sandbox, which then runs COMMAND.
 #
-# Ports are only digits (ports checks them), so we can split them.
-compartment_opts=""
+# Ports are only digits (ports checks them), and profile names have no
+# spaces, so we can split them.
+compartment_opts="--nono-profile $profile"
 for p in $forward; do compartment_opts="$compartment_opts --forward-port $p"; done
 for p in $expose_ports; do compartment_opts="$compartment_opts --expose-port $p"; done
 # The workspace's local ports (and exposed ones, which its agents use

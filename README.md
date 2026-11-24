@@ -334,9 +334,11 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
 - `git-check-rationale.md`: why `bulkhead-git-check` asks about some
   changes and records others without a word.
 - `bulkhead-grant-check`: run by `compart` after each session and by
-  `compart check`; warns about each path a nono profile we use lets
+  `compart check`; warns about each file a nono profile we use lets
   agents write that `compartment-paths` doesn't cover, so every
   compartment would share it (e.g., after a pack update adds one).
+  Writable directories need no warning: `bulkhead-compartment` makes
+  each one private unless `compartment-paths` says otherwise.
 - `workspace-forbidden`: the data `bulkhead-workspace` reads:
   shell patterns for directories no agent may start in (e.g.,
   `~/projects`, `~/.*`, `*.dossier`, `/tmp/*`). Installed in

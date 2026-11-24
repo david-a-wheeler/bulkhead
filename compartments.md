@@ -681,6 +681,20 @@ session, as does `compart check`, and `ci.sh` runs it where nono's
 packs are installed. It found one we'd missed: `bulkhead-sh` and
 `nolabs-ai/pi` grant all of `~/.cache`, so it's now private.
 
+That still meant finding each one and patching it, so now a new one
+can't leak in the first place: each directory the harness's profile
+lets agents write (as nono resolves it, at launch) is the
+compartment's own copy by default, unless `compartment-paths` says
+otherwise (e.g., `ro` for your shared setup, or `shared`), or it's the
+workspace, the dossier, `/dev`, or `/proc`. `compart` passes the
+profile (`--nono-profile`). At worst, a harness then misses what's in
+a directory it shared before, which you'd notice, rather than sharing
+it with every compartment, which you wouldn't. If nono can't say what
+the profile grants, or it grants a directory holding the workspace,
+the compartment doesn't start. A file can't get a private copy that
+way, so `bulkhead-grant-check` now warns only about writable files
+`compartment-paths` doesn't cover.
+
 bwrap also mounts `netns-resolv.conf` (see above) and sets
 `BULKHEAD_COMPARTMENT` to the compartment's key (`projects-NAME`,
 `sensitive-NAME`, or `dir%PATH`). The state lives in the dossier, outside

@@ -41,8 +41,9 @@
 # BULKHEAD_NO_COMPARTMENT=1.
 set -eu
 
-usage="Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]... [--expose-port PORT]... COMMAND [ARG...], or bulkhead-compartment --tidy"
+usage="Usage: bulkhead-compartment [--dry-run] [--nono-profile PROFILE] [--forward-port PORT]... [--expose-port PORT]... COMMAND [ARG...], or bulkhead-compartment --tidy"
 dry_run=false
+nono_profile=""
 tidy_only=false
 forward=""
 expose=""
@@ -50,6 +51,11 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=true ;;
     --tidy) tidy_only=true ;;
+    --nono-profile)
+      [ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
+      nono_profile="$2"
+      shift
+      ;;
     --forward-port | --expose-port)
       [ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
       # No leading zeros, so we needn't know how pasta and nono read them.
@@ -186,23 +192,81 @@ EOF
     [ -e "$1" ] && [ ! -d "$1" ] || rm -f "$ph"
   fi
 }
-while read -r kind path; do
-  case "$kind" in '' | '#'*) continue ;; esac
+# expand PATH: print a compartment-paths PATH with "~/" and
+# "$XDG_RUNTIME_DIR/" expanded, or nothing if XDG_RUNTIME_DIR is unset.
+expand() {
   # These patterns are the data file's literal text, not expansions.
   # shellcheck disable=SC2088,SC2016
-  case "$path" in
-    '~/'*) path="$HOME/${path#'~/'}" ;;
+  case "$1" in
+    '~/'*) printf '%s\n' "$HOME/${1#'~/'}" ;;
     '$XDG_RUNTIME_DIR/'*)
-      [ -n "${XDG_RUNTIME_DIR:-}" ] || continue
-      # shellcheck disable=SC2016
-      path="$XDG_RUNTIME_DIR/${path#'$XDG_RUNTIME_DIR/'}"
+      [ -z "${XDG_RUNTIME_DIR:-}" ] || printf '%s\n' "$XDG_RUNTIME_DIR/${1#'$XDG_RUNTIME_DIR/'}"
       ;;
-    /*) ;;
+    /*) printf '%s\n' "$1" ;;
     *)
-      echo "bulkhead-compartment: $paths_file: bad path: $path" >&2
-      exit 1
+      echo "bulkhead-compartment: $paths_file: bad path: $1" >&2
+      return 1
       ;;
   esac
+}
+# Every path compartment-paths names, of any kind, one per line.
+covered=""
+while read -r kind path; do
+  case "$kind" in '' | '#'*) continue ;; esac
+  path="$(expand "$path")" || exit 1
+  [ -z "$path" ] || covered="$covered$path
+"
+done < "$paths_file"
+# under PATH TOP: whether PATH is TOP or inside it.
+under() {
+  case "$1/" in "${2%/}"/*) return 0 ;; esac
+  return 1
+}
+# Private by default: each directory the harness's nono profile lets
+# agents write becomes the compartment's own copy, unless
+# compartment-paths says otherwise (e.g., ro for your shared setup, or
+# shared), or it's the workspace, the dossier, /dev, or /proc. So a
+# path a pack grants that we've never heard of (e.g., after an update)
+# is never shared between compartments; at worst the harness misses
+# what's there. These come first, so compartment-paths' lines inside
+# them still apply. We ask nono, which resolves the profile's extends
+# and groups, and refuse to start if it can't say.
+if [ -n "$nono_profile" ]; then
+  # Two steps, since a pipeline's status would be only jq's.
+  if ! manifest="$(nono profile show "$nono_profile" --format manifest 2> /dev/null)" ||
+    ! writable="$(printf '%s' "$manifest" |
+      jq -r '(.filesystem.grants // error("no grants")) | .[] | select(.access != "read" and .type == "directory") | .path')"; then
+    echo "bulkhead-compartment: can't find out what nono's $nono_profile lets agents write, so not starting." >&2
+    exit 1
+  fi
+  while IFS= read -r path; do
+    case "$path" in '' | /dev | /dev/* | /proc | /proc/*) continue ;; esac
+    under "$path" "$root" && continue
+    under "$path" "$dossier" && continue
+    if under "$root" "$path" || under "$dossier" "$path"; then
+      echo "bulkhead-compartment: nono's $nono_profile lets agents write $path, which holds the workspace or its dossier, so not starting." >&2
+      exit 1
+    fi
+    skip=false
+    while IFS= read -r c; do
+      [ -z "$c" ] || ! under "$path" "$c" || skip=true
+    done << EOF
+$covered
+EOF
+    "$skip" && continue
+    src="$comp/$(printf '%s' "${path#/}" | tr '/' '%')"
+    "$dry_run" || [ -d "$src" ] || mkdir -m 700 "$src"
+    set -- "$@" --bind "$src" "$path"
+    privates="$privates$path$tab$src
+"
+  done << EOF
+$writable
+EOF
+fi
+while read -r kind path; do
+  case "$kind" in '' | '#'*) continue ;; esac
+  path="$(expand "$path")" || exit 1
+  [ -n "$path" ] || continue
   case "$kind" in
     private)
       # Path relative to /, with "/" as "%", names the private copy.

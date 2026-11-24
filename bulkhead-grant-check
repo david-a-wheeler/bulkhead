@@ -1,13 +1,16 @@
 #!/bin/sh
-# bulkhead-grant-check: warn about each path a nono profile lets an
+# bulkhead-grant-check: warn about each file a nono profile lets an
 # agent write that every compartment would share, so one compartment's
 # agent could leave something there for another's to read (or run).
-# nono's packs grant such paths (e.g., nolabs-ai/pi grants ~/.pi), and
-# a profile that extends a pack can't take a grant back, so
-# compartment-paths must cover each one: private (each compartment's
-# own), ro (read-only), tmpdir, or shared (shared on purpose). A pack
-# update can add a path, so compart checks this after every session,
-# and compart check does too. Run it outside every sandbox.
+# nono's packs grant such paths (e.g., nolabs-ai/claude grants
+# ~/.claude.json), and a profile that extends a pack can't take a grant
+# back. bulkhead-compartment makes each writable directory a
+# compartment's own copy unless compartment-paths says otherwise, but
+# it can't do that for a file, so compartment-paths must cover each:
+# ro (read-only), inside a private directory, or shared (shared on
+# purpose). A pack update can add one, so compart checks this after
+# every session, and compart check does too. Run it outside every
+# sandbox.
 #
 # Usage: bulkhead-grant-check PROFILE...
 # It skips a profile nono doesn't have (it can't be used, so it grants
@@ -45,7 +48,7 @@ uncovered=""
 for profile in "$@"; do
   manifest="$(nono profile show "$profile" --format manifest 2> /dev/null)" || continue
   writable="$(printf '%s' "$manifest" |
-    jq -r '.filesystem.grants[] | select(.access != "read") | .path')"
+    jq -r '.filesystem.grants[] | select(.access != "read" and .type != "directory") | .path')"
   while IFS= read -r p; do
     case "$p" in '' | /dev/* | /proc/*) continue ;; esac
     case "$p/" in "$here"/*) continue ;; esac
@@ -57,5 +60,5 @@ EOF
 done
 
 [ -n "$uncovered" ] || exit 0
-printf 'compart check: WARNING: these nono profiles let agents write paths every compartment shares; add each to compartment-paths (see compartments.md, "bwrap: the filesystem view"):\n%s' "$uncovered" >&2
+printf 'compart check: WARNING: these nono profiles let agents write files every compartment shares; add each to compartment-paths (ro, inside a private directory, or shared) (see compartments.md, "bwrap: the filesystem view"):\n%s' "$uncovered" >&2
 exit 1

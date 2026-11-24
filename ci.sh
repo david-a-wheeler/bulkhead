@@ -329,6 +329,27 @@ case "$dry" in *"|--tmpfs|/run|"*"|--bind|"*"run%user%9%cc-socks|/run/user/9/cc-
 status=0
 ./new-session-keyring sh -c 'exit 5' || status=$?
 [ "$status" = 5 ] || failed "new-session-keyring's exit status ($status)"
+# Each directory the harness's profile lets agents write is private by
+# default, unless compartment-paths covers it; a grant holding the
+# workspace, or a profile nono can't show, stops the launch. A stand-in
+# nono shows profiles "good" and "holdsws".
+mkdir -p "$wst/np-bin" "$fh/.newtool"
+{
+  printf '#!/bin/sh\ncase "$3" in\n'
+  printf '  good) echo %s ;;\n' "'{\"filesystem\": {\"grants\": [{\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fh/.newtool\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fh/.cache\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fhp/projects/p1\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"/dev/shm\"}, {\"access\": \"read\", \"type\": \"directory\", \"path\": \"$fh/.readonly\"}]}}'"
+  printf '  holdsws) echo %s ;;\n' "'{\"filesystem\": {\"grants\": [{\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fhp/projects\"}]}}'"
+  printf '  *) exit 1 ;;\nesac\n'
+} > "$wst/np-bin/nono"
+chmod 755 "$wst/np-bin/nono"
+npdry() { (cd "$fh/projects/p1" && wsenv PATH="$wst/np-bin:$PATH" "$SCRIPT_DIR/bulkhead-compartment" --dry-run --nono-profile "$1" cmd 2>&1) | tr '\n' '|'; }
+npout="$(npdry good)"
+newtool="$fhp/projects/p1.dossier/state/$(printf '%s' "${fh#/}/.newtool" | tr '/' '%')"
+case "$npout" in *"|--bind|$newtool|$fh/.newtool|"*) ;; *) failed "an uncovered writable directory isn't private: $npout" ;; esac
+[ "$(printf '%s' "$npout" | grep -o "|$fh/.cache|" | wc -l)" -eq 1 ] || failed "a covered writable directory was mounted twice: $npout"
+case "$npout" in *"|$fh/.readonly|"*) failed "a read-only grant was made private: $npout" ;; esac
+npdry holdsws | grep -q "holds the workspace" || failed "a grant holding the workspace didn't stop the launch"
+npdry missing | grep -q "not starting" || failed "a profile nono can't show didn't stop the launch"
+rm -r "$fh/.newtool"
 # The network namespace: pasta forwards nothing, unless asked.
 printf '%s\n' "$out" | sed -n 2p | grep -qx pasta || failed "compartment runs under pasta"
 for opt in --tcp-ports --udp-ports --udp-ns --tcp-ns --map-host-loopback --map-guest-addr; do
@@ -367,7 +388,7 @@ cargs() {
 }
 nono_head="nono|run|--profile|bulkhead-claude|--allow-cwd"
 inout="--log-file|$d1/logs/nono.log|--read|$d1/inbox|--write|$d1/outbox"
-[ "$(cargs "$fh/projects/p1" x)" = "$nono_head|--extends|bulkhead-broad|$inout|--|claude|x|" ] ||
+[ "$(cargs "$fh/projects/p1" x)" = "--nono-profile|bulkhead-claude|$nono_head|--extends|bulkhead-broad|$inout|--|claude|x|" ] ||
   failed "compart: nono options: $(cargs "$fh/projects/p1" x)"
 # compart sh runs a command, or your $SHELL, under bulkhead-sh.
 (cd "$fh/projects/p1" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" sh ls -l 2> /dev/null) |
@@ -383,7 +404,7 @@ cp "$d1/policy/local-ports" "$wst/local-ports"
 cp "$d1/policy/expose-ports" "$wst/expose-ports"
 printf '8089\n\n# a dev server\n3000' >> "$d1/policy/local-ports"
 echo 4000 >> "$d1/policy/expose-ports"
-[ "$(cargs "$fh/projects/p1")" = "--expose-port|4000|$nono_head|--extends|bulkhead-broad|$inout|--open-port|8089|--open-port|3000|--open-port|4000|--|claude|" ] ||
+[ "$(cargs "$fh/projects/p1")" = "--nono-profile|bulkhead-claude|--expose-port|4000|$nono_head|--extends|bulkhead-broad|$inout|--open-port|8089|--open-port|3000|--open-port|4000|--|claude|" ] ||
   failed "compart: ports: $(cargs "$fh/projects/p1")"
 cp "$wst/expose-ports" "$d1/policy/expose-ports"
 for bad in 80x 0 010 65536 3000-3002 ' 8089' '8089 # web'; do
@@ -642,22 +663,25 @@ case "$out" in
   *) failed "infer-models with no tunnel said: $out" ;;
 esac
 
-step "bulkhead-grant-check (paths every compartment would share)"
-# A stand-in nono shows one profile, "p", that grants paths to write.
+step "bulkhead-grant-check (files every compartment would share)"
+# A stand-in nono shows one profile, "p", that grants paths to write. A
+# directory nothing covers (/h/.newdir) needn't be warned about, since
+# bulkhead-compartment makes it private; an uncovered file must be.
 gc="$tmp/grant-check"
 mkdir -p "$gc/bin" "$gc/ws"
 gcws="$(cd "$gc/ws" && pwd -P)"
 {
   printf '#!/bin/sh\n[ "$3" = p ] || exit 1\ncat << '"'JSON'"'\n'
   printf '{"filesystem": {"grants": [\n'
-  printf '  {"access": "readwrite", "path": "/dev/null"},\n'
-  printf '  {"access": "readwrite", "path": "/proc/1/fd"},\n'
-  printf '  {"access": "readwrite", "path": "%s"},\n' "$gcws"
-  printf '  {"access": "read", "path": "/h/readonly"},\n'
-  printf '  {"access": "readwrite", "path": "/h/.cache/x"},\n'
-  printf '  {"access": "write", "path": "/h/shared"},\n'
-  printf '  {"access": "readwrite", "path": "/h/.pi"},\n'
-  printf '  {"access": "readwrite", "path": "/h/.private-parent"}]}}\n'
+  printf '  {"access": "readwrite", "type": "file", "path": "/dev/null"},\n'
+  printf '  {"access": "readwrite", "type": "directory", "path": "/proc/1/fd"},\n'
+  printf '  {"access": "readwrite", "type": "directory", "path": "%s"},\n' "$gcws"
+  printf '  {"access": "read", "type": "file", "path": "/h/readonly"},\n'
+  printf '  {"access": "readwrite", "type": "file", "path": "/h/.cache/x"},\n'
+  printf '  {"access": "write", "type": "file", "path": "/h/shared"},\n'
+  printf '  {"access": "readwrite", "type": "directory", "path": "/h/.newdir"},\n'
+  printf '  {"access": "readwrite", "type": "file", "path": "/h/.pi"},\n'
+  printf '  {"access": "readwrite", "type": "file", "path": "/h/.private-parent"}]}}\n'
   printf 'JSON\n'
 } > "$gc/bin/nono"
 chmod 755 "$gc/bin/nono"
