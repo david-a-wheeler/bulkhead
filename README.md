@@ -142,9 +142,14 @@ attacker break through more than one level to do real harm:
    holds none, and the Mac releases each one only when I approve it.
 2. Out of the VM, through the virtual machine monitor (UTM, running
    QEMU with Apple's Hypervisor framework), onto the Mac. The VMM
-   limits the damage: it's a narrow interface, and each VM runs in its
-   own process on the Mac, so an escape lands in one VM's process, not
-   in another VM or the Mac's secrets.
+   limits the damage: it's a narrow interface, and UTM runs each VM's
+   QEMU in its own process, under a macOS App Sandbox separate from
+   UTM's app (see UTM's
+   [architecture notes](https://github.com/utmapp/UTM/blob/main/Documentation/Architecture.md)).
+   So an escape lands in that sandbox, not in my account, my files, or
+   the Mac's secrets. Those QEMU processes all inherit the sandbox of
+   one UTM helper, which gets access to each running VM's disk images,
+   so I assume an escape from one VM could reach the others' disks.
 
 Keep up with kernel and UTM updates (see [INSTALL.md](INSTALL.md)), and
 use the secure VM for work that needs a stronger boundary.
