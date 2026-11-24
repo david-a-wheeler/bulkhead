@@ -52,11 +52,16 @@ check() {
 }
 # run_in DIR COMMAND [BULKHEAD-COMPARTMENT-OPTION...]: run a shell
 # command in DIR's compartment, as anon-access would (prepare the
-# workspace, then a TMPDIR in DIR).
+# workspace, then a TMPDIR in DIR). As compart does, the compartment is
+# built for the nono profile the command runs (its "--profile NAME"),
+# or pi's if it runs none. Set BULKHEAD_VIEW=allowlist to test that view.
 run_in() {
   d="$1"
   c="$2"
   shift 2
+  prof=nolabs-ai/pi
+  case "$c" in *"--profile "*) prof="${c#*--profile }"; prof="${prof%% *}" ;; esac
+  set -- --nono-profile "$prof" "$@"
   (cd "$d" && export BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$repo/workspace-forbidden" \
     BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" BULKHEAD_LIB_DIR="$d/.tmp/,lib" TMPDIR="$d/.tmp" &&
@@ -140,6 +145,20 @@ fi
 # Other workspaces are hidden, but not its own dossier's inbox.
 r=$(run_in "$a" "[ -e $b ] && echo seen || echo unseen")
 check "a compartment can't see another workspace" "$r" unseen
+# In the allowlist view, what nono doesn't grant isn't there at all
+# (each of these exists on the VM); what it grants is.
+if [ "${BULKHEAD_VIEW:-full}" = allowlist ]; then
+  for p in /etc/shadow /var/log "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.bash_history" "$HOME/.local/share/keyrings"; do
+    [ -e "$p" ] || continue
+    r=$(run_in "$a" "[ -e $p ] && echo there || echo absent")
+    check "allowlist view: $p (not granted) isn't there" "$r" absent
+  done
+  for p in /usr/bin/python3 /etc/passwd /etc/resolv.conf "$HOME/.gitconfig" "$HOME/.agents"; do
+    [ -e "$p" ] || continue
+    r=$(run_in "$a" "[ -e $p ] && echo there || echo absent")
+    check "allowlist view: $p (granted) is there (so the check works)" "$r" there
+  done
+fi
 r=$(run_in "$a" "[ -d $a.dossier/inbox ] && [ ! -e $a.dossier/policy ] && echo ok")
 check "a compartment sees only its dossier's inbox, outbox, and logs" "$r" ok
 # nono, run as compart runs it, logs to the dossier (not to stderr,

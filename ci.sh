@@ -319,7 +319,7 @@ done
 # Other workspaces are hidden: ~/projects is empty but for this
 # workspace and its dossier's inbox and outbox.
 case "$dry" in
-  *"|--tmpfs|$fhp/projects|--bind|$fhp/projects/p1|$fhp/projects/p1|--bind|$fhp/projects/p1.dossier/inbox|$fhp/projects/p1.dossier/inbox|--bind|$fhp/projects/p1.dossier/outbox|$fhp/projects/p1.dossier/outbox|--bind|$fhp/projects/p1.dossier/logs|$fhp/projects/p1.dossier/logs|"*) ;;
+  *"|--tmpfs|$fhp/projects|"*"|--bind|$fhp/projects/p1|$fhp/projects/p1|--bind|$fhp/projects/p1.dossier/inbox|$fhp/projects/p1.dossier/inbox|--bind|$fhp/projects/p1.dossier/outbox|$fhp/projects/p1.dossier/outbox|--bind|$fhp/projects/p1.dossier/logs|$fhp/projects/p1.dossier/logs|"*) ;;
   *) failed "compartment doesn't hide other workspaces: $dry" ;;
 esac
 # /run is empty but for what compartment-paths lists, after the tmpfs.
@@ -338,6 +338,7 @@ mkdir -p "$wst/np-bin" "$fh/.newtool"
   printf '#!/bin/sh\ncase "$3" in\n'
   printf '  good) echo %s ;;\n' "'{\"filesystem\": {\"grants\": [{\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fh/.newtool\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fh/.cache\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fhp/projects/p1\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"/dev/shm\"}, {\"access\": \"read\", \"type\": \"directory\", \"path\": \"$fh/.readonly\"}]}}'"
   printf '  holdsws) echo %s ;;\n' "'{\"filesystem\": {\"grants\": [{\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fhp/projects\"}]}}'"
+  printf "  nogrants) echo '{}' ;;\n"
   printf '  *) exit 1 ;;\nesac\n'
 } > "$wst/np-bin/nono"
 chmod 755 "$wst/np-bin/nono"
@@ -349,6 +350,23 @@ case "$npout" in *"|--bind|$newtool|$fh/.newtool|"*) ;; *) failed "an uncovered 
 case "$npout" in *"|$fh/.readonly|"*) failed "a read-only grant was made private: $npout" ;; esac
 npdry holdsws | grep -q "holds the workspace" || failed "a grant holding the workspace didn't stop the launch"
 npdry missing | grep -q "not starting" || failed "a profile nono can't show didn't stop the launch"
+npdry nogrants | grep -q "not starting" || failed "a profile with no grant list didn't stop the launch"
+# The allowlist view (BULKHEAD_VIEW=allowlist) starts empty and binds
+# in only the grants: read-only ones read-only, an uncovered writable
+# directory as a private copy (as before), and the workspace after
+# them. It needs the profile, and refuses an unknown view.
+avout="$( (cd "$fh/projects/p1" && wsenv BULKHEAD_VIEW=allowlist PATH="$wst/np-bin:$PATH" \
+  "$SCRIPT_DIR/bulkhead-compartment" --dry-run --nono-profile good cmd 2>&1) | tr '\n' '|')"
+case "$avout" in *"|--dev-bind|/|/|"*) failed "the allowlist view binds the whole filesystem: $avout" ;; esac
+case "$avout" in *"|--unshare-pid|--proc|/proc|"*) ;; *) failed "the allowlist view lacks its own /proc: $avout" ;; esac
+case "$avout" in *"|--ro-bind-try|$fh/.readonly|$fh/.readonly|"*) ;; *) failed "the allowlist view doesn't bind a read grant read-only: $avout" ;; esac
+case "$avout" in *"|--bind|$newtool|$fh/.newtool|"*) ;; *) failed "the allowlist view doesn't make a writable directory private: $avout" ;; esac
+case "$avout" in *"|$fh/.readonly|"*"|--bind|$fhp/projects/p1|$fhp/projects/p1|"*) ;; *) failed "the allowlist view binds the workspace before the grants: $avout" ;; esac
+case "$avout" in *"|--bind-try|$fh/.local/state/bulkhead/claude-credentials|"*) ;; *) failed "the allowlist view doesn't bind what's shared on purpose: $avout" ;; esac
+(cd "$fh/projects/p1" && wsenv BULKHEAD_VIEW=allowlist "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd 2>&1) |
+  grep -q "needs --nono-profile" || failed "the allowlist view started without a profile"
+(cd "$fh/projects/p1" && wsenv BULKHEAD_VIEW=nope "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd > /dev/null 2>&1) &&
+  failed "bulkhead-compartment accepted BULKHEAD_VIEW=nope"
 rm -r "$fh/.newtool"
 # The network namespace: pasta forwards nothing, unless asked.
 printf '%s\n' "$out" | sed -n 2p | grep -qx pasta || failed "compartment runs under pasta"

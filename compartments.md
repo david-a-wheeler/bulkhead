@@ -618,8 +618,29 @@ bwrap every agent would share those paths. bwrap starts from the real
 filesystem, so agents use the tools installed on the VM, and it leaves
 access control to nono.
 
-bwrap (bubblewrap) runs unprivileged in a nested user namespace and
-starts from the real filesystem (`--dev-bind / /`), except `/dev`,
+Two views are possible while we try the second (TRANSITIONAL; set
+`BULKHEAD_VIEW`, e.g., `BULKHEAD_VIEW=allowlist compart claude`):
+
+- `full` (the default for now): the VM's whole filesystem, with what
+  we've found must be hidden or replaced (below). nono still denies
+  everything it doesn't grant.
+- `allowlist`: an empty root with only what the harness's nono profile
+  grants (as nono resolves it at launch, read-only where nono says
+  read), what nono itself needs before it sandboxes the agent (its
+  config and state, and the dossier's `logs/`), and what we provide
+  (our own `/proc`, `/dev`, `/run`, and `/tmp`, and the symlinks in `/`
+  and `/etc`, which hold only their targets' names). Anything else (an
+  unknown socket, another workspace, `~/.ssh`) isn't there at all, so
+  we needn't find each thing to hide. `tests/compartment-test.sh`, run
+  with `BULKHEAD_VIEW=allowlist`, checks that what nono doesn't grant
+  is absent and what it grants is present.
+
+Both start each compartment's writable grants as private copies (see
+below), and apply `compartment-paths` last. Once `allowlist` has
+proven itself, it becomes the only view.
+
+bwrap (bubblewrap) runs unprivileged in a nested user namespace and,
+in the full view, starts from the real filesystem (`--dev-bind / /`), except `/dev`,
 which is the compartment's own minimal one (`--dev /dev`) with its own
 ptys. The VM's `/dev/pts` holds every terminal, yours and other
 agents', all owned by you, so with it an agent could read another

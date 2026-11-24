@@ -92,29 +92,169 @@ if ! "$dry_run" && [ ! -d "$comp" ]; then
   exit 1
 fi
 
+# What the compartment sees of the filesystem (TRANSITIONAL: "full" is
+# the old way, to remove once "allowlist" has proven itself):
+#   full       the VM's whole filesystem, minus what we hide or replace
+#   allowlist  only what the harness's nono profile grants (as nono
+#              resolves it), plus what nono itself needs and what we
+#              provide; anything else isn't there at all
+view="${BULKHEAD_VIEW:-full}"
+case "$view" in
+  full) ;;
+  allowlist)
+    [ -n "$nono_profile" ] ||
+      { echo "bulkhead-compartment: the allowlist view needs --nono-profile." >&2; exit 1; }
+    ;;
+  *) echo "bulkhead-compartment: BULKHEAD_VIEW must be full or allowlist, not $view." >&2; exit 2 ;;
+esac
+
+# under PATH TOP: whether PATH is TOP or inside it.
+under() {
+  case "$1/" in "${2%/}"/*) return 0 ;; esac
+  return 1
+}
+# expand PATH: print a compartment-paths PATH with "~/" and
+# "$XDG_RUNTIME_DIR/" expanded, or nothing if XDG_RUNTIME_DIR is unset.
+expand() {
+  # These patterns are the data file's literal text, not expansions.
+  # shellcheck disable=SC2088,SC2016
+  case "$1" in
+    '~/'*) printf '%s\n' "$HOME/${1#'~/'}" ;;
+    '$XDG_RUNTIME_DIR/'*)
+      [ -z "${XDG_RUNTIME_DIR:-}" ] || printf '%s\n' "$XDG_RUNTIME_DIR/${1#'$XDG_RUNTIME_DIR/'}"
+      ;;
+    /*) printf '%s\n' "$1" ;;
+    *)
+      echo "bulkhead-compartment: $paths_file: bad path: $1" >&2
+      return 1
+      ;;
+  esac
+}
+# Every path compartment-paths names, of any kind, one per line.
+covered=""
+while read -r kind path; do
+  case "$kind" in '' | '#'*) continue ;; esac
+  path="$(expand "$path")" || exit 1
+  [ -z "$path" ] || covered="$covered$path
+"
+done < "$paths_file"
+# is_covered PATH: whether compartment-paths says what PATH is.
+is_covered() {
+  while IFS= read -r c; do
+    [ -z "$c" ] || ! under "$1" "$c" || return 0
+  done << EOF
+$covered
+EOF
+  return 1
+}
+# Each private path so far, with its copy: "PATH<tab>COPY" lines.
+tab="$(printf '\t')"
+privates=""
+# private_copy PATH: set src to the compartment's own copy of PATH (in
+# the dossier, named by PATH with "/" as "%"), making it if need be, and
+# record it for tidy.
+private_copy() {
+  src="$comp/$(printf '%s' "${1#/}" | tr '/' '%')"
+  "$dry_run" || [ -d "$src" ] || mkdir -m 700 "$src"
+  privates="$privates$1$tab$src
+"
+}
+
+# What the harness's nono profile grants, as nono resolves it (extends
+# and groups): "ACCESS TYPE PATH" lines, parents before what's in them.
+# We refuse to start if nono can't say.
+grants=""
+if [ -n "$nono_profile" ]; then
+  # Separate steps, since a pipeline's status is only its last command's.
+  if ! manifest="$(nono profile show "$nono_profile" --format manifest 2> /dev/null)" ||
+    ! grants="$(printf '%s' "$manifest" |
+      jq -r '(.filesystem.grants // error("no grants")) | .[] | "\(.access) \(.type) \(.path)"')"; then
+    echo "bulkhead-compartment: can't find out what nono's $nono_profile grants, so not starting." >&2
+    exit 1
+  fi
+  grants="$(printf '%s\n' "$grants" | LC_ALL=C sort -k 3)"
+fi
+
 # Build bwrap's arguments after the command, then rotate the command to
 # the end (the usual way to build an argument list in POSIX sh).
 ncmd=$#
 # pasta's user namespace maps us to root, so map us back to our own
 # uid and gid; otherwise programs see uid 0 (e.g., Claude Code then
 # picks /tmp/claude-0 and refuses it).
-set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)" --dev-bind / /
+set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)"
+if [ "$view" = full ]; then
+  set -- "$@" --dev-bind / /
+  # Other workspaces are hidden: ~/projects and ~/sensitive are empty
+  # but for what's bound back below. nono denies their files anyway, but
+  # it can't stop connecting to a socket in one (e.g., another agent's
+  # browser, or its nono supervisor).
+  for d in "$HOME/projects" "$HOME/sensitive"; do
+    [ ! -d "$d" ] || set -- "$@" --tmpfs "$(cd "$d" && pwd -P)"
+  done
+else
+  # bwrap's root starts empty. Its own processes, and the symlinks in /
+  # and /etc (e.g., /bin and /etc/resolv.conf): a symlink holds only its
+  # target's name, and nono grants the targets themselves. And what nono
+  # itself reads and writes before it sandboxes the agent (it grants the
+  # agent none of it).
+  set -- "$@" --unshare-pid --proc /proc
+  for l in /* /etc/*; do
+    [ ! -L "$l" ] || set -- "$@" --symlink "$(readlink "$l")" "$l"
+  done
+  set -- "$@" --bind-try "$HOME/.config/nono" "$HOME/.config/nono" \
+    --bind-try "$HOME/.local/state/nono" "$HOME/.local/state/nono"
+fi
 # Its own minimal /dev, with its own ptys: the VM's /dev/pts holds
 # every terminal (yours and other agents'), and they're all ours, so an
 # agent could read their input or write into them. The agent keeps its
-# own terminal through the descriptors it inherits.
-set -- "$@" --dev /dev
-# Its own empty /dev/shm, which the profiles grant (e.g., Python's
-# multiprocessing makes its semaphores there); the VM's is everyone's.
-set -- "$@" --tmpfs /dev/shm
+# own terminal through the descriptors it inherits. Its own empty
+# /dev/shm, which the profiles grant (e.g., Python's multiprocessing
+# makes its semaphores there); the VM's is everyone's.
+set -- "$@" --dev /dev --tmpfs /dev/shm
 # Its own empty /run, with only what compartment-paths lists there: the
 # VM's /run holds every local service's socket (e.g., Docker's, the
-# session bus, systemd's, and your SSH and GPG agents), and nono
-# doesn't mediate connecting to a socket by path on Linux (its
-# capability file says "linux_unmediated"). XDG_RUNTIME_DIR stays,
+# session bus, systemd's, and your SSH and GPG agents), and a socket is
+# reachable by path unless nono mediates it. XDG_RUNTIME_DIR stays,
 # empty, and only ours.
 set -- "$@" --tmpfs /run
 [ -z "${XDG_RUNTIME_DIR:-}" ] || set -- "$@" --perms 0700 --dir "$XDG_RUNTIME_DIR"
+
+# The grants. Private by default: each directory the profile lets
+# agents write becomes the compartment's own copy, unless
+# compartment-paths says what it is (e.g., ro for your shared setup, or
+# shared), or it's the workspace, the dossier, /dev, or /proc. So a path
+# a pack grants that we've never heard of (e.g., after an update) is
+# never shared between compartments; at worst the harness misses what's
+# there. In the allowlist view, every other grant is bound in, read-only
+# or not, as nono says (a missing one is skipped, as nono skips it).
+while read -r access type path; do
+  case "$path" in '' | /dev | /dev/* | /proc | /proc/*) continue ;; esac
+  under "$path" "$root" && continue
+  under "$path" "$dossier" && continue
+  if [ "$access" != read ] && { under "$root" "$path" || under "$dossier" "$path"; }; then
+    echo "bulkhead-compartment: nono's $nono_profile lets agents write $path, which holds the workspace or its dossier, so not starting." >&2
+    exit 1
+  fi
+  is_covered "$path" && continue
+  if [ "$access" != read ] && [ "$type" = directory ]; then
+    private_copy "$path"
+    set -- "$@" --bind "$src" "$path"
+  elif [ "$view" = allowlist ] && [ "$access" = read ]; then
+    set -- "$@" --ro-bind-try "$path" "$path"
+  elif [ "$view" = allowlist ]; then
+    set -- "$@" --bind-try "$path" "$path"
+  fi
+done << EOF
+$grants
+EOF
+# The workspace, and its dossier's inbox and outbox (for the agent) and
+# logs (for nono itself, which writes its log there before it sandboxes
+# the agent; nono grants the agent none of it). We bind directories, not
+# files: compart renames the log to rotate it, and a bind (like nono's
+# grants) follows the object, not the name.
+for keep in "$root" "$dossier/inbox" "$dossier/outbox" "$dossier/logs"; do
+  set -- "$@" --bind "$keep" "$keep"
+done
 # glibc tries nscd's socket on every user or group lookup, then reads
 # /etc/passwd itself. That socket doesn't exist, and nono reports each
 # connect it blocks, so every session would end with a useless warning.
@@ -128,29 +268,12 @@ if ! "$dry_run" && [ ! -S "$nolisten" ]; then
   python3 -I -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$nolisten"
 fi
 set -- "$@" --ro-bind "$nolisten" /run/nscd/socket
-# Other workspaces are hidden: ~/projects and ~/sensitive are empty but
-# for this workspace and its dossier's inbox and outbox (for the agent)
-# and logs (for nono itself, which writes its log there before it
-# sandboxes the agent; nono grants the agent none of it). nono denies
-# their files anyway, but it can't stop connecting to a socket in one
-# (e.g., another agent's browser, or its nono supervisor). We bind
-# directories, not files: compart renames the log to rotate it, and a
-# bind (like nono's grants) follows the object, not the name.
-for d in "$HOME/projects" "$HOME/sensitive"; do
-  [ -d "$d" ] || continue
-  d="$(cd "$d" && pwd -P)"
-  set -- "$@" --tmpfs "$d"
-  for keep in "$root" "$dossier/inbox" "$dossier/outbox" "$dossier/logs"; do
-    case "$keep/" in "$d"/*) set -- "$@" --bind "$keep" "$keep" ;; esac
-  done
-done
 # Every key of ours is listed in /proc/keys (and counted in
 # /proc/key-users), so a key's name could carry data between
 # compartments. Each also gets its own session keyring (see
 # new-session-keyring, which bwrap runs: pasta's AppArmor profile
-# won't run it from /usr/local/libexec).
-# A --ro-bind is nodev, so /dev/null wouldn't open there; writes to it
-# are discarded anyway.
+# won't run it from /usr/local/libexec). A --ro-bind is nodev, so
+# /dev/null wouldn't open there; writes to it are discarded anyway.
 set -- "$@" --dev-bind /dev/null /proc/keys --dev-bind /dev/null /proc/key-users
 # The compartment's temp directory is the directory's .tmp (on disk,
 # not in RAM), as /tmp and as TMPDIR. We always set TMPDIR: pasta's
@@ -166,9 +289,6 @@ set -- "$@" --setenv TMPDIR "$tmp"
 # systemd-resolved's stub file).
 resolv="$(readlink -f /etc/resolv.conf)"
 set -- "$@" --ro-bind "${BULKHEAD_NETNS_RESOLV:-/usr/local/libexec/bulkhead/netns-resolv.conf}" "$resolv"
-# Each private path so far, with its copy: "PATH<tab>COPY" lines.
-tab="$(printf '\t')"
-privates=""
 # tidy PATH: before we bind the ro PATH inside a private path, tidy
 # what's at PATH in the compartment's copy. A bind leaves an empty
 # placeholder there (bwrap makes one to mount over), which the harness
@@ -196,92 +316,16 @@ EOF
     [ -e "$1" ] && [ ! -d "$1" ] || rm -f "$ph"
   fi
 }
-# expand PATH: print a compartment-paths PATH with "~/" and
-# "$XDG_RUNTIME_DIR/" expanded, or nothing if XDG_RUNTIME_DIR is unset.
-expand() {
-  # These patterns are the data file's literal text, not expansions.
-  # shellcheck disable=SC2088,SC2016
-  case "$1" in
-    '~/'*) printf '%s\n' "$HOME/${1#'~/'}" ;;
-    '$XDG_RUNTIME_DIR/'*)
-      [ -z "${XDG_RUNTIME_DIR:-}" ] || printf '%s\n' "$XDG_RUNTIME_DIR/${1#'$XDG_RUNTIME_DIR/'}"
-      ;;
-    /*) printf '%s\n' "$1" ;;
-    *)
-      echo "bulkhead-compartment: $paths_file: bad path: $1" >&2
-      return 1
-      ;;
-  esac
-}
-# Every path compartment-paths names, of any kind, one per line.
-covered=""
-while read -r kind path; do
-  case "$kind" in '' | '#'*) continue ;; esac
-  path="$(expand "$path")" || exit 1
-  [ -z "$path" ] || covered="$covered$path
-"
-done < "$paths_file"
-# under PATH TOP: whether PATH is TOP or inside it.
-under() {
-  case "$1/" in "${2%/}"/*) return 0 ;; esac
-  return 1
-}
-# Private by default: each directory the harness's nono profile lets
-# agents write becomes the compartment's own copy, unless
-# compartment-paths says otherwise (e.g., ro for your shared setup, or
-# shared), or it's the workspace, the dossier, /dev, or /proc. So a
-# path a pack grants that we've never heard of (e.g., after an update)
-# is never shared between compartments; at worst the harness misses
-# what's there. These come first, so compartment-paths' lines inside
-# them still apply. We ask nono, which resolves the profile's extends
-# and groups, and refuse to start if it can't say.
-if [ -n "$nono_profile" ]; then
-  # Two steps, since a pipeline's status would be only jq's.
-  if ! manifest="$(nono profile show "$nono_profile" --format manifest 2> /dev/null)" ||
-    ! writable="$(printf '%s' "$manifest" |
-      jq -r '(.filesystem.grants // error("no grants")) | .[] | select(.access != "read" and .type == "directory") | .path')"; then
-    echo "bulkhead-compartment: can't find out what nono's $nono_profile lets agents write, so not starting." >&2
-    exit 1
-  fi
-  while IFS= read -r path; do
-    case "$path" in '' | /dev | /dev/* | /proc | /proc/*) continue ;; esac
-    under "$path" "$root" && continue
-    under "$path" "$dossier" && continue
-    if under "$root" "$path" || under "$dossier" "$path"; then
-      echo "bulkhead-compartment: nono's $nono_profile lets agents write $path, which holds the workspace or its dossier, so not starting." >&2
-      exit 1
-    fi
-    skip=false
-    while IFS= read -r c; do
-      [ -z "$c" ] || ! under "$path" "$c" || skip=true
-    done << EOF
-$covered
-EOF
-    "$skip" && continue
-    src="$comp/$(printf '%s' "${path#/}" | tr '/' '%')"
-    "$dry_run" || [ -d "$src" ] || mkdir -m 700 "$src"
-    set -- "$@" --bind "$src" "$path"
-    privates="$privates$path$tab$src
-"
-  done << EOF
-$writable
-EOF
-fi
+# compartment-paths, last, so its lines apply on top of the grants.
 while read -r kind path; do
   case "$kind" in '' | '#'*) continue ;; esac
   path="$(expand "$path")" || exit 1
   [ -n "$path" ] || continue
   case "$kind" in
     private)
-      # Path relative to /, with "/" as "%", names the private copy.
-      src="$comp/$(printf '%s' "${path#/}" | tr '/' '%')"
-      if ! "$dry_run"; then
-        mkdir -p "$path"
-        [ -d "$src" ] || mkdir -m 700 "$src"
-      fi
+      "$dry_run" || mkdir -p "$path"
+      private_copy "$path"
       set -- "$@" --bind "$src" "$path"
-      privates="$privates$path$tab$src
-"
       ;;
     ro)
       "$dry_run" || tidy "$path"
@@ -291,7 +335,11 @@ while read -r kind path; do
     tmpdir)
       set -- "$@" --bind "$tmp" "$path"
       ;;
-    shared) ;;
+    shared)
+      # In the full view it's already there; in the allowlist view, we
+      # must bind it.
+      set -- "$@" --bind-try "$path" "$path"
+      ;;
     *)
       echo "bulkhead-compartment: $paths_file: bad kind: $kind" >&2
       exit 1
