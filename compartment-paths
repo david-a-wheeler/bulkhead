@@ -69,9 +69,25 @@ private ~/.local/state/claude
 private $XDG_RUNTIME_DIR/cc-socks
 
 # pi. nolabs-ai/pi grants all of ~/.pi read-write, so it's read-only
-# here (compart pi rewrites pi's list of models before the compartment
-# starts), and each compartment gets its own sessions. pi can't change
-# its settings or trust a project from inside; do that outside any
-# compartment.
+# here, except pi's agent directory, which is each compartment's own:
+# pi writes lock files beside the files it reads (e.g.,
+# trust.json.lock), and its own state there. Your shared pi setup is
+# read-only inside it (compart pi rewrites models.json before the
+# compartment starts). Each compartment has its own trust.json, so an
+# agent can't mark another project trusted. auth.json isn't shared:
+# compart pi passes the engine's key in pi's environment, and an
+# agent shouldn't read your other logins.
 ro ~/.pi
+private ~/.pi/agent
 private ~/.pi/agent/sessions
+ro ~/.pi/agent/settings.json
+ro ~/.pi/agent/keybindings.json
+ro ~/.pi/agent/models.json
+ro ~/.pi/agent/mcp.json
+ro ~/.pi/agent/AGENTS.md
+ro ~/.pi/agent/SYSTEM.md
+ro ~/.pi/agent/APPEND_SYSTEM.md
+ro ~/.pi/agent/extensions
+ro ~/.pi/agent/skills
+ro ~/.pi/agent/prompts
+ro ~/.pi/agent/themes

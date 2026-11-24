@@ -87,13 +87,22 @@ if [ -d "$HOME/.agents" ]; then
   check "shared ~/.agents is read-only, even for goose" "$r" refused
 fi
 if [ -d "$HOME/.pi" ]; then
-  # nolabs-ai/pi grants ~/.pi read-write; only its sessions are private.
-  r=$(run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'touch ~/.pi/$marker 2>/dev/null && echo wrote || echo refused'")
+  # nolabs-ai/pi grants ~/.pi read-write; only its agent directory
+  # is private, and the shared setup in it is read-only.
+  pirun() { run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c '$2'"; }
+  r=$(pirun "$a" "touch ~/.pi/$marker 2>/dev/null && echo wrote || echo refused")
   rm -f "$HOME/.pi/$marker"
   check "shared ~/.pi is read-only, even for pi" "$r" refused
-  run_in "$a" "nono run -s --profile nolabs-ai/pi --allow-cwd -- sh -c 'echo a > ~/.pi/agent/sessions/$marker'"
-  r=$(run_in "$b" "[ -e ~/.pi/agent/sessions/$marker ] && echo seen || echo unseen")
-  check "another compartment can't see pi's sessions" "$r" unseen
+  r=$(pirun "$a" "echo a > ~/.pi/agent/$marker && echo a > ~/.pi/agent/sessions/$marker && echo wrote")
+  check "pi can write its own agent directory and sessions" "$r" wrote
+  for f in "\$HOME/.pi/agent/$marker" "\$HOME/.pi/agent/sessions/$marker"; do
+    r=$(pirun "$b" "[ -e $f ] && echo seen || echo unseen")
+    check "another compartment can't see $f" "$r" unseen
+  done
+  if [ -e "$HOME/.pi/agent/settings.json" ]; then
+    r=$(pirun "$a" "{ echo >> ~/.pi/agent/settings.json; } 2>/dev/null && echo wrote || echo refused")
+    check "shared ~/.pi/agent/settings.json is read-only" "$r" refused
+  fi
 fi
 r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"

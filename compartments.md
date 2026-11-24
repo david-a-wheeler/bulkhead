@@ -25,10 +25,10 @@ An agent in a compartment **can**:
   for you in its `outbox/`.
 - Keep its own harness state: its own `/tmp`, `~/.claude` (transcripts,
   history, todos, its config file), `~/.cache`, Claude's sockets, and
-  pi's sessions. These persist between runs in the same compartment.
+  pi's agent directory (its sessions and trust decisions). These persist between runs in the same compartment.
 - Read your shared harness setup (e.g., `~/.agents`, including the
   global instructions `~/.agents/AGENTS.md`, and `~/.claude/CLAUDE.md`,
-  `settings.json`, skills, and plugins, and pi's `~/.pi`), so it
+  `settings.json`, skills, and plugins, and pi's setup in `~/.pi`), so it
   applies everywhere.
 - Reach the web through nono's proxy, as the network policy allows:
   outside `~/sensitive`, GET and HEAD to any site plus the harness's
@@ -614,7 +614,7 @@ over the paths `compartment-paths` lists, each as one of these kinds:
 - `private`: the compartment's own copy, from `DOSSIER/state/` (named
   by the path with `/` as `%`), created empty the first time. E.g.,
   `~/.cache`, `~/.claude`, `~/.local/state/claude`,
-  `$XDG_RUNTIME_DIR/cc-socks`, and `~/.pi/agent/sessions`.
+  `$XDG_RUNTIME_DIR/cc-socks`, and `~/.pi/agent`.
 - `ro`: the real path, read-only, so shared setup applies everywhere
   but no compartment can change it. E.g., `~/.agents`, `~/.pi`,
   `~/.claude/CLAUDE.md`,
@@ -632,10 +632,14 @@ extends a pack can't take back its grants: nono's
 workspace and move it there yourself), and the `~/.claude.json`,
 `~/.claude.json.lock`, and `~/.claude.lock` that `nolabs-ai/claude`
 grants (Claude doesn't need them, since its config is in its private
-`~/.claude`), and the `~/.pi` that `nolabs-ai/pi` grants (`compart pi`
-rewrites pi's list of models before the compartment starts, so pi
-doesn't need to write it; to change pi's settings or trust a project,
-run pi outside any compartment). For a path that doesn't exist, `ro` binds nothing, and
+`~/.claude`), and the `~/.pi` that `nolabs-ai/pi` grants. pi writes lock files
+beside the files it reads (e.g., `trust.json.lock`), so `~/.pi/agent`
+is private instead, with your shared pi setup (e.g., `settings.json`,
+`models.json`, `AGENTS.md`, and `extensions`) read-only inside it.
+`compart pi` rewrites `models.json` before the compartment starts.
+Each compartment keeps its own `trust.json`, so an agent can't mark
+another project trusted, and doesn't see your `auth.json`. To change
+pi's shared settings, run pi outside any compartment. For a path that doesn't exist, `ro` binds nothing, and
 then nono can't grant it either, since Land&#108;ock grants only paths that
 exist when the sandbox starts.
 
@@ -854,8 +858,9 @@ Use these only to work around a breakage.
   compartment then sees it.
 - nono's error message for the AppArmor denial points to the wrong
   cause; it's worth reporting upstream.
-- `~/.pi` is read-only in a compartment, but pi may want to write a
-  lock file there at startup; that's not yet tested.
+- pi can't change its shared settings from inside a compartment (e.g.,
+  with `/settings`), since they're read-only there; how pi reacts to
+  that isn't tested yet.
 - `nolabs-ai/goose` grants `~/.config/goose`, `~/.cache/goose`,
   `~/.local/share/goose`, and `~/.local/state/goose` read-write, and
   none is in `compartment-paths` yet. `compart` has no goose harness,
