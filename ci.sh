@@ -349,7 +349,7 @@ status=0
 mkdir -p "$wst/np-bin" "$fh/.newtool"
 {
   printf '#!/bin/sh\ncase "$3" in\n'
-  printf '  good) echo %s ;;\n' "'{\"filesystem\": {\"grants\": [{\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fh/.newtool\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fh/.cache\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fhp/projects/p1\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"/dev/shm\"}, {\"access\": \"read\", \"type\": \"directory\", \"path\": \"$fh/.readonly\"}]}}'"
+  printf '  good) echo %s ;;\n' "'{\"filesystem\": {\"grants\": [{\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fh/.newtool\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fh/.cache\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fhp/projects/p1\"}, {\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"/dev/shm\"}, {\"access\": \"read\", \"type\": \"directory\", \"path\": \"$fh/.readonly\"}, {\"access\": \"read\", \"type\": \"directory\", \"path\": \"/run\"}]}}'"
   printf '  holdsws) echo %s ;;\n' "'{\"filesystem\": {\"grants\": [{\"access\": \"readwrite\", \"type\": \"directory\", \"path\": \"$fhp/projects\"}]}}'"
   printf "  nogrants) echo '{}' ;;\n"
   printf '  *) exit 1 ;;\nesac\n'
@@ -376,6 +376,7 @@ case "$avout" in *"|--ro-bind-try|$fh/.readonly|$fh/.readonly|"*) ;; *) failed "
 case "$avout" in *"|--bind|$newtool|$fh/.newtool|"*) ;; *) failed "the allowlist view doesn't make a writable directory private: $avout" ;; esac
 case "$avout" in *"|$fh/.readonly|"*"|--bind|$fhp/projects/p1|$fhp/projects/p1|"*) ;; *) failed "the allowlist view binds the workspace before the grants: $avout" ;; esac
 case "$avout" in *"|--bind-try|$fh/.local/state/bulkhead/claude-credentials|"*) ;; *) failed "the allowlist view doesn't bind what's shared on purpose: $avout" ;; esac
+case "$avout" in *"-bind-try|/run|"*) failed "the allowlist view binds back the VM's /run: $avout" ;; esac
 (cd "$fh/projects/p1" && wsenv BULKHEAD_VIEW=allowlist "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd 2>&1) |
   grep -q "needs --nono-profile" || failed "the allowlist view started without a profile"
 (cd "$fh/projects/p1" && wsenv BULKHEAD_VIEW=nope "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd > /dev/null 2>&1) &&

@@ -219,16 +219,19 @@ set -- "$@" --dev /dev --tmpfs /dev/shm
 set -- "$@" --tmpfs /run
 [ -z "${XDG_RUNTIME_DIR:-}" ] || set -- "$@" --perms 0700 --dir "$XDG_RUNTIME_DIR"
 
-# The grants. Private by default: each directory the profile lets
-# agents write becomes the compartment's own copy, unless
-# compartment-paths says what it is (e.g., ro for your shared setup, or
-# shared), or it's the workspace, the dossier, /dev, or /proc. So a path
+# The grants. /dev, /proc, /run, and /tmp are the compartment's own, so
+# a grant there means only what compartment-paths says (e.g., a profile
+# may grant all of /run, which would bring back the VM's sockets).
+# Private by default: each directory the profile lets agents write
+# becomes the compartment's own copy, unless compartment-paths says what
+# it is (e.g., ro for your shared setup, or shared), or it's the
+# workspace or the dossier. So a path
 # a pack grants that we've never heard of (e.g., after an update) is
 # never shared between compartments; at worst the harness misses what's
 # there. In the allowlist view, every other grant is bound in, read-only
 # or not, as nono says (a missing one is skipped, as nono skips it).
 while read -r access type path; do
-  case "$path" in '' | /dev | /dev/* | /proc | /proc/*) continue ;; esac
+  case "$path" in '' | /dev | /dev/* | /proc | /proc/* | /run | /run/* | /tmp | /tmp/*) continue ;; esac
   under "$path" "$root" && continue
   under "$path" "$dossier" && continue
   if [ "$access" != read ] && { under "$root" "$path" || under "$dossier" "$path"; }; then

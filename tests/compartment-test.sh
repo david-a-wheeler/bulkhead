@@ -85,8 +85,11 @@ rm -f "$scratch/err"
 # (pasta, bwrap, and nono) must pass it on.
 r=0; run_in "$a" "exit 7" || r=$?
 check "pasta and bwrap pass on the exit status" "$r" 7
-r=0; run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c 'exit 7'" 2> /dev/null || r=$?
+# This is also the first test to start nono, so if nono can't start
+# (e.g., the view lacks something it needs), say why.
+r=0; run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c 'exit 7'" 2> "$scratch/nono-err" || r=$?
 check "nono passes on the exit status" "$r" 7
+[ "$r" = 7 ] || sed 's/^/      nono said: /' "$scratch/nono-err"
 
 run_in "$a" "echo a > /tmp/$marker && echo a > ~/.claude/$marker && echo a > \$XDG_RUNTIME_DIR/cc-socks/$marker && echo a > ~/.cache/$marker"
 r=$(run_in "$a" "cat /tmp/$marker ~/.claude/$marker 2>/dev/null | tr -d '\n'")
@@ -149,17 +152,23 @@ fi
 r=$(run_in "$a" "[ -e $b ] && echo seen || echo unseen")
 check "a compartment can't see another workspace" "$r" unseen
 # In the allowlist view, what nono doesn't grant isn't there at all
-# (each of these exists on the VM); what it grants is.
+# (each of these exists on the VM), under each harness's profile (a
+# profile may grant more than it seems, e.g., all of /run); what it
+# grants is.
 if [ "${BULKHEAD_VIEW:-full}" = allowlist ]; then
-  for p in /etc/shadow /var/log "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.bash_history" "$HOME/.local/share/keyrings"; do
-    [ -e "$p" ] || continue
-    r=$(run_in "$a" "[ -e $p ] && echo there || echo absent")
-    check "allowlist view: $p (not granted) isn't there" "$r" absent
-  done
-  for p in /usr/bin/python3 /etc/passwd /etc/resolv.conf "$HOME/.gitconfig" "$HOME/.agents"; do
-    [ -e "$p" ] || continue
-    r=$(run_in "$a" "[ -e $p ] && echo there || echo absent")
-    check "allowlist view: $p (granted) is there (so the check works)" "$r" there
+  for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
+    for p in /etc/shadow /var/log /run/docker.sock /run/dbus/system_bus_socket \
+      "${XDG_RUNTIME_DIR:-/nonexistent}/bus" "$HOME/.ssh" "$HOME/.gnupg" \
+      "$HOME/.bash_history" "$HOME/.local/share/keyrings"; do
+      [ -e "$p" ] || continue
+      r=$(run_in "$a" "[ -e $p ] && echo there || echo absent" --nono-profile "$prof")
+      check "allowlist view, $prof: $p (not granted) isn't there" "$r" absent
+    done
+    for p in /usr/bin/python3 /etc/passwd /etc/resolv.conf "$HOME/.gitconfig" "$HOME/.agents"; do
+      [ -e "$p" ] || continue
+      r=$(run_in "$a" "[ -e $p ] && echo there || echo absent" --nono-profile "$prof")
+      check "allowlist view, $prof: $p (granted) is there (so the check works)" "$r" there
+    done
   done
 fi
 r=$(run_in "$a" "[ -d $a.dossier/inbox ] && [ ! -e $a.dossier/policy ] && echo ok")
