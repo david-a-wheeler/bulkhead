@@ -325,6 +325,8 @@ trap : INT QUIT
 status=0
 anon-access "$@" || status=$?
 trap - INT QUIT
+# A blank line sets our report apart from the session's last output.
+echo >&2
 check_workspace true || :
 # Another session may still be running here, so remind you how to check
 # again later.
