@@ -31,21 +31,25 @@
 #
 # Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]...
 #          [--expose-port PORT]... COMMAND [ARG...]
+#        bulkhead-compartment --tidy
 # --dry-run prints the compartment's key and the pasta and bwrap
-# arguments instead of running anything (for tests).
+# arguments instead of running anything (for tests). --tidy only tidies
+# the compartment's copies (see tidy below), as every launch does first.
 #
 # If bwrap or pasta can't run, this fails rather than silently running
 # without a compartment. To run without one anyway, set
 # BULKHEAD_NO_COMPARTMENT=1.
 set -eu
 
-usage="Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]... [--expose-port PORT]... COMMAND [ARG...]"
+usage="Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]... [--expose-port PORT]... COMMAND [ARG...], or bulkhead-compartment --tidy"
 dry_run=false
+tidy_only=false
 forward=""
 expose=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=true ;;
+    --tidy) tidy_only=true ;;
     --forward-port | --expose-port)
       [ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
       # No leading zeros, so we needn't know how pasta and nono read them.
@@ -63,9 +67,9 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
-[ "$#" -gt 0 ] || { echo "$usage" >&2; exit 2; }
+"$tidy_only" || [ "$#" -gt 0 ] || { echo "$usage" >&2; exit 2; }
 
-if [ -n "${BULKHEAD_NO_COMPARTMENT:-}" ]; then
+if [ -n "${BULKHEAD_NO_COMPARTMENT:-}" ] && ! "$tidy_only"; then
   echo "bulkhead-compartment: WARNING: running without a compartment." >&2
   exec "$@"
 fi
@@ -101,6 +105,36 @@ set -- "$@" --setenv TMPDIR "$tmp"
 # systemd-resolved's stub file).
 resolv="$(readlink -f /etc/resolv.conf)"
 set -- "$@" --ro-bind "${BULKHEAD_NETNS_RESOLV:-/usr/local/libexec/bulkhead/netns-resolv.conf}" "$resolv"
+# Each private path so far, with its copy: "PATH<tab>COPY" lines.
+tab="$(printf '\t')"
+privates=""
+# tidy PATH: before we bind the ro PATH inside a private path, tidy
+# what's at PATH in the compartment's copy. A bind leaves an empty
+# placeholder there (bwrap makes one to mount over), which the harness
+# would see if PATH were later missing; and a symlink there would
+# send the bind elsewhere. So we remove a symlink, and an empty
+# placeholder of the wrong kind (a file where PATH is a directory, or
+# the reverse) or for a PATH that's gone. Anything else there is the
+# compartment's own (e.g., a file pi wrote while PATH was missing),
+# so we leave it.
+tidy() {
+  t_path=""
+  t_copy=""
+  while IFS="$tab" read -r p c; do
+    case "$1" in "$p"/*) [ "${#p}" -le "${#t_path}" ] || { t_path="$p"; t_copy="$c"; } ;; esac
+  done << EOF
+$privates
+EOF
+  [ -n "$t_path" ] || return 0
+  ph="$t_copy${1#"$t_path"}"
+  if [ -L "$ph" ]; then
+    rm -f "$ph"
+  elif [ -d "$ph" ]; then
+    [ -e "$1" ] && [ -d "$1" ] || rmdir "$ph" 2> /dev/null || :
+  elif [ -f "$ph" ] && [ ! -s "$ph" ]; then
+    [ -e "$1" ] && [ ! -d "$1" ] || rm -f "$ph"
+  fi
+}
 while read -r kind path; do
   case "$kind" in '' | '#'*) continue ;; esac
   # These patterns are the data file's literal text, not expansions.
@@ -127,8 +161,11 @@ while read -r kind path; do
         [ -d "$src" ] || mkdir -m 700 "$src"
       fi
       set -- "$@" --bind "$src" "$path"
+      privates="$privates$path$tab$src
+"
       ;;
     ro)
+      "$dry_run" || tidy "$path"
       [ -e "$path" ] || continue
       set -- "$@" --ro-bind "$path" "$path"
       ;;
@@ -142,6 +179,7 @@ while read -r kind path; do
       ;;
   esac
 done < "$paths_file"
+! "$tidy_only" || exit 0
 set -- "$@" --chdir "$here" --
 i=0
 while [ "$i" -lt "$ncmd" ]; do

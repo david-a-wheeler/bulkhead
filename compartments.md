@@ -625,6 +625,17 @@ over the paths `compartment-paths` lists, each as one of these kinds:
 - `shared`: nothing; it records a path every compartment shares on
   purpose (Claude's login, in `~/.local/state/bulkhead/claude-credentials`).
 
+A `ro` path inside a `private` one (e.g., `~/.pi/agent/settings.json`)
+needs a placeholder in the compartment's copy for bwrap to mount over,
+and bwrap makes an empty one. If you later delete the shared file, the
+harness would find that empty placeholder instead of no file. So each
+launch first tidies each such path's place in the copy: it removes a
+symlink (which would send the bind elsewhere), and an empty
+placeholder that's of the wrong kind or for a path that's gone. Any
+other file there is the compartment's own, so it stays.
+`bulkhead-compartment --tidy` does only that. Any new `ro` line inside
+a `private` one gets this, with no new code.
+
 `ro` also covers paths a harness's nono pack grants read-write that no
 compartment should write for another to read, since a profile that
 extends a pack can't take back its grants: nono's

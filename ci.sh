@@ -281,6 +281,23 @@ for f in .config/nono/profile-drafts .claude.json.lock; do
 done
 grep -qF -- "$fh/.claude.lock" "$tmp/dry" && failed "compartment bound a missing ~/.claude.lock"
 rm -r "$fh/.config/nono" "$fh/.claude.json.lock"
+# Before binding a shared path inside a private one, a launch (or
+# --tidy) removes what the compartment's copy shouldn't keep there: an
+# empty placeholder for a path that's gone, or of the wrong kind, and
+# any symlink. The compartment's own files stay.
+mkdir -p "$fh/.pi/agent" "$fh/run"
+echo '{}' > "$fh/.pi/agent/settings.json"
+piagent="$fhp/projects/p1.dossier/state/$(printf '%s' "${fh#/}/.pi/agent" | tr '/' '%')"
+mkdir -p "$piagent/extensions"
+: > "$piagent/settings.json"
+: > "$piagent/models.json"
+echo mine > "$piagent/themes"
+ln -s /etc/passwd "$piagent/skills"
+(cd "$fh/projects/p1" && wsenv env XDG_RUNTIME_DIR="$fh/run" "$SCRIPT_DIR/bulkhead-compartment" --tidy) ||
+  failed "bulkhead-compartment --tidy"
+[ "$(cd "$piagent" && ls -A | tr '\n' ' ')" = "settings.json themes " ] ||
+  failed "bulkhead-compartment --tidy left: $(ls -A "$piagent" | tr '\n' ' ')"
+rm -r "$fh/.pi" "$fh/run"
 # The network namespace: pasta forwards nothing, unless asked.
 printf '%s\n' "$out" | sed -n 2p | grep -qx pasta || failed "compartment runs under pasta"
 for opt in --tcp-ports --udp-ports --udp-ns --tcp-ns --map-host-loopback --map-guest-addr; do
