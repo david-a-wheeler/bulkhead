@@ -192,13 +192,14 @@ if [ "$view" = full ]; then
     [ ! -d "$d" ] || set -- "$@" --tmpfs "$(cd "$d" && pwd -P)"
   done
 else
-  # bwrap's root starts empty. Its own processes, and the symlinks in /
-  # and /etc (e.g., /bin and /etc/resolv.conf): a symlink holds only its
-  # target's name, and nono grants the targets themselves. And what nono
+  # bwrap's root starts empty. Its own processes, and the symlinks in
+  # /, /etc, and /var (e.g., /bin, /etc/resolv.conf, and /var/run, which
+  # glibc uses to reach nscd): a symlink holds only its target's name,
+  # and nono grants the targets themselves (or, for /run, it's ours). And what nono
   # itself reads and writes before it sandboxes the agent (it grants the
   # agent none of it).
   set -- "$@" --unshare-pid --proc /proc
-  for l in /* /etc/*; do
+  for l in /* /etc/* /var/*; do
     [ ! -L "$l" ] || set -- "$@" --symlink "$(readlink "$l")" "$l"
   done
   set -- "$@" --bind-try "$HOME/.config/nono" "$HOME/.config/nono" \
