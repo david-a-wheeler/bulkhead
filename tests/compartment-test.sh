@@ -17,17 +17,13 @@ repo=$(cd "$(dirname "$0")/.." && pwd -P)
 a="$HOME/projects/,compartment-test-a"
 b="$HOME/projects/,compartment-test-b"
 marker=",compartment-test-$$"
-# set -e stops the script at an unexpected error, which mustn't look
-# like a clean run, so cleanup says so unless we reached the end.
-finished=false
+# shellcheck source=SCRIPTDIR/report.sh
+. "$repo/tests/report.sh"
+report_begin compartment-test.sh
 cleanup() {
-  status=$?
+  report_on_exit || :
   rm -rf "$a" "$b" "$a.dossier" "$b.dossier"
   rm -f "/tmp/$marker"
-  if ! "$finished"; then
-    echo "FAIL: compartment-test.sh stopped early (status $status), after the checks above." >&2
-    exit 1
-  fi
 }
 trap cleanup EXIT
 mkdir -p "$a" "$b"
@@ -40,7 +36,9 @@ for d in "$a" "$b"; do
 done
 
 fails=0
+checks=0
 check() {
+  checks=$((checks + 1))
   if [ "$2" = "$3" ]; then
     echo "ok:   $1"
   else
@@ -369,6 +367,4 @@ r=$(cd "$a" && BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
   "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi 2>&1 && echo covered || :)
 check "compartment-paths covers every write the installed profiles grant" "$r" covered
 
-finished=true
-echo "$fails failed."
-[ "$fails" -eq 0 ]
+report_end "$fails" "$checks"

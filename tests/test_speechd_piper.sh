@@ -5,16 +5,19 @@
 # layout with stand-ins for piper and aplay that record what they get.
 # Run by ci.sh.
 set -eu
+# shellcheck source=SCRIPTDIR/report.sh
+. "$(dirname "$0")/report.sh"
+report_begin test_speechd_piper.sh
 
 TESTS="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$TESTS/.." && pwd)"
 mkdir -p "$REPO/.tmp"
 work="$(mktemp -d "$REPO/.tmp/test-speechd-piper.XXXXXX")"
-trap 'rm -rf "${work:?}"' EXIT
+trap 'report_on_exit; rm -rf "${work:?}"' EXIT
 fail=0
 failed() {
   echo "FAIL: $1" >&2
-  fail=1
+  fail=$((fail + 1))
 }
 
 home=$work/piper
@@ -80,4 +83,4 @@ refused en_US-test-medium 0 '$(id)'
 refused en_US-test-medium 0
 refused en_US-test-medium 0 100 extra
 
-exit "$fail"
+report_end "$fail"

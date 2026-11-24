@@ -15,14 +15,19 @@ cd "$SCRIPT_DIR"
 unset GIT_CONFIG_COUNT
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "${tmp:?}"' EXIT
+trap 'report_on_exit; rm -rf "${tmp:?}"' EXIT
 
+# shellcheck source=tests/report.sh
+. "$SCRIPT_DIR/tests/report.sh"
+report_begin ci.sh
 fail=0
 failed() {
   echo "FAILED: $1" >&2
-  fail=1
+  fail=$((fail + 1))
 }
+step_name=""
 step() {
+  step_name="$1"
   echo
   echo "== $1 =="
 }
@@ -54,7 +59,7 @@ PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.s
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
-shellcheck -x $PLAIN_SCRIPTS || fail=1
+shellcheck -x $PLAIN_SCRIPTS || failed "$step_name"
 
 step "dash -n (plain scripts)"
 for f in $PLAIN_SCRIPTS; do
@@ -72,7 +77,7 @@ step "rendering and checking templates"
 # that tool parses the line as a directive.)
 dash -n vm-bash-aliases-block.sh || failed "vm-bash-aliases-block.sh (dash -n)"
 bash -n vm-bash-aliases-block.sh || failed "vm-bash-aliases-block.sh (bash -n)"
-shellcheck -x -s bash vm-bash-aliases-block.sh || fail=1
+shellcheck -x -s bash vm-bash-aliases-block.sh || failed "$step_name"
 
 render_template secrets-client.template.py "$tmp/secrets-client" SECRETS_SERVER_PORT
 render_template secrets-server.template.py "$tmp/secrets-server.py" \
@@ -188,7 +193,7 @@ step "workspaces (bulkhead-workspace, bulkhead-compartment --dry-run, compart)"
 # be in /tmp, where workspace-forbidden refuses every workspace.
 mkdir -p "$SCRIPT_DIR/.tmp"
 wst="$(mktemp -d "$SCRIPT_DIR/.tmp/ci-workspaces.XXXXXX")"
-trap 'rm -rf "${tmp:?}" "${wst:?}"' EXIT
+trap 'report_on_exit; rm -rf "${tmp:?}" "${wst:?}"' EXIT
 fh="$wst/home"
 mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$fh/.claude" "$fh/.ssh"
 : > "$fh/.claude/CLAUDE.md"
@@ -688,7 +693,7 @@ done
 step "host models (tests/test_host_models.sh)"
 # initial-models.yaml and the list's rules, llama-swap's config from it,
 # and infer-models and pi-models.jq on llama-swap's real listing.
-{ shellcheck -x tests/test_host_models.sh && tests/test_host_models.sh; } || fail=1
+{ shellcheck -x tests/test_host_models.sh && tests/test_host_models.sh; } || failed "$step_name"
 
 step "release archive checks (archive_names_ok, unpacked_tree_ok)"
 # install_release in host-setup.sh lists each release's archive with
@@ -740,29 +745,29 @@ step "python unit tests (tests/)"
 # real module, so these exercise the actual logic (not a reimplementation
 # of it) without needing a macOS host, Keychain, or network. Add new test
 # files under tests/ named test_*.py and this picks them up automatically.
-python3 -m unittest discover -s "$SCRIPT_DIR/tests" -v || fail=1
+python3 -m unittest discover -s "$SCRIPT_DIR/tests" -v || failed "$step_name"
 
 step "infer-watch.c (tests/test_infer_watch.sh)"
 # Builds the sleep watcher against stand-ins for Apple's headers, with
 # strict gcc warnings and -fanalyzer, then runs it under the sanitizers.
-{ shellcheck -x tests/test_infer_watch.sh && tests/test_infer_watch.sh; } || fail=1
+{ shellcheck -x tests/test_infer_watch.sh && tests/test_infer_watch.sh; } || failed "$step_name"
 
 step "infer-doctor.sh's awk programs (tests/test_infer_doctor.sh)"
 # Its flag and request summaries, on a sample command line and real
 # llama-server log lines; infer-doctor.sh itself needs macOS.
-{ shellcheck -x tests/test_infer_doctor.sh && tests/test_infer_doctor.sh; } || fail=1
+{ shellcheck -x tests/test_infer_doctor.sh && tests/test_infer_doctor.sh; } || failed "$step_name"
 
 step "speechd-piper (tests/test_speechd_piper.sh)"
 # How it maps speech-dispatcher's rate and volume to Piper's, and that it
 # refuses bad voice names and numbers.
-{ shellcheck -x tests/test_speechd_piper.sh && tests/test_speechd_piper.sh; } || fail=1
+{ shellcheck -x tests/test_speechd_piper.sh && tests/test_speechd_piper.sh; } || failed "$step_name"
 
 step "manage-models.sh (tests/test_manage_models.sh)"
 # Starts a list, adds and removes a generalist and a
 # specialist, and updates, syncs, and prunes, on a copy of the repo with
 # a stand-in for Hugging Face; and checks that bad requests change
 # nothing.
-{ shellcheck -x tests/test_manage_models.sh && tests/test_manage_models.sh; } || fail=1
+{ shellcheck -x tests/test_manage_models.sh && tests/test_manage_models.sh; } || failed "$step_name"
 
 step "tests/sleep-test.sh runs"
 # It only runs on the Mac, so run both phases here with stand-ins for
@@ -798,7 +803,7 @@ step "tests/sleep-test.sh runs"
     echo "FAILED: tests/sleep-test.sh's output (above, if any)" >&2
     exit 1
   fi
-) || fail=1
+) || failed "$step_name"
 
 step "jq revoke-filter logic (rotate-heroku-key.sh's auto-revoke query)"
 # This is the trickiest logic in the repo, and it had a real bug once
@@ -892,10 +897,10 @@ step "commit-msg git hook"
     echo "FAILED: a changed hook ran without a new approval" >&2
     exit 1
   fi
-) || fail=1
+) || failed "$step_name"
 
 step "git safety settings (tests/test_git_safety_env.sh)"
-tests/test_git_safety_env.sh || fail=1
+tests/test_git_safety_env.sh || failed "$step_name"
 
 step "pi-prose-style.js"
 # Checks the pi extension against the checker, with a stand-in for pi.
@@ -904,18 +909,18 @@ step "pi-prose-style.js"
   mkdir -p "$tmp/bin"
   ln -sf "$SCRIPT_DIR/check-prose-style.sh" "$tmp/bin/check-prose-style"
   PATH="$tmp/bin:$PATH" node tests/test_pi_prose_style.mjs
-) || fail=1
+) || failed "$step_name"
 
 step "pi-next-steps.js"
 mkdir "$tmp/next-steps"
-node tests/test_pi_next_steps.mjs "$tmp/next-steps" || fail=1
+node tests/test_pi_next_steps.mjs "$tmp/next-steps" || failed "$step_name"
 
 step "check-prose-style.sh self-test"
 # Runs sample hook inputs through check-prose-style.sh and checks that
 # each is allowed or denied as expected (see test-check-prose-style.sh).
 bash -n test-check-prose-style.sh || failed "test-check-prose-style.sh (bash -n)"
-shellcheck -x test-check-prose-style.sh || fail=1
-./test-check-prose-style.sh || fail=1
+shellcheck -x test-check-prose-style.sh || failed "$step_name"
+./test-check-prose-style.sh || failed "$step_name"
 
 step "no false alarms for nono's Claude Code hook"
 # nono's plugin (nono-hook-bash.sh) tells the agent its command hit a
@@ -931,9 +936,4 @@ if git grep -n -I -i -E "$hook_words" > "$tmp/hook-words"; then
 fi
 
 echo
-if [ "$fail" -eq 0 ]; then
-  echo "All checks passed."
-else
-  echo "One or more checks FAILED (see above)." >&2
-  exit 1
-fi
+report_end "$fail"

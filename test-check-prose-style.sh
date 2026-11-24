@@ -12,6 +12,9 @@
 # shellcheck disable=SC1111,SC1112
 
 set -u
+# shellcheck source=tests/report.sh
+. "$(dirname "$0")/tests/report.sh"
+report_begin test-check-prose-style.sh
 
 # The hook must set its own locale, so test it under plain C.
 export LC_ALL=C
@@ -37,14 +40,14 @@ check() {
   status=$?
   if [ "$status" -ne 0 ]; then
     echo "FAIL: $1: hook exited $status"
-    fail=1
+    fail=$((fail + 1))
     return
   fi
   got="$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<< "$out")"
   got="${got:-allow}"
   if [ "$got" != "$2" ]; then
     echo "FAIL: $1: wanted $2, got $got"
-    fail=1
+    fail=$((fail + 1))
   fi
 }
 
@@ -107,7 +110,7 @@ edit "shell metacharacters" allow "\$(touch $dir/a) \`touch $dir/b\` ';" "\$(tou
 count=$((count + 1))
 if [ -n "$(ls -A "$dir")" ]; then
   echo "FAIL: input text ran as a command"
-  fail=1
+  fail=$((fail + 1))
 fi
 rm -rf "$dir"
 
@@ -117,14 +120,14 @@ msg="$("$hook" <<< "$(jq -n --arg c "$(printf 'It’s not just \033[31mred\007, 
   '{tool_name:"Write",tool_input:{content:$c}}')" \
   | jq -r '.hookSpecificOutput.permissionDecisionReason')"
 case "$msg" in
-  *[[:cntrl:]]*) echo "FAIL: message contains control characters"; fail=1 ;;
+  *[[:cntrl:]]*) echo "FAIL: message contains control characters"; fail=$((fail + 1)) ;;
 esac
 
 # Bad JSON makes the hook exit nonzero (a visible error, not a silent pass).
 count=$((count + 1))
 if "$hook" <<< 'not json' >/dev/null 2>&1; then
   echo "FAIL: bad JSON didn't make the hook exit nonzero"
-  fail=1
+  fail=$((fail + 1))
 fi
 
 # text NAME WANT_STATUS WANT_LINES TEXT [OPTION]: run the hook with
@@ -139,7 +142,7 @@ text() {
   lines="$(printf '%s' "$err" | grep -c '')"
   if [ "$status" -ne "$2" ] || [ -n "$out" ] || [ "$lines" -ne "$3" ]; then
     echo "FAIL: $1: wanted status $2 and $3 stderr lines, got status $status, $lines lines, stdout \"$out\""
-    fail=1
+    fail=$((fail + 1))
   fi
 }
 
@@ -156,12 +159,7 @@ text "unknown option" 2 1 'Nothing wrong here.' --bogus
 count=$((count + 1))
 if ! "$hook" --help </dev/null | grep -q '^Usage:'; then
   echo "FAIL: --help didn't print usage on stdout and exit 0"
-  fail=1
+  fail=$((fail + 1))
 fi
 
-if [ "$fail" -eq 0 ]; then
-  echo "All $count tests passed."
-else
-  echo "Some of $count tests FAILED." >&2
-  exit 1
-fi
+report_end "$fail" "$count"

@@ -4,12 +4,16 @@
 # infer-doctor-requests.awk on llama-server log lines (real ones, from
 # llama.cpp b11669). infer-doctor.sh itself needs macOS. Run by ci.sh.
 set -u
+# shellcheck source=SCRIPTDIR/report.sh
+. "$(dirname "$0")/report.sh"
+report_begin test_infer_doctor.sh
+trap report_on_exit EXIT
 
 TESTS="$(cd "$(dirname "$0")" && pwd)"
 fail=0
 failed() {
   echo "FAIL: $1" >&2
-  fail=1
+  fail=$((fail + 1))
 }
 
 got="$(printf '%s\n' '/opt/llama.cpp/b11669/llama-server --host 127.0.0.1 --port 8999 -ngl 99 -fa on --no-slots --cache-ram 0 --reasoning-budget-message "Consider it, then answer." --reasoning-budget -1 stray --jinja' |
@@ -56,5 +60,4 @@ got="$(printf '%s\n' "$log" | awk -v last=1 -f "$TESTS/../infer-doctor-requests.
 got="$(printf 'no requests here\n' | awk -f "$TESTS/../infer-doctor-requests.awk")"
 [ "$got" = "no requests in the log" ] || failed "infer-doctor-requests.awk with no requests gave: $got"
 
-[ "$fail" -eq 0 ] && echo "infer-doctor: all checks passed."
-exit "$fail"
+report_end "$fail"

@@ -7,14 +7,17 @@
 #
 # Usage: tests/test_git_safety_env.sh (from the repository's top)
 set -eu
+# shellcheck source=SCRIPTDIR/report.sh
+. "$(dirname "$0")/report.sh"
+report_begin test_git_safety_env.sh
 
 top="$(pwd -P)"
 tmp="$(mktemp -d)"
-trap 'rm -rf "${tmp:?}"' EXIT
+trap 'report_on_exit; rm -rf "${tmp:?}"' EXIT
 fail=0
 failed() {
   echo "FAILED: $1" >&2
-  fail=1
+  fail=$((fail + 1))
 }
 
 GIT_CONFIG_GLOBAL="$tmp/gitconfig"
@@ -98,4 +101,4 @@ fi
 grep -qx store "$tmp/mine.log" 2>/dev/null ||
   failed "your own credential helper didn't run"
 
-exit "$fail"
+report_end "$fail"

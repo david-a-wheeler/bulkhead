@@ -7,17 +7,20 @@
 # and checks that bad requests change nothing. Run by ci.sh; SHOW=1 also shows each bad request's
 # error.
 set -eu
+# shellcheck source=SCRIPTDIR/report.sh
+. "$(dirname "$0")/report.sh"
+report_begin test_manage_models.sh
 
 TESTS="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$TESTS/.." && pwd)"
 mkdir -p "$REPO/.tmp"
 work="$(mktemp -d "$REPO/.tmp/test-manage-models.XXXXXX")"
-trap 'rm -rf "${work:?}"' EXIT
+trap 'report_on_exit; rm -rf "${work:?}"' EXIT
 
 fail=0
 failed() {
   echo "FAILED: $1" >&2
-  fail=1
+  fail=$((fail + 1))
 }
 
 # The files the stand-in Hugging Face serves, by name: GGUF starts with
@@ -374,4 +377,4 @@ for bad in "" / "$T/models/" "$T/models/../models" "$T//models" models; do
 done
 mv "$T/config.local.sh.good" "$T/config.local.sh"
 
-exit "$fail"
+report_end "$fail"

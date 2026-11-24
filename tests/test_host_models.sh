@@ -8,13 +8,16 @@
 # ci.sh.
 # shellcheck disable=SC2016 # entries hold literal ${llama-server} etc.
 set -eu
+# shellcheck source=SCRIPTDIR/report.sh
+. "$(dirname "$0")/report.sh"
+report_begin test_host_models.sh
 
 TESTS="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_DIR="$(cd "$TESTS/.." && pwd)"
 cd "$SCRIPT_DIR"
 mkdir -p .tmp
 tmp="$(mktemp -d "$SCRIPT_DIR/.tmp/test-host-models.XXXXXX")"
-trap 'rm -rf "${tmp:?}"' EXIT
+trap 'report_on_exit; rm -rf "${tmp:?}"' EXIT
 . ./config.sh
 . ./common.sh
 . ./host-models.sh
@@ -22,7 +25,7 @@ trap 'rm -rf "${tmp:?}"' EXIT
 fail=0
 failed() {
   echo "FAILED: $1" >&2
-  fail=1
+  fail=$((fail + 1))
 }
 # refuses_list WHAT: infer_models_ok must refuse the list on stdin, WHAT.
 refuses_list() {
@@ -355,5 +358,4 @@ infer_model_ok m ok && failed "infer_model_ok accepted a model with no files"
 infer_model_ok m ok M.gguf ../x.gguf && failed "infer_model_ok accepted a bad second file"
 infer_model_ok m "$(printf 'two\nlines')" M.gguf && failed "infer_model_ok accepted a description with a newline"
 
-[ "$fail" -eq 0 ] && echo "host models: all checks passed."
-exit "$fail"
+report_end "$fail"

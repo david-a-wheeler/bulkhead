@@ -5,12 +5,15 @@
 # runs it under AddressSanitizer and UndefinedBehaviorSanitizer through
 # the stand-ins' fake power events, with a few hooks. Run by ci.sh.
 set -eu
+# shellcheck source=SCRIPTDIR/report.sh
+. "$(dirname "$0")/report.sh"
+report_begin test_infer_watch.sh
 
 TESTS="$(cd "$(dirname "$0")" && pwd)"
 SOURCE="$TESTS/../infer-watch.c"
 STUBS="$TESTS/macos-stubs"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'report_on_exit; rm -rf "$tmp"' EXIT
 
 FLAGS="-std=c11 -D_POSIX_C_SOURCE=200809L -O2 -D_FORTIFY_SOURCE=3
   -Werror -Wall -Wextra -Wpedantic -Wformat=2 -Wformat-overflow=2
@@ -27,7 +30,7 @@ FLAGS="-std=c11 -D_POSIX_C_SOURCE=200809L -O2 -D_FORTIFY_SOURCE=3
 fail=0
 failed() {
   echo "FAILED: $1" >&2
-  fail=1
+  fail=$((fail + 1))
 }
 
 # shellcheck disable=SC2086
@@ -117,5 +120,4 @@ fi
 grep -q "can't run $tmp/missing power" "$tmp/err" ||
   failed "a missing hook wasn't reported: $(cat "$tmp/err")"
 
-[ "$fail" -eq 0 ] && echo "infer-watch.c: all checks passed."
-exit "$fail"
+report_end "$fail"

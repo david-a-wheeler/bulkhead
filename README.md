@@ -548,6 +548,8 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   logic tests in `tests/`, and the Python unit tests), in one script;
   the GitHub CI run (on Ubuntu) and a local run always do the same
   thing. You can run it on any Linux machine with shellcheck, jq, node,
-  and Python with PyYAML to verify a change.
+  and Python with PyYAML to verify a change. Every test script ends the
+  same way (`tests/report.sh`): a full pass says `PASSED:`, and a
+  failure, or a stop partway through, ends with a `FAILED:` banner.
 A `*.template.*` file gets rendered (placeholders substituted) before
 install; anything else is copied or run as-is.

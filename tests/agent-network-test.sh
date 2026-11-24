@@ -56,8 +56,13 @@ fi
 mode="${1:-narrow}"
 [ "$mode" != --broad ] || mode=broad
 
+# shellcheck source=SCRIPTDIR/report.sh
+. "$(dirname "$0")/report.sh"
+report_begin "agent-network-test.sh ($mode)"
+trap report_on_exit EXIT
 fails=0
 skips=0
+checks=0
 # outcome METHOD URL [CURL-OPTION...]: print "refused" if nono's proxy
 # refused the request (the host isn't allowed, so there's no HTTP answer;
 # or the method and path aren't, so it answers 403 with its own body),
@@ -80,6 +85,7 @@ outcome() {
 check() {
   name=$1 actual=$2
   shift 2
+  checks=$((checks + 1))
   if [ "$actual" = rate-limited ]; then
     echo "SKIP: $name (GitHub's rate limit)"
     skips=$((skips + 1))
@@ -133,5 +139,6 @@ check "a model provider's POST is refused" "$(outcome POST https://api.openai.co
 check "a Rekor upload is refused" \
   "$(outcome POST https://rekor.sigstore.dev/api/v1/log/entries)" refused
 
-echo "$fails failed, $skips skipped."
-[ "$fails" -eq 0 ]
+# A skipped check didn't run, so it doesn't count as passed.
+[ "$skips" -eq 0 ] || echo "SKIPPED: $skips checks (GitHub's rate limit); rerun later to run them."
+report_end "$fails" "$((checks - skips))"
