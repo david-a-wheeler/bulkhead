@@ -11,8 +11,10 @@
 #
 # "compart sh [COMMAND [ARGUMENTS...]]" runs COMMAND (or, with none,
 # your $SHELL) in the compartment, under the same shared policy as any
-# harness, e.g., to see what an agent sees, or to run a tool you don't
-# trust.
+# harness, e.g., to run code an agent wrote (compart sh make test), to
+# see what an agent sees, or to run a tool you don't trust. We exit with
+# COMMAND's status, and write our own messages to stderr, so stdout is
+# COMMAND's alone.
 #
 # "compart dossier" prints the workspace's dossier, e.g., for
 # cd "$(compart dossier)". It works it out from the workspace's path,
@@ -38,6 +40,7 @@ bin="$(dirname "$0")"
 
 usage() {
   echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude or pi; compart sh [COMMAND...]; compart dossier; or compart check"
+  echo "Use compart sh to run code an agent wrote (e.g., compart sh make test); its exit status is COMMAND's."
 }
 
 die() {

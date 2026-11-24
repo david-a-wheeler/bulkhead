@@ -447,6 +447,10 @@ printf '%s\n' "$out" | grep -q "aren't in your environment" || failed "compart: 
 printf '%s\n' "$out" | grep -q "not starting" && failed "compart: said it won't start after a session: $out"
 printf '%s\n' "$out" | grep -q "run 'compart check' here any time" || failed "compart: reminded you of compart check: $out"
 git -C "$g" config --unset remote.y.mirror
+# compart's own messages go to stderr, so stdout is the command's alone.
+printf '#!/bin/sh\necho hi\n' > "$wst/plant-bin/anon-access"
+out="$(cd "$g" && wsenv PATH="$wst/plant-bin:$PATH" setsid -w "$SCRIPT_DIR/compart" sh true 2> /dev/null)"
+[ "$out" = hi ] || failed "compart sh: stdout holds only the command's output: $out"
 
 # compart claude refuses a shared login holding real tokens, since
 # agents could read them; nono's phantoms (nono_...) are fine.

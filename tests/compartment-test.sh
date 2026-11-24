@@ -56,6 +56,13 @@ if [ "$r" = failed ]; then
 fi
 rm -f ,compartment-test.err
 
+# compart sh returns its command's exit status, so the whole chain
+# (pasta, bwrap, and nono) must pass it on.
+r=0; run_in "$a" "exit 7" || r=$?
+check "pasta and bwrap pass on the exit status" "$r" 7
+r=0; run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c 'exit 7'" 2> /dev/null || r=$?
+check "nono passes on the exit status" "$r" 7
+
 run_in "$a" "echo a > /tmp/$marker && echo a > ~/.claude/$marker && echo a > \$XDG_RUNTIME_DIR/cc-socks/$marker"
 r=$(run_in "$a" "cat /tmp/$marker ~/.claude/$marker 2>/dev/null | tr -d '\n'")
 check "a compartment's /tmp and ~/.claude persist" "$r" aa

@@ -205,6 +205,21 @@ We tried and rejected these:
 - **`~/.gitconfig`:** a repository's config overrides it. git honors
   only a few keys (e.g., `safe.directory`) solely from your own config.
 
+## Running your own commands in a compartment
+
+An agent's workspace holds code it wrote, and running that code (e.g.,
+`make`, `npm test`, or a script) outside a compartment gives it your
+full access. So run it in the compartment instead:
+
+```sh
+compart sh make test     # or any command; with none, your $SHELL
+```
+
+It runs under the same shared policy as any harness. Its exit status
+is the command's, and its standard output is the command's alone
+(`compart`'s own messages go to standard error), so you can use it in
+scripts, e.g., `compart sh make test && git commit`.
+
 ## Workspaces and their dossiers
 
 ### Choosing the workspace

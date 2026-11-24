@@ -367,8 +367,9 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   environment and that no dossier is orphaned, but starts nothing.
   `compart dossier` prints the workspace's dossier. `compart sh COMMAND...` runs COMMAND
   in the workspace's compartment, under the same shared policy (with
-  `bulkhead-sh`), or your `$SHELL` with no COMMAND, e.g., to see what
-  an agent sees or to run a tool you don't trust. `noclaude` and `nopi` are
+  `bulkhead-sh`), or your `$SHELL` with no COMMAND, e.g., to run code
+  an agent wrote (`compart sh make test`), to see what an agent sees,
+  or to run a tool you don't trust. It exits with COMMAND's status. `noclaude` and `nopi` are
   the old names, kept as shims that run `compart claude` and
   `compart pi`.
 - `compart claude` runs `anon-access nono run --profile bulkhead-claude
