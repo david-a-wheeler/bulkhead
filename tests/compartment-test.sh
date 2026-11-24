@@ -42,7 +42,7 @@ run_in() {
   shift 2
   (cd "$d" && export BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
     BULKHEAD_WORKSPACE_FORBIDDEN="$repo/workspace-forbidden" \
-    BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" TMPDIR="$d/.tmp" &&
+    BULKHEAD_NETNS_RESOLV="$repo/netns-resolv.conf" BULKHEAD_LIB_DIR="$repo" TMPDIR="$d/.tmp" &&
     mkdir -p "$TMPDIR" && "$repo/bulkhead-workspace" prepare > /dev/null 2>&1 &&
     "$repo/bulkhead-compartment" "$@" sh -c "$c")
 }
@@ -109,6 +109,27 @@ r=$(run_in "$a" "ls /dev/pts | grep -c '^[0-9]'" || :)
 check "a compartment sees none of the VM's terminals" "$r" 0
 r=$(run_in "$a" "echo x > /dev/null && echo ok")
 check "a compartment's /dev/null works" "$r" ok
+# Its own /run: none of the VM's service sockets, only what
+# compartment-paths lists.
+for s in /run/docker.sock /run/dbus/system_bus_socket "\$XDG_RUNTIME_DIR/bus" \
+  "\$XDG_RUNTIME_DIR/systemd/private" "\$XDG_RUNTIME_DIR/openssh_agent" "\$XDG_RUNTIME_DIR/gnupg"; do
+  r=$(run_in "$a" "[ -e $s ] && echo seen || echo unseen")
+  check "a compartment can't see $s" "$r" unseen
+done
+if [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/speech-dispatcher/speechd.sock" ]; then
+  r=$(run_in "$a" "[ -S \$XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock ] && echo seen || echo unseen")
+  check "a compartment can reach speech-dispatcher" "$r" seen
+fi
+# Its own session keyring, and no list of our keys.
+r=$(run_in "$a" "wc -c < /proc/keys")
+check "a compartment's /proc/keys is empty" "$r" 0
+# keyctl's syscall number; KEYCTL_GET_KEYRING_ID (0) of the session keyring (-3).
+case "$(uname -m)" in x86_64) nr=250 ;; *) nr=219 ;; esac
+sesid="python3 -I -c 'import ctypes; print(ctypes.CDLL(None).syscall($nr, 0, -3, 0))'"
+outside=$(sh -c "$sesid")
+r=$(run_in "$a" "$sesid")
+[ "$r" != "$outside" ] && r=different || r=same
+check "a compartment has its own session keyring" "$r" different
 r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"
 r=$(git -C "$a" init -q && git -C "$a" status --porcelain | grep -v '^?? .tmp/$' || :)

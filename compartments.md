@@ -61,6 +61,12 @@ An agent in a compartment **can't**:
 - See the VM's other processes: it has its own PID namespace.
 - Connect to an abstract Unix socket outside its own sandbox, including
   another agent's.
+- Connect to the VM's service sockets in `/run` (e.g., Docker's, the
+  session bus, systemd's, and your SSH and GPG agents): it has its own
+  empty `/run`, with only the sockets `compartment-paths` lists (e.g.,
+  speech-dispatcher).
+- Read or leave kernel keys for another compartment: it has its own
+  session keyring, and its `/proc/keys` is empty.
 - Use a loopback port you haven't listed in `local-ports`.
 - Accept connections from outside, except on ports you list in
   `policy/expose-ports`: those you (and other VM processes outside a
@@ -683,6 +689,18 @@ belongs in `compartment-paths`; list every harness's paths there.
 
 ### nono: what the agent may touch
 
+One thing nono doesn't do on Linux is limit connecting to a Unix
+socket by path: its capability file says
+`"pathname_socket_enforcement": "linux_unmediated"`, so the sockets
+its profiles list aren't enforced. So the compartment's own empty
+`/run` (from bwrap) is what keeps agents from the VM's service
+sockets. We found this with a probe from inside a compartment; before
+it, an agent could connect to Docker's socket (root on the VM, if
+you're in the `docker` group), the session bus (through which systemd
+runs programs outside every sandbox), and your SSH and GPG agents.
+The lesson: check what a sandbox really enforces, from inside it,
+rather than what its policy says.
+
 nono's job is to limit what the agent can touch, from policy written as
 data. It runs inside bwrap and sandboxes the harness with Land&#108;ock and
 seccomp, using its shared `default` profile (`nono-default-profile.json`)
@@ -855,6 +873,14 @@ Use these only to work around a breakage.
 
 ## Known gaps
 
+- Sockets outside `/run` aren't hidden yet: since nono doesn't mediate
+  connecting by path, an agent can reach a socket anywhere else it can
+  name, such as one another agent made in its own workspace, or an
+  ssh `ControlMaster` socket in `~/.ssh`. Hiding other workspaces
+  (`~/projects` and `~/sensitive`, but for this one) would close most
+  of this.
+- Without `/run/user/UID/wayland-0`, a harness can't use your
+  clipboard (e.g., Claude's `/copy`).
 - nono still refuses loopback ports that aren't opened, even though
   the namespace is private, because it doesn't know that. So list an
   agent's own server ports in its dossier's `policy/local-ports`. A nono

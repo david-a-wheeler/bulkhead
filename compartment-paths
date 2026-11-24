@@ -20,6 +20,11 @@
 
 tmpdir /tmp
 
+# /run is each compartment's own and empty (see bulkhead-compartment),
+# so a socket an agent may use must be listed here. Speech (see
+# vm-speech-setup.sh): agents can say things aloud.
+ro $XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock
+
 # Caches. anon-access points XDG_CACHE_HOME into the workspace, but
 # bulkhead-sh and nolabs-ai/pi grant all of ~/.cache read-write, so a
 # tool that ignores XDG_CACHE_HOME would share its cache.

@@ -96,6 +96,19 @@ set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)" --dev-bind / /
 # agent could read their input or write into them. The agent keeps its
 # own terminal through the descriptors it inherits.
 set -- "$@" --dev /dev
+# Its own empty /run, with only what compartment-paths lists there: the
+# VM's /run holds every local service's socket (e.g., Docker's, the
+# session bus, systemd's, and your SSH and GPG agents), and nono
+# doesn't mediate connecting to a socket by path on Linux (its
+# capability file says "linux_unmediated"). XDG_RUNTIME_DIR stays,
+# empty, and only ours.
+set -- "$@" --tmpfs /run
+[ -z "${XDG_RUNTIME_DIR:-}" ] || set -- "$@" --perms 0700 --dir "$XDG_RUNTIME_DIR"
+# Every key of ours is listed in /proc/keys (and counted in
+# /proc/key-users), so a key's name could carry data between
+# compartments. Each also gets its own session keyring (see
+# new-session-keyring, which runs bwrap).
+set -- "$@" --ro-bind /dev/null /proc/keys --ro-bind /dev/null /proc/key-users
 # The compartment's temp directory is the directory's .tmp (on disk,
 # not in RAM), as /tmp and as TMPDIR. We always set TMPDIR: pasta's
 # AppArmor profile runs its command with "Ux", which has glibc drop
@@ -209,7 +222,8 @@ set -- pasta --config-net --quiet \
   ${expose:+--host-lo-to-ns-lo} \
   --udp-ports none --udp-ns none --tcp-ns "${forward:-none}" \
   --map-host-loopback none --map-guest-addr none \
-  --dns-forward 169.254.53.53 ${dns_host:+--dns-host "$dns_host"} -- bwrap "$@"
+  --dns-forward 169.254.53.53 ${dns_host:+--dns-host "$dns_host"} -- \
+  "${BULKHEAD_LIB_DIR:-/usr/local/libexec/bulkhead}/new-session-keyring" bwrap "$@"
 
 if "$dry_run"; then
   echo "key: $key"

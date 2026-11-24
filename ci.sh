@@ -77,7 +77,7 @@ shellcheck -x -s bash vm-bash-aliases-block.sh || fail=1
 render_template secrets-client.template.py "$tmp/secrets-client" SECRETS_SERVER_PORT
 render_template secrets-server.template.py "$tmp/secrets-server.py" \
   SECRETS_SERVER_PORT KEYCHAIN_PREFIX UTMCTL
-for f in "$tmp/secrets-client" "$tmp/secrets-server.py" extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py tests/net-probe.py; do
+for f in "$tmp/secrets-client" "$tmp/secrets-server.py" new-session-keyring extract-chat-template.py tests/check_llama_swap_config.py tests/make_tar_fixtures.py tests/net-probe.py; do
   python3 -m py_compile "$f" || failed "$f (py_compile)"
 done
 # Inside a compartment (or nono), secrets-client refuses at once, saying
@@ -298,6 +298,20 @@ ln -s /etc/passwd "$piagent/skills"
 [ "$(cd "$piagent" && ls -A | tr '\n' ' ')" = "settings.json themes " ] ||
   failed "bulkhead-compartment --tidy left: $(ls -A "$piagent" | tr '\n' ' ')"
 rm -r "$fh/.pi" "$fh/run"
+# Its own /dev, /run, and keyring, and no list of our keys.
+dry="$(printf '%s\n' "$out" | tr '\n' '|')"
+for want in "|--dev|/dev|" "|--tmpfs|/run|" "|--perms|0700|--dir|/run/user/9|" \
+  "|--ro-bind|/dev/null|/proc/keys|" "|--ro-bind|/dev/null|/proc/key-users|" \
+  "|$SCRIPT_DIR/new-session-keyring|bwrap|"; do
+  case "$dry" in *"$want"*) ;; *) failed "compartment arguments lack $want" ;; esac
+done
+# /run is empty but for what compartment-paths lists, after the tmpfs.
+case "$dry" in *"|--tmpfs|/run|"*"|--bind|"*"run%user%9%cc-socks|/run/user/9/cc-socks|"*) ;;
+  *) failed "compartment binds cc-socks after its own /run" ;; esac
+# new-session-keyring runs its command, and passes on its exit status.
+status=0
+./new-session-keyring sh -c 'exit 5' || status=$?
+[ "$status" = 5 ] || failed "new-session-keyring's exit status ($status)"
 # The network namespace: pasta forwards nothing, unless asked.
 printf '%s\n' "$out" | sed -n 2p | grep -qx pasta || failed "compartment runs under pasta"
 for opt in --tcp-ports --udp-ports --udp-ns --tcp-ns --map-host-loopback --map-guest-addr; do

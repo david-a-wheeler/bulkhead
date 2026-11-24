@@ -293,6 +293,7 @@ sudo install -d -m 755 /usr/local/libexec/bulkhead
 sudo install -m 644 "$SCRIPT_DIR/compartment-paths" "$SCRIPT_DIR/workspace-forbidden" \
   "$SCRIPT_DIR/netns-resolv.conf" "$SCRIPT_DIR/git-config-entries.awk" \
   "$SCRIPT_DIR/git-config-risks" /usr/local/libexec/bulkhead/
+sudo install -m 755 "$SCRIPT_DIR/new-session-keyring" /usr/local/libexec/bulkhead/
 orphans="$(/usr/local/bin/bulkhead-workspace orphans)"
 if [ -n "$orphans" ]; then
   cat >&2 <<EOF

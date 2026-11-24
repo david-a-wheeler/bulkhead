@@ -41,8 +41,12 @@ mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
 # With no command, we run your shell. The inner fallback matters: with
 # no arguments and an empty $SHELL, "${@:-$SHELL}" gives one empty
 # argument, which exec can't run.
+# The sockets these name aren't in a compartment's /run anyway (see
+# bulkhead-compartment); unsetting them saves tools a confusing failure.
 exec env -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
   -u SSH_AUTH_SOCK -u HEROKU_API_KEY -u BULKHEAD_AUTH_SESSION \
+  -u DBUS_SESSION_BUS_ADDRESS -u DBUS_STARTER_ADDRESS -u DBUS_STARTER_BUS_TYPE \
+  -u GPG_AGENT_INFO -u XAUTHORITY \
   GH_CONFIG_DIR="$(mktemp -d)" \
   GH_TOKEN="$public_token" GITHUB_TOKEN="$public_token" \
   "$(dirname "$0")/bulkhead-compartment" "${@:-${SHELL:-/bin/sh}}"

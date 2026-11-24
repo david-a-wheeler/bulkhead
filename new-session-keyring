@@ -1,0 +1,31 @@
+#!/usr/bin/python3 -I
+"""new-session-keyring COMMAND [ARG...]: run COMMAND in a new, empty
+session keyring.
+
+Every process inherits its session keyring, so without this, each
+compartment started from one login shares that login's: an agent could
+read keys there, or leave one for another compartment. Kernel keyrings
+aren't files, so neither bwrap nor nono covers them. (Each compartment
+already has its own user keyring, since that's per user namespace.)
+keyutils' "keyctl session -" does this too, but prints to stdout.
+bulkhead-compartment runs this; vm-setup.sh installs it in
+/usr/local/libexec/bulkhead.
+"""
+import ctypes
+import os
+import platform
+import sys
+
+KEYCTL = {"x86_64": 250, "aarch64": 219}
+KEYCTL_JOIN_SESSION_KEYRING = 1
+
+if len(sys.argv) < 2:
+    sys.exit("Usage: new-session-keyring COMMAND [ARG...]")
+nr = KEYCTL.get(platform.machine())
+if nr is None:
+    sys.exit("new-session-keyring: don't know keyctl's number on " + platform.machine())
+libc = ctypes.CDLL(None, use_errno=True)
+# A null name joins a new, anonymous session keyring.
+if libc.syscall(nr, KEYCTL_JOIN_SESSION_KEYRING, None) < 0:
+    sys.exit("new-session-keyring: " + os.strerror(ctypes.get_errno()))
+os.execvp(sys.argv[1], sys.argv[1:])
