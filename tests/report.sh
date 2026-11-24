@@ -22,12 +22,15 @@ report_banner() {
   } >&2
 }
 
+# It returns 0, so under set -e the rest of the trap (e.g., removing
+# temporary files) still runs; the script still exits with its own
+# status, since the trap doesn't call exit.
 report_on_exit() {
   report_status=$?
   if ! "$report_done" && [ "$report_status" -ne 0 ]; then
     report_banner "FAILED: $report_name stopped early (status $report_status), after the checks above."
   fi
-  return "$report_status"
+  return 0
 }
 
 report_end() {

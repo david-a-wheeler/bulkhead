@@ -707,6 +707,19 @@ if command -v nono > /dev/null && nono profile list 2> /dev/null > "$tmp/nono-pr
   done
 fi
 
+step "tests/report.sh (how test scripts end)"
+# A failed or stopped test still runs the rest of its EXIT trap (e.g.,
+# removing its temporary files), and keeps its failing status.
+for how in "report_end 1 2" false; do
+  mkdir -p "$tmp/report-left"
+  status=0
+  sh -c 'set -e; . ./tests/report.sh; report_begin demo; trap "report_on_exit; rm -rf \"$1\"" EXIT; '"$how" sh "$tmp/report-left" > /dev/null 2>&1 || status=$?
+  [ "$status" -eq 1 ] || failed "tests/report.sh: '$how' exited with $status, not 1"
+  [ ! -e "$tmp/report-left" ] || failed "tests/report.sh: '$how' kept the trap from cleaning up"
+done
+out="$(sh -c '. ./tests/report.sh; report_begin demo; report_end 0 3')"
+[ "$out" = "PASSED: demo: all 3 checks passed." ] || failed "tests/report.sh: a pass said: $out"
+
 step "compart (usage and unknown harnesses)"
 ./compart --help | grep -q '^Usage: compart HARNESS' || failed "compart --help"
 for args in "" nope -x; do
