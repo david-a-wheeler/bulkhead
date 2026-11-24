@@ -377,8 +377,9 @@ case "$avout" in *"|--bind|$newtool|$fh/.newtool|"*) ;; *) failed "the allowlist
 case "$avout" in *"|$fh/.readonly|"*"|--bind|$fhp/projects/p1|$fhp/projects/p1|"*) ;; *) failed "the allowlist view binds the workspace before the grants: $avout" ;; esac
 case "$avout" in *"|--bind-try|$fh/.local/state/bulkhead/claude-credentials|"*) ;; *) failed "the allowlist view doesn't bind what's shared on purpose: $avout" ;; esac
 case "$avout" in *"-bind-try|/run|"*) failed "the allowlist view binds back the VM's /run: $avout" ;; esac
-# glibc reaches nscd through /var/run, so its symlink must be there.
-if [ -L /var/run ]; then
+# glibc reaches nscd through /var/run, so its symlink must be there
+# (where we can list /var, as bulkhead-compartment can outside a sandbox).
+if [ -L /var/run ] && ls /var > /dev/null 2>&1; then
   case "$avout" in *"|--symlink|$(readlink /var/run)|/var/run|"*) ;; *) failed "the allowlist view lacks the /var/run symlink: $avout" ;; esac
 fi
 (cd "$fh/projects/p1" && wsenv BULKHEAD_VIEW=allowlist "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd 2>&1) |
