@@ -101,6 +101,11 @@ Python with PyYAML (gawk optional). Add any new plain script to its
 - Don't commit the gitignored per-machine files `config.local.sh` and
   `models.local.yaml`.
 - Temporary files go in the repo directory with a `,` prefix, not `/tmp`.
+  But code that runs outside the sandbox (tests, and `compart` and what
+  it calls) mustn't keep files in a workspace that it then reads or
+  runs, since that workspace's agent could change them meanwhile: use
+  the dossier, as `tests/report.sh` does for tests (it points `TMPDIR`
+  at the dossier's `scratch/`).
 - Prefer existing, trusted tools over new code; avoid needing root.
 - Prose (docs, comments, commit messages) is concise and plain: no em
   dashes, no hype, no AI-writing filler. `check-prose-style.sh` enforces

@@ -262,10 +262,12 @@ done
 # it allows is one), made once in the dossier, out of agents' reach. A
 # connect is refused at once, and no real nscd is ever behind it, since
 # this /run is ours.
+# We make it from inside its directory, since a socket's path may be at
+# most 108 bytes, and a dossier's can be longer.
 nolisten="$comp/no-listener.sock"
 if ! "$dry_run" && [ ! -S "$nolisten" ]; then
   rm -f "$nolisten"
-  python3 -I -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$nolisten"
+  (cd "$comp" && python3 -I -c 'import socket; socket.socket(socket.AF_UNIX).bind("no-listener.sock")')
 fi
 set -- "$@" --ro-bind "$nolisten" /run/nscd/socket
 # Every key of ours is listed in /proc/keys (and counted in

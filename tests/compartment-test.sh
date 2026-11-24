@@ -19,7 +19,10 @@ b="$HOME/projects/,compartment-test-b"
 marker=",compartment-test-$$"
 # shellcheck source=SCRIPTDIR/report.sh
 . "$repo/tests/report.sh"
-report_begin compartment-test.sh
+report_begin compartment-test.sh "$repo"
+# Our own files, outside every compartment (report_begin made it, in
+# the dossier); run_in sets each compartment's TMPDIR to its own .tmp.
+scratch="$TMPDIR"
 cleanup() {
   report_on_exit
   report_clean "$a" "$b" "$a.dossier" "$b.dossier" "/tmp/$marker"
@@ -69,14 +72,14 @@ run_in() {
     "$repo/bulkhead-compartment" "$@" sh -c "$c")
 }
 
-if run_in "$a" true 2> ,compartment-test.err; then r=ok; else r=failed; fi
+if run_in "$a" true 2> "$scratch/err"; then r=ok; else r=failed; fi
 check "bwrap runs" "$r" ok
 if [ "$r" = failed ]; then
-  cat ,compartment-test.err
-  rm -f ,compartment-test.err
+  cat "$scratch/err"
+  rm -f "$scratch/err"
   exit 1
 fi
-rm -f ,compartment-test.err
+rm -f "$scratch/err"
 
 # compart sh returns its command's exit status, so the whole chain
 # (pasta, bwrap, and nono) must pass it on.
@@ -186,10 +189,10 @@ check "nono lets an agent make a socket in its workspace" "$r" bound
 cp "$repo/tests/compartment-sweep.py" "$a/,compartment-sweep.py"
 cp "$repo/tests/compartment-sweep.py" "$b/,compartment-sweep.py"
 key="bulkhead-test-key-$$"
-run_in "$a" "python3 ,compartment-sweep.py key-hold $key 4" > "$a/,key-held" 2>&1 &
+run_in "$a" "python3 ,compartment-sweep.py key-hold $key 4" > "$scratch/key-held" 2>&1 &
 holder=$!
 i=0
-until grep -qx held "$a/,key-held" 2> /dev/null || [ "$i" -ge 30 ]; do
+until grep -qx held "$scratch/key-held" 2> /dev/null || [ "$i" -ge 30 ]; do
   sleep 0.1
   i=$((i + 1))
 done
@@ -198,7 +201,7 @@ check "a compartment's key is really there (seen from the VM)" "$r" found
 r=$(run_in "$b" "python3 ,compartment-sweep.py key-find $key")
 check "another compartment can't see a compartment's key" "$r" "not found"
 wait "$holder" || :
-rm -f "$a/,key-held" "$a/,compartment-sweep.py" "$b/,compartment-sweep.py"
+rm -f "$a/,compartment-sweep.py" "$b/,compartment-sweep.py"
 r=$(run_in "$a" "echo \"\$BULKHEAD_COMPARTMENT\"")
 check "BULKHEAD_COMPARTMENT is set" "$r" "projects-,compartment-test-a"
 r=$(git -C "$a" init -q && git -C "$a" status --porcelain | grep -v '^?? .tmp/$' || :)
@@ -291,9 +294,9 @@ wait_ready() {
 }
 rm -f "$a/$stop"
 run_in "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990 127.0.0.1:18991 0.0.0.0:18992 127.0.0.1:18993" \
-  --expose-port 18990 --expose-port 18992 --expose-port 18993 > ,compartment-test.serve &
-wait_ready ,compartment-test.serve
-r=$(cat ,compartment-test.serve)
+  --expose-port 18990 --expose-port 18992 --expose-port 18993 > "$scratch/serve" &
+wait_ready "$scratch/serve"
+r=$(cat "$scratch/serve")
 check "a compartment can serve its exposed and local ports" "$r" ready
 r=$(http_get http://127.0.0.1:18990/)
 check "you can reach a compartment's exposed port" "${r##* }" 200
@@ -318,15 +321,15 @@ wait
 rm -f "$a/$stop"
 # The same through nono, with the --open-port that compart adds, as a
 # real agent would run.
-run_agent "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990" 18990 > ,compartment-test.serve &
-wait_ready ,compartment-test.serve
-r=$(cat ,compartment-test.serve)
+run_agent "$a" "python3 ,net-probe.py serve $stop 127.0.0.1:18990" 18990 > "$scratch/serve" &
+wait_ready "$scratch/serve"
+r=$(cat "$scratch/serve")
 check "an agent can serve an exposed port" "$r" ready
 r=$(http_get http://127.0.0.1:18990/)
 check "you can reach an agent's exposed port" "${r##* }" 200
 touch "$a/$stop"
 wait
-rm -f "$a/$stop" ,compartment-test.serve
+rm -f "$a/$stop" "$scratch/serve"
 r=$(curl -s -o /dev/null --max-time 2 http://127.0.0.1:18990/ && echo reached || echo unreachable)
 check "an exposed port closes when its compartment ends" "$r" unreachable
 # A bad port must stop the launch, not be silently dropped.
@@ -352,16 +355,16 @@ else
   echo "skip: the secrets server (${gw:-no gateway}, port $port) isn't answering, so I can't check that agents can't reach it."
 fi
 name="bulkhead-test-$$"
-run_agent "$a" "python3 ,net-probe.py abstract-listen $name" > ,compartment-test.abs &
+run_agent "$a" "python3 ,net-probe.py abstract-listen $name" > "$scratch/abs" &
 sleep 2
 r=$(run_agent "$b" "python3 ,net-probe.py abstract-connect $name")
 check "another workspace's agent can't reach its abstract sockets" "$r" refused
 wait
 # nono's socket mediation denies abstract sockets outright (each
 # compartment's network namespace already kept them apart).
-r=$(cat ,compartment-test.abs)
+r=$(cat "$scratch/abs")
 check "an agent can't bind an abstract socket" "$r" refused
-rm -f ,compartment-test.abs
+rm -f "$scratch/abs"
 
 # Socket mediation, as each harness's merged profile really has it.
 # Python's multiprocessing makes its sockets in TMPDIR, which nono
@@ -437,9 +440,11 @@ for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
   mark=",compartment-sweep-$$"
   grants="--allow-cwd --read $a.dossier/inbox --write $a.dossier/outbox"
   r=$(run_in "$a" "nono run -s --profile $prof $grants -- python3 ,compartment-sweep.py plant $mark $a $shared" --nono-profile "$prof")
-  printf '%s\n' "$r" | sed -n 's/^planted //p' > "$a/,planted.list"
-  cp "$a/,planted.list" "$b/,planted.list"
-  r=$(grep -c . "$a/,planted.list" || :)
+    # The list stays outside every compartment, where we read it to
+  # remove the markers; B gets a copy to check against.
+  printf '%s\n' "$r" | sed -n 's/^planted //p' > "$scratch/planted.list"
+  cp "$scratch/planted.list" "$b/,planted.list"
+  r=$(grep -c . "$scratch/planted.list" || :)
   [ "$r" -gt 1 ] && r=some || r=none
   check "$prof: the sweep could write outside the workspace (so it works)" "$r" some
   r=$([ -e "$a.dossier/outbox/$mark" ] && echo shows || echo missing)
@@ -448,13 +453,13 @@ for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi; do
   while IFS= read -r f; do
     [ "$f" != "$a.dossier/outbox/$mark" ] || continue
     [ ! -e "$f" ] || leaked="$leaked $f"
-  done < "$a/,planted.list"
+  done < "$scratch/planted.list"
   check "$prof: nothing else it wrote shows outside its compartment" "$leaked" ""
   b_grants="--allow-cwd --read $b.dossier/inbox --write $b.dossier/outbox"
   r=$(run_in "$b" "nono run -s --profile $prof $b_grants -- python3 ,compartment-sweep.py seen ,planted.list" --nono-profile "$prof")
   check "$prof: another compartment sees nothing it wrote" "$r" ""
   # The markers outside are only the outbox's (and any leaks).
-  while IFS= read -r f; do rm -f "$f"; done < "$a/,planted.list"
+  while IFS= read -r f; do rm -f "$f"; done < "$scratch/planted.list"
 done
 
 # Every path the installed profiles let agents write is covered.

@@ -9,7 +9,7 @@
 set -eu
 # shellcheck source=SCRIPTDIR/report.sh
 . "$(dirname "$0")/report.sh"
-report_begin test_git_safety_env.sh
+report_begin test_git_safety_env.sh "$(dirname "$0")/.."
 
 top="$(pwd -P)"
 tmp="$(mktemp -d)"

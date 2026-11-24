@@ -553,5 +553,7 @@ re-run `vm-setup.sh`, rather than disabling nftables to work around it.
   and Python with PyYAML to verify a change. Every test script ends the
   same way (`tests/report.sh`): a full pass says `PASSED:`, and a
   failure, or a stop partway through, ends with a `FAILED:` banner.
+  Their scratch files go in this workspace's dossier (`scratch/`), out
+  of agents' reach, removed after a pass and kept after a failure.
 A `*.template.*` file gets rendered (placeholders substituted) before
 install; anything else is copied or run as-is.

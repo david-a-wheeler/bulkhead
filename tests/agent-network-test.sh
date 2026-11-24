@@ -58,8 +58,8 @@ mode="${1:-narrow}"
 
 # shellcheck source=SCRIPTDIR/report.sh
 . "$(dirname "$0")/report.sh"
-report_begin "agent-network-test.sh ($mode)"
-trap report_on_exit EXIT
+report_begin "agent-network-test.sh ($mode)" "$(dirname "$0")/.."
+trap 'report_on_exit; report_clean' EXIT
 fails=0
 skips=0
 checks=0

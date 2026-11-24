@@ -7,7 +7,7 @@
 set -eu
 # shellcheck source=SCRIPTDIR/report.sh
 . "$(dirname "$0")/report.sh"
-report_begin test_infer_watch.sh
+report_begin test_infer_watch.sh "$(dirname "$0")/.."
 
 TESTS="$(cd "$(dirname "$0")" && pwd)"
 SOURCE="$TESTS/../infer-watch.c"

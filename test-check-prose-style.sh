@@ -14,7 +14,7 @@
 set -u
 # shellcheck source=tests/report.sh
 . "$(dirname "$0")/tests/report.sh"
-report_begin test-check-prose-style.sh
+report_begin test-check-prose-style.sh "$(dirname "$0")"
 
 # The hook must set its own locale, so test it under plain C.
 export LC_ALL=C

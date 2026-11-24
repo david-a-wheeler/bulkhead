@@ -10,13 +10,13 @@
 set -eu
 # shellcheck source=SCRIPTDIR/report.sh
 . "$(dirname "$0")/report.sh"
-report_begin test_host_models.sh
+report_begin test_host_models.sh "$(dirname "$0")/.."
 
 TESTS="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_DIR="$(cd "$TESTS/.." && pwd)"
 cd "$SCRIPT_DIR"
 mkdir -p .tmp
-tmp="$(mktemp -d "$SCRIPT_DIR/.tmp/test-host-models.XXXXXX")"
+tmp="$(mktemp -d)"
 trap 'report_on_exit; report_clean "${tmp:?}"' EXIT
 . ./config.sh
 . ./common.sh

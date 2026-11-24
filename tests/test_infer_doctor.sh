@@ -6,8 +6,8 @@
 set -u
 # shellcheck source=SCRIPTDIR/report.sh
 . "$(dirname "$0")/report.sh"
-report_begin test_infer_doctor.sh
-trap report_on_exit EXIT
+report_begin test_infer_doctor.sh "$(dirname "$0")/.."
+trap 'report_on_exit; report_clean' EXIT
 
 TESTS="$(cd "$(dirname "$0")" && pwd)"
 fail=0

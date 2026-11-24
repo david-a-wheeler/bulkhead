@@ -16,7 +16,7 @@ unset GIT_CONFIG_COUNT
 
 # shellcheck source=tests/report.sh
 . "$SCRIPT_DIR/tests/report.sh"
-report_begin ci.sh
+report_begin ci.sh "$SCRIPT_DIR"
 tmp="$(mktemp -d)"
 # A failed run keeps its scratch files for you to examine.
 trap 'report_on_exit; report_clean "${tmp:?}"' EXIT
@@ -189,10 +189,23 @@ jq -e '.extends == "linux-host-compat" and .workdir.access == "readwrite" and
   nono-sh-profile.json > /dev/null || failed nono-sh-profile.json
 step "workspaces (bulkhead-workspace, bulkhead-compartment --dry-run, compart)"
 # A fake HOME with projects/, sensitive/, and directories outside both,
-# without needing bwrap. It's under the repo's .tmp, not $tmp: $tmp may
-# be in /tmp, where workspace-forbidden refuses every workspace.
-mkdir -p "$SCRIPT_DIR/.tmp"
-wst="$(mktemp -d "$SCRIPT_DIR/.tmp/ci-workspaces.XXXXXX")"
+# without needing bwrap. Its workspaces can't be in TMPDIR when that's
+# in a dossier or /tmp, since workspace-forbidden refuses both. So
+# outside a sandbox, it's in ~/.local/state/bulkhead (which no agent can
+# write, either); with no dossier, in the repo's .tmp (e.g., in
+# GitHub's CI, where no agent runs).
+case "$TMPDIR" in
+  *.dossier/* | /tmp/*)
+    if [ -z "${BULKHEAD_COMPARTMENT:-}${NONO_CAP_FILE:-}" ] && [ "${TMPDIR#/tmp/}" = "$TMPDIR" ]; then
+      wsbase="$HOME/.local/state/bulkhead"
+    else
+      wsbase="$SCRIPT_DIR/.tmp"
+    fi
+    ;;
+  *) wsbase="$TMPDIR" ;;
+esac
+mkdir -p "$wsbase"
+wst="$(mktemp -d "$wsbase/ci-workspaces.XXXXXX")"
 trap 'report_on_exit; report_clean "${tmp:?}" "${wst:?}"' EXIT
 fh="$wst/home"
 mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$fh/.claude" "$fh/.ssh"
