@@ -17,9 +17,17 @@ repo=$(cd "$(dirname "$0")/.." && pwd -P)
 a="$HOME/projects/,compartment-test-a"
 b="$HOME/projects/,compartment-test-b"
 marker=",compartment-test-$$"
+# set -e stops the script at an unexpected error, which mustn't look
+# like a clean run, so cleanup says so unless we reached the end.
+finished=false
 cleanup() {
+  status=$?
   rm -rf "$a" "$b" "$a.dossier" "$b.dossier"
   rm -f "/tmp/$marker"
+  if ! "$finished"; then
+    echo "FAIL: compartment-test.sh stopped early (status $status), after the checks above." >&2
+    exit 1
+  fi
 }
 trap cleanup EXIT
 mkdir -p "$a" "$b"
@@ -353,11 +361,14 @@ sleeper=$!
 sleep 1
 r=$(run_in "$b" "grep -lx sleep /proc/[0-9]*/comm 2>/dev/null | wc -l")
 check "a compartment can't see another's processes" "$r" 0
-kill "$sleeper" 2> /dev/null; wait "$sleeper" 2> /dev/null
+# wait gives the killed process's status, which isn't an error here.
+kill "$sleeper" 2> /dev/null || :
+wait "$sleeper" 2> /dev/null || :
 # Every path the installed profiles let agents write is covered.
 r=$(cd "$a" && BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
-  "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi 2>&1 && echo covered)
+  "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi 2>&1 && echo covered || :)
 check "compartment-paths covers every write the installed profiles grant" "$r" covered
 
+finished=true
 echo "$fails failed."
 [ "$fails" -eq 0 ]
