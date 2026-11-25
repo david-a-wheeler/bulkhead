@@ -917,6 +917,14 @@ data. It runs inside bwrap and sandboxes the harness with Land&#108;ock and
 seccomp, using its shared `default` profile (`nono-default-profile.json`)
 plus the harness's pack and small profile (e.g., `bulkhead-claude`).
 
+The shared profile lets agents read what's installed and where it comes
+from (dpkg's and apt's state and settings), so, e.g., `apt-cache policy`
+and `apt download` work; that's no more than `/usr` already shows. It
+doesn't grant apt's credentials (`/etc/apt/auth.conf` and
+`auth.conf.d`), which `ci.sh` checks no profile grants. Keep passwords
+out of apt's other files (e.g., a proxy's in `apt.conf.d`, or one in a
+`sources.list` URL), which agents can read.
+
 Without nono, we'd have to write and maintain all of this ourselves:
 
 - **A filtering proxy.** It allows only listed sites and, per site,

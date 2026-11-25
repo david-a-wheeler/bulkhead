@@ -161,12 +161,15 @@ jq -e '.filesystem.allow[0] as $creds | .credential_providers.claude_code.type =
 # "Claude's login").
 jq -e '.credential_routes | all(.name < "_ep_")' nono-claude-profile.json > /dev/null ||
   failed "nono-claude-profile.json credential route name sorts after nono's _ep_ routes"
-# No profile of ours grants claude-unsandboxed's directory, or nono's
-# state (which holds the real tokens), or anything above them.
+# No profile of ours grants claude-unsandboxed's directory, nono's
+# state (which holds the real tokens), apt's credentials (auth.conf and
+# auth.conf.d, so we grant /etc/apt's other parts one by one), or
+# anything above them.
 for p in $(jq -r '.filesystem // {} | to_entries[] | select(.key != "deny" and .key != "bypass_protection") | .value[]' nono-*-profile.json); do
   # Literal "$HOME", as the profiles write it.
   # shellcheck disable=SC2016
-  for secret in '$HOME/.local/state/bulkhead/claude-unsandboxed' '$HOME/.local/state/nono'; do
+  for secret in '$HOME/.local/state/bulkhead/claude-unsandboxed' '$HOME/.local/state/nono' \
+    /etc/apt/auth.conf /etc/apt/auth.conf.d; do
     case "$secret/" in
       "${p%/}"/*) failed "a nono profile grants $p, which holds $secret" ;;
     esac
