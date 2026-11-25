@@ -516,6 +516,11 @@ Results above).
   `/var/lib/dbus/machine-id` is missing, which nono hides; granting
   `/etc/machine-id` would quiet that but give agents an identifier
   shared by every compartment on the VM.
+- **Browsing outside sites from a compartment.** The human reports
+  (2026-11-25) that Chromium in a compartment can't reach an outside
+  site such as https://dwheeler.com. Agents reach outside sites through
+  nono's proxy; a browser probably needs to be pointed at it too,
+  perhaps as a SOCKS proxy. Not yet investigated.
 - **Qt and Electron apps, quietly, without GNOME.** We've tested only
   GTK programs and Chromium. Qt and Electron apps need a test, aiming
   for no warnings and no denials, and for nothing that needs GNOME's
