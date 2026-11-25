@@ -84,6 +84,10 @@ rm -f "$scratch/err"
 
 # compart sh returns its command's exit status, so the whole chain
 # (pasta, bwrap, and nono) must pass it on.
+# Its hostname says which compartment it is: "c-" and at most 8
+# characters of the workspace's name.
+r=$(run_in "$a" hostname)
+check "a compartment's hostname" "$r" c-compartm
 r=0; run_in "$a" "exit 7" || r=$?
 check "pasta and bwrap pass on the exit status" "$r" 7
 # This is also the first test to start nono, so if nono can't start

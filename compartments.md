@@ -239,6 +239,13 @@ is the command's, and its standard output is the command's alone
 (`compart`'s own messages go to standard error), so you can use it in
 scripts, e.g., `compart sh make test && git commit`.
 
+To tell a compartment's shell from your own, look at the hostname: in
+a compartment it's `c-` and at most 8 characters of the workspace's
+name (e.g., `c-bulkhead` for `~/projects/bulkhead`), so a prompt that
+shows the host (`\h`, as Ubuntu's does) shows it, from any harness.
+A prompt you write yourself can also test `BULKHEAD_COMPARTMENT`,
+e.g., `PS1='${BULKHEAD_COMPARTMENT:+[c] }'"$PS1"` in your `~/.bashrc`.
+
 ## Workspaces and their dossiers
 
 ### Choosing the workspace
@@ -890,9 +897,12 @@ the compartment doesn't start. A file can't get a private copy that
 way, so `bulkhead-grant-check` now warns only about writable files
 `compartment-paths` doesn't cover.
 
-bwrap also mounts `netns-resolv.conf` (see above) and sets
+bwrap also mounts `netns-resolv.conf` (see above), sets
 `BULKHEAD_COMPARTMENT` to the compartment's key (`projects-NAME`,
-`sensitive-NAME`, or `dir%PATH`). The state lives in the dossier, outside
+`sensitive-NAME`, or `dir%PATH`), and sets the hostname to `c-` and
+at most 8 characters of the workspace's name, in a UTS namespace of
+its own (pasta already gave each run a hostname, `pasta-...`, so
+nothing can depend on the VM's). The state lives in the dossier, outside
 the workspace rather than in it, so it can't arrive with a workspace's
 contents, and nono doesn't grant the agent the dossier directly.
 

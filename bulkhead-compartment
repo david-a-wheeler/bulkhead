@@ -196,6 +196,13 @@ ncmd=$#
 # uid and gid; otherwise programs see uid 0 (e.g., Claude Code then
 # picks /tmp/claude-0 and refuses it).
 set -- "$@" --unshare-user --uid "$(id -u)" --gid "$(id -g)"
+# The hostname says you're in a compartment, and which one (e.g., in a
+# prompt's \h): "c-" and at most 8 characters of the workspace's name,
+# so prompts stay short. pasta already gives each run a hostname of its
+# own ("pasta-..."), so nothing new can depend on the VM's.
+hname="$(printf '%s' "${root##*/}" | LC_ALL=C tr -c 'A-Za-z0-9-' '-' | sed 's/^-*//' | cut -c 1-8)"
+while [ "${hname%-}" != "$hname" ]; do hname="${hname%-}"; done
+set -- "$@" --unshare-uts --hostname "c-${hname:-x}"
 if [ "$view" = full ]; then
   set -- "$@" --dev-bind / /
   # Other workspaces are hidden: ~/projects and ~/sensitive are empty

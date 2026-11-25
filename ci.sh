@@ -306,6 +306,12 @@ out="$(compart_dry "$fh/projects/p1/sub")"
 [ "$(printf '%s\n' "$out" | head -n 1)" = "key: projects-p1" ] || failed "compartment key"
 printf '%s\n' "$out" | tail -n 4 | tr '\n' '|' | grep -qx -- "--|$SCRIPT_DIR/new-session-keyring|cmd|a b|" ||
   failed "compartment command passthrough"
+# Its hostname is "c-" and at most 8 characters of the workspace's name,
+# with no character a hostname can't have, and no trailing hyphen.
+printf '%s\n' "$out" | tr '\n' '|' | grep -qF -- "|--unshare-uts|--hostname|c-p1|" || failed "compartment hostname"
+mkdir -p "$fh/projects/,My_Long.Project"
+compart_dry "$fh/projects/,My_Long.Project" | tr '\n' '|' | grep -qF -- "|--hostname|c-My-Long|" ||
+  failed "compartment hostname of a long name"
 # /tmp and TMPDIR are the directory's .tmp, whatever TMPDIR was.
 (cd "$fh/projects/p1/sub" && TMPDIR="$fh" wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run cmd) |
   tr '\n' '|' > "$tmp/dry"
