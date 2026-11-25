@@ -485,6 +485,16 @@ Results above).
   between runs in that compartment but never reach another. dconf
   could then work too, if it gets a per-compartment
   `$XDG_RUNTIME_DIR` (instead of `GSETTINGS_BACKEND=memory`).
+  Deferred (2026-11-25) until an app we need requires it. The cons
+  aren't trivial: it's a new write grant, and if the private copy were
+  ever missing, agents could write your real `~/.local/share`, where
+  your desktop runs code from (`applications/`,
+  `gnome-shell/extensions/`); tools installed there (pipx, uv, Claude
+  Code's versions) would each need a read-only exception;
+  `~/.local/state` holds the shared Claude credentials; and
+  `~/.config` would still need per-app entries. It's simplest after
+  Move 2, when every session has a compartment; start with
+  `~/.local/share` alone.
 - **Input methods (ibus), per compartment.** A quick test
   (2026-11-25, in a nono session with a display) says it's feasible.
   `ibus-daemon --address=unix:path=SOCKET --panel=disable
