@@ -323,6 +323,65 @@ Check that:
 - `cage` runs with no network and no GPU; and
 - nono's log shows no surprise denials for either sandbox.
 
+### Results (2026-11-25)
+
+We ran `cage` 0.2.1 under bwrap (`--unshare-all`, read-only `/usr`, a
+private `/tmp`, GNOME's socket, and a directory for its own socket),
+not nono, and the programs in `compart sh`, as clients of `cage`. The
+script was `,gui-experiments.sh` (not kept).
+
+What worked:
+
+- `gnome-calculator` and `gnome-text-editor` showed in `cage`'s window;
+  the editor covered the calculator, its dialog showed centered over
+  it, and the calculator came back when the editor closed.
+- `wl-paste` in the compartment got nothing from GNOME's clipboard.
+- Chromium (the snap's binary, through the badge's wrapper, with
+  `--ozone-platform=wayland`) showed its page filling `cage`'s window,
+  and F11 stayed inside it. It shows Chrome's warning about
+  `--no-sandbox`, which is accurate: Chrome's own sandbox can't run in a
+  compartment (no_new_privs stops its setuid helper, and AppArmor stops
+  user namespaces inside bwrap), so the compartment is its only
+  sandbox. Fine for testing your own server; not for general browsing.
+- With no GPU, programs print Vulkan and EGL warnings and fall back to
+  software rendering. nono refused only connections to the system
+  D-Bus, which nothing needed.
+
+What we had to fix:
+
+- `cage` covered the whole 1280×800 screen: wlroots opens a 1280×720
+  window, and mutter's `auto-maximize` maximizes a new window nearly
+  the screen's size, and it has no title bar. Fix: turn
+  `auto-maximize` off while it runs, and shrink it with `wlr-randr
+  --output WL-1 --custom-mode 960x600` (`sudo apt install wlr-randr`),
+  through `cage`'s output-management protocol. A watchdog that stops
+  `cage` unless you answer in its terminal within 60 s made this safe
+  to try.
+- A black area followed the pointer over `cage`'s window: the pointer
+  image wlroots hands GNOME came out blank. `WLR_NO_HARDWARE_CURSORS=1`
+  (`cage` draws the pointer itself) fixed it. We also pass GNOME's
+  cursor theme (`XCURSOR_THEME`, `XCURSOR_SIZE`, and `XCURSOR_PATH`),
+  since the default theme is a symlink into `/etc/alternatives`, which
+  `cage`'s sandbox lacks.
+- The Chromium wrapper broke on Ubuntu 26.04, GUI or not: it put the
+  GNOME content snap's own glibc ahead of the host's, which doesn't work
+  with the host's loader ("symbol lookup error: ... GLIBC_PRIVATE"), and
+  it ran host commands (e.g., `basename`) after setting
+  `LD_LIBRARY_PATH`. The fix is to put the host's library directories
+  right after Chrome's own, and set `LD_LIBRARY_PATH` just before
+  `exec`. The badge repository's copy needs both fixes.
+
+What's still awkward:
+
+- You move `cage`'s window with Super and drag, since nothing draws a
+  title bar (mutter has no `xdg-decoration`, and wlroots draws none).
+  Nested `weston` draws its own title bar and manages several windows,
+  so it's worth trying next.
+- `cage` logged "No free output buffer slot" a few times, without
+  visible effect.
+- Not tested: goose desktop (Electron) in `cage`, and running `cage`
+  under nono instead of bare bwrap.
+
 ## Sources
 
 - `cage`: its [README](https://github.com/cage-kiosk/cage), [man
