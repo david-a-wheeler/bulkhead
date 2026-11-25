@@ -216,11 +216,32 @@ socket.
 `cage` is a small Wayland "kiosk" compositor (MIT, built on wlroots)
 that runs full-screen in one window. Started inside GNOME, it opens as
 a window there. Upstream is at 0.3.1 (2026-06-30); Ubuntu 26.04 has
-0.2.1 in universe. Options: `-d` (no client-side decorations), `-m
-last|extend` (outputs), `-s` (VT switching), `-D` (debug log). On
-`master`, the program to run is optional (`cage [OPTIONS] [--]
-[APPLICATION...]`), and without one it runs until stopped; I don't
-know which release added that.
+0.2.1 in universe, which is what we have installed (`man cage`).
+Options: `-d` (no client-side decorations), `-m last|extend`
+(outputs), `-s` (VT switching), `-D` (debug log). The program to run
+is optional (`cage [OPTIONS] [--] [APPLICATION...]`; in 0.2.1's
+`cage.c`, line 590), and without one it runs until stopped. Ubuntu
+built it with Xwayland, which 0.2.1 always sets up (line 532, lazily,
+so I believe Xwayland starts only when an X11 program connects); there's
+no option to turn that off.
+
+**Its window in GNOME** (from wlroots 0.19's
+`backend/wayland/output.c`, which draws `cage`'s window):
+
+- It starts at 1280×720 (line 1113), not full screen, and follows
+  GNOME's resizing and maximizing (line 1066); the program inside
+  fills `cage`'s window, never your screen.
+- A program that asks for full screen gets only `cage`'s window; I
+  found no code asking GNOME to make that window full screen. So a
+  fake full-screen login prompt stays inside an ordinary window.
+- It probably has no title bar: wlroots asks the desktop for
+  decorations through `xdg-decoration` (line 1192) and draws none
+  itself, and mutter doesn't offer that protocol (it isn't in
+  `libmutter-18.so.0`). So you'd move and resize it with GNOME's
+  shortcuts (I believe Super+drag moves, and Super+Up maximizes).
+- wlroots sets a window title (line 754), so it should show in GNOME's
+  window switcher. Check whether `compart` can set it to the
+  workspace's name, to tell compartments apart.
 
 **Windows** (from `view.c`, `xdg_shell.c`, and `seat.c` on `master`):
 
@@ -252,8 +273,8 @@ to its children, and bwrap can't run inside nono. So `compart` would
 start them as siblings:
 
 1. Start `cage` in its own sandbox (nono with a small profile and
-   `--block-net`, or bwrap with `--unshare-all`), with no program (or,
-   on 0.2.1, `sleep infinity`), and its socket in a dossier directory
+   `--block-net`, or bwrap with `--unshare-all`), with no program, and
+   its socket in a dossier directory
    no agent can reach (e.g., `gui/`).
 2. Start the compartment as usual, with `bulkhead-compartment` binding
    just that socket into its runtime directory and setting
@@ -261,7 +282,10 @@ start them as siblings:
 3. Stop `cage` when the session ends.
 
 Xwayland can wait: `cage` would start it in its own sandbox, and its X
-socket would be one more thing to pass in. Chromium and Electron can
+socket would be one more thing to pass in. Since 0.2.1 always sets up
+Xwayland, its sandbox needs a private `/tmp` (for `/tmp/.X11-unix`)
+and its own network namespace (for X's abstract socket), so no other
+program in the VM can reach that X server. Chromium and Electron can
 use Wayland directly (whether they choose it on their own is to be
 tested; I believe recent Electron does with
 `ELECTRON_OZONE_PLATFORM_HINT=auto`).
@@ -278,6 +302,9 @@ tested; I believe recent Electron does with
 Check that:
 
 - a window appears, including for a program `cage` didn't start;
+- the window starts at 1280×720, resizes with GNOME, has no title bar,
+  and shows a title in GNOME's window switcher;
+- a program asking for full screen stays inside `cage`'s window;
 - a dialog shows over its parent, and a second main window covers the
   first;
 - the program can't read GNOME's clipboard (I believe `cage` doesn't
@@ -290,7 +317,9 @@ Check that:
 - `cage`: its [README](https://github.com/cage-kiosk/cage), [man
   page](https://raw.githubusercontent.com/cage-kiosk/cage/master/cage.1.scd),
   [releases](https://github.com/cage-kiosk/cage/releases), source on
-  `master` (`view.c`, `xdg_shell.c`, `seat.c`, `cage.c`), and
+  `master` and `v0.2.1` (`view.c`, `xdg_shell.c`, `seat.c`, `cage.c`),
+  wlroots 0.19's `backend/wayland/output.c`, `man cage` and `cage -h`
+  for the installed 0.2.1, and
   [Ubuntu's package](https://packages.ubuntu.com/resolute/cage), all
   read 2026-11-24.
 - Security-context: [the protocol](https://wayland.app/protocols/security-context-v1);
