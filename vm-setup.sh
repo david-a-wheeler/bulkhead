@@ -473,6 +473,8 @@ fi
 # including its dependencies. --ignore-scripts: pi needs no install
 # scripts, and this keeps its dependencies from running any.
 pi_dir="/usr/local/lib/node_modules/$pi_package"
+pi_have="$(jq -r .version "$pi_dir/package.json" 2> /dev/null)" || pi_have=""
+echo "Downloading pi ($pi_spec) to compare with the installed one${pi_have:+ ($pi_have)}..."
 rm -rf "${TMPDIR:?}/pi"
 npm install -g --prefix "$TMPDIR/pi" --ignore-scripts --no-audit --no-fund \
   --cache "$npm_cache" --before "$pi_before" "$pi_spec"
@@ -484,9 +486,11 @@ if ! diff -rq --no-dereference "$TMPDIR/pi/lib/node_modules/$pi_package" "$pi_di
   sudo chmod -R go-w "$pi_dir"
   # A relative link (../lib/node_modules/...), so it works from here too.
   sudo cp -P "$TMPDIR/pi/bin/pi" /usr/local/bin/pi
+  echo "Installed pi $(jq -r .version "$pi_dir/package.json")${pi_have:+ (was $pi_have)}."
+else
+  echo "pi $pi_have is already installed."
 fi
 rm -rf "${TMPDIR:?}/pi"
-echo "pi $(jq -r .version "$pi_dir/package.json")"
 
 # infer-models (what the engine serves now, for any client, checked by
 # infer-models.jq), and compart pi,
@@ -570,10 +574,12 @@ mkdir -p "$release_tmp"
 cooling_cutoff="$(cooling_cutoff)"
 goose_tag="$(pick_release aaif-goose/goose '^v[0-9]+\.[0-9]+\.[0-9]+$' "$GOOSE_MIN" "$GOOSE_PIN")" ||
   die "can't choose a goose release (is GitHub reachable?)."
-goose_have="v$(/usr/local/bin/goose --version 2> /dev/null | tr -d ' ')"
+goose_have="$(/usr/local/bin/goose --version 2> /dev/null | tr -d ' ')" || goose_have=""
+goose_have="${goose_have:+v$goose_have}"
 if [ "$goose_have" = "$goose_tag" ]; then
   echo "goose $goose_tag is already installed."
 else
+  echo "Downloading, checking, and installing goose $goose_tag${goose_have:+ (replacing $goose_have)}..."
   # The .tar.gz, not the .tar.bz2: same binary, also attested, and it
   # unpacks in about 1 second instead of 9 (measured 2026-11-24).
   goose_file="goose-$(uname -m)-unknown-linux-gnu.tar.gz"
@@ -592,7 +598,7 @@ else
   unpacked_tree_ok "$release_tmp/unpack" || die "$goose_file has an unsafe file."
   [ -f "$release_tmp/unpack/goose" ] || die "$goose_file has no goose."
   sudo install -m 755 "$release_tmp/unpack/goose" /usr/local/bin/goose
-  echo "goose $goose_tag installed."
+  echo "Installed goose $goose_tag${goose_have:+ (was $goose_have)}."
 fi
 rm -rf "${release_tmp:?}"
 # goose reads the shared instructions (~/.agents/AGENTS.md) itself, so

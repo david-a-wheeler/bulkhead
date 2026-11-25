@@ -53,6 +53,7 @@ esac
 dir="$(mktemp -d)"
 trap 'rm -rf "$dir"' EXIT
 deb="$dir/nono-cli.deb"
+echo "Downloading and installing nono $version${installed:+ (replacing $installed)}..."
 curl -fsSL "$url" -o "$deb"
 echo "${digest#sha256:}  $deb" | sha256sum -c --quiet - ||
   { echo "$0: $url doesn't match its sha256 digest; not installing." >&2; exit 1; }
