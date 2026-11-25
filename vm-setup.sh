@@ -196,6 +196,11 @@ install_unless_locally_newer "$SCRIPT_DIR/nono-sh-profile.json" \
 # whole web; compart adds it to every launch outside ~/sensitive.
 install_unless_locally_newer "$SCRIPT_DIR/nono-broad-profile.json" \
   "$HOME/.config/nono/profiles/bulkhead-broad.json"
+# bulkhead-loopback (nono-loopback-profile.json) lets programs bind
+# random ports on the compartment's own loopback; compart adds it to
+# every launch.
+install_unless_locally_newer "$SCRIPT_DIR/nono-loopback-profile.json" \
+  "$HOME/.config/nono/profiles/bulkhead-loopback.json"
 
 echo "== Installing nono agent profiles (config.sh's NONO_AGENT_PROFILES) =="
 # One pack per supported harness (compart claude's --profile nolabs-ai/claude

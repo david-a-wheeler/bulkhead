@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "name": "bulkhead-loopback",
+    "description": "Lets programs bind and use random loopback ports (port 0 and Linux's default ephemeral range); compart adds it to every launch, where loopback is the compartment's own. See compartments.md."
+  },
+  "network": {
+    "open_port_range": [[32768, 60999]],
+    "listen_port": [0]
+  }
+}

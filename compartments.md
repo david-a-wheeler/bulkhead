@@ -36,9 +36,10 @@ An agent in a compartment **can**:
   allowlist.
 - Reach sites by name: nono's proxy looks them up, through the VM's
   resolver.
-- Run its own servers and tests on its own loopback, on ports you list
-  in the dossier's `policy/local-ports`, or `policy/expose-ports` to
-  let you reach them from the VM.
+- Run its own servers and tests on its own loopback: on any port the
+  kernel picks for it (port 0, e.g., chromedriver's), on ports you list
+  in the dossier's `policy/local-ports`, or on ports you list in
+  `policy/expose-ports` to let you reach them from the VM.
 - Reach a VM port its harness needs (e.g., `compart pi`'s local AI
   engine tunnel), and only that one.
 
@@ -69,7 +70,8 @@ An agent in a compartment **can't**:
   for its own workspace and its dossier's `inbox/` and `outbox/`.
 - Read or leave kernel keys for another compartment: it has its own
   session keyring, and its `/proc/keys` is empty.
-- Use a loopback port you haven't listed in `local-ports`.
+- Use a fixed loopback port below 32768 or above 60999 that you
+  haven't listed in `local-ports` (see "Ports").
 - Accept connections from outside, except on ports you list in
   `policy/expose-ports`: those you (and other VM processes outside a
   compartment) can reach at `127.0.0.1:PORT` on the VM.
@@ -98,8 +100,8 @@ What a compartment does **not** protect against:
 - Broad GET to the web is a way to send data out (e.g., in a URL's
   query string). That's a policy choice for workspaces outside
   `~/sensitive`; put a workspace under `~/sensitive` when that matters.
-- An agent's own test servers need their ports listed in
-  `local-ports` (see "Known gaps").
+- An agent's own servers on fixed ports below 32768 (e.g., Rails's
+  3000) need those ports listed in `local-ports` (see "Ports").
 - Git runs commands named in a repository's local files, so an agent
   can make git run its code outside the compartment, the next time
   *you* run git in its workspace. See "Git runs commands from local
@@ -411,7 +413,31 @@ revising what it wrote, for no security gain.)
 Each compartment has its own loopback, so an agent's servers can't
 clash with, or be reached by, another compartment's. But nono still
 refuses any loopback port it isn't told to open, since it doesn't know
-the namespace is private. Two files in `policy/` list ports, one port
+the namespace is private.
+
+So `compart` always adds the `bulkhead-loopback` profile
+(`nono-loopback-profile.json`), which opens two things:
+
+- Listening on port 0, i.e., letting the kernel pick a free port, as
+  chromedriver, Capybara, and many test frameworks do. Land&#108;ock checks
+  `bind()` against the port asked for, so this needs a rule for port 0
+  itself; opening the ports the kernel picks from isn't enough.
+- Every port in Linux's default ephemeral range, 32768 to 60999 (the
+  VM's `/proc/sys/net/ipv4/ip_local_port_range`), the ports the kernel
+  picks from, so the program can connect to the port it got.
+
+Those programs then work unchanged, with nothing to list. It's
+harmless because the loopback is the compartment's own: no VM port is
+reachable there except the ones pasta forwards in (`--forward-port`),
+and `compart` refuses to start if one of those is in that range.
+(nono's `--open-port` takes only one port, and one per port overflows
+bwrap's argument limit, so a profile is the only practical way to open
+a range.) If you change the VM's `ip_local_port_range`, change
+`nono-loopback-profile.json` and `compart`'s `eph_lo` and `eph_hi` to
+match.
+
+For a fixed port outside that range (e.g., a Rails server's 3000),
+list it. Two files in `policy/` list ports, one port
 number per line (e.g., `8089`); lines starting with `#`, and blank
 lines, don't count. So `echo 3000 >> ~/projects/NAME.dossier/policy/expose-ports`
 exposes a port. `bulkhead-workspace prepare` creates both, with only
@@ -444,6 +470,31 @@ Warnings about `expose-ports`:
   program that wants it gets "address in use", and vice versa (then
   pasta fails to start, and the agent with it).
 - Changes take effect at the next launch.
+
+For example, to run a Rails server in a compartment and use it from a
+browser outside every compartment:
+
+1. `echo 3000 >> "$(compart dossier)/policy/expose-ports"` (run in the
+   workspace).
+2. Start the server in the compartment, e.g., `compart sh bin/rails
+   server`, or have an agent start it.
+3. Open `http://localhost:3000` in your browser. pasta listens on the
+   VM's IPv4 loopback only, so if that fails, try
+   `http://127.0.0.1:3000`, or start Rails with `-b 127.0.0.1`.
+
+A browser outside a compartment has its own protections, but remember
+that the agent controls everything that server sends you:
+
+- **Browsers don't separate cookies by port** ([RFC 6265, section 8.5](https://www.rfc-editor.org/rfc/rfc6265#section-8.5)). `localhost:3000` and
+  `localhost:8080` share cookies, so the agent's server can read and set
+  cookies for every other web app of yours on `localhost` (and the
+  other apps' pages can read its cookies). Don't log in to other local
+  web apps in that browser profile while you use it; a separate
+  browser profile for agents' servers avoids the problem.
+- Its pages run JavaScript in your browser, which can send requests to
+  other `localhost` ports. Browsers' same-origin rules keep it from
+  reading their replies, but not from sending them.
+- Treat its downloads as you'd treat any untrusted download.
 
 ### Snapshots
 
@@ -576,6 +627,8 @@ at or above `~`, or one that holds another workspace's dossier.
 
 `compart` then builds the harness's `nono run` command, adding:
 
+- `--extends bulkhead-loopback` always (port 0 and the ephemeral range;
+  see "Ports").
 - `--extends bulkhead-broad` outside `~/sensitive` (broad GET and HEAD).
 - `--log-file` in the dossier's `logs/`, outside every sandbox grant.
 - `--read DOSSIER/inbox`, `--allow DOSSIER/outbox`, and an
@@ -981,10 +1034,11 @@ Use these only to work around a breakage.
 - Without `/run/user/UID/wayland-0`, a harness can't use your
   clipboard (e.g., Claude's `/copy`).
 - nono still refuses loopback ports that aren't opened, even though
-  the namespace is private, because it doesn't know that. So list an
-  agent's own server ports in its dossier's `policy/local-ports`. A nono
-  option to allow all loopback ports in a namespace it didn't make
-  would close this.
+  the namespace is private, because it doesn't know that.
+  `bulkhead-loopback` opens port 0 and the ephemeral range, but you
+  still list fixed ports outside that range (e.g., 3000) in
+  `policy/local-ports`. A nono option to allow every loopback port in a
+  namespace it didn't make would close this.
 - Snapshots (see "Snapshots") cover only tracked files, taken at
   launch. nono's own rollback snapshots wouldn't help, since
   `--rollback-dest` must be a directory the sandbox can already write.

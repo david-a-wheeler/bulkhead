@@ -190,9 +190,11 @@ So two profile entries let such programs work unchanged. A
 compartment has its own network namespace, so they open only its own
 loopback; outside one (e.g., a bare `nono run`), they'd let the sandbox
 reach any of your own programs listening on an ephemeral port, so they
-belong only where `compart` adds them. Still to check: the same test
-through `compart sh` (pasta and bwrap). It'd still help to ask nono for
-a way to allow every loopback port in a namespace it didn't make.
+belong only where `compart` adds them. So `compart` now adds the
+`bulkhead-loopback` profile to every launch (see `compartments.md`'s
+"Ports"). Still to check: the same test through `compart sh` (pasta and
+bwrap). It'd still help to ask nono for a way to allow every loopback
+port in a namespace it didn't make.
 
 ## GNOME and security-context
 

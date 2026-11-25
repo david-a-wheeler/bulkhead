@@ -358,7 +358,8 @@ fi
 
 # The rest of the command line, besides the harness's own part:
 #   anon-access --nono-profile PROFILE [--forward-port P]... [--expose-port P]...
-#     nono run --profile PROFILE --allow-cwd [--extends bulkhead-broad]
+#     nono run --profile PROFILE --allow-cwd --extends bulkhead-loopback
+#       [--extends bulkhead-broad]
 #       [--log-file LOG] --read INBOX --allow OUTBOX [--open-port P]...
 #       HARNESS-NONO-OPTIONS -- COMMAND...
 # anon-access strips secrets, then runs bulkhead-compartment with the
@@ -378,6 +379,17 @@ for p in $expose_ports; do compartment_opts="$compartment_opts --expose-port $p"
 # port not opened.
 open_opts=""
 for p in $local_ports $expose_ports; do open_opts="$open_opts --open-port $p"; done
+# bulkhead-loopback (nono-loopback-profile.json) also opens port 0 and
+# Linux's ephemeral range, so programs that let the kernel pick a port
+# (e.g., chromedriver, Capybara) work. That's harmless only because the
+# loopback is the compartment's own, so a forwarded port (which reaches
+# the VM) mustn't be in that range. Keep these the same as the profile's.
+eph_lo=32768
+eph_hi=60999
+for p in $forward; do
+  [ "$p" -lt "$eph_lo" ] || [ "$p" -gt "$eph_hi" ] ||
+    die "port $p reaches the VM, but bulkhead-loopback opens every port from $eph_lo to $eph_hi; use a port outside that range (e.g., change INFER_PORT)."
+done
 # Most work isn't sensitive, so we add bulkhead-broad (GET and HEAD to
 # the whole web; see agent-network-plan.md), except under ~/sensitive (by
 # real path), where only the narrow allowlist in nono's "default"
@@ -404,7 +416,7 @@ fi
 export BULKHEAD_INBOX="$dossier/inbox" BULKHEAD_OUTBOX="$dossier/outbox"
 # shellcheck disable=SC2086 # $compartment_opts and $open_opts split on purpose.
 set -- $compartment_opts \
-  nono run --profile "$profile" --allow-cwd ${broad:+--extends "$broad"} \
+  nono run --profile "$profile" --allow-cwd --extends bulkhead-loopback ${broad:+--extends "$broad"} \
   ${log:+--log-file "$log"} --read "$BULKHEAD_INBOX" --allow "$BULKHEAD_OUTBOX" \
   $open_opts "$@"
 

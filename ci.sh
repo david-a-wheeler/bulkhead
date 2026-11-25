@@ -138,6 +138,15 @@ jq -e '.meta.name == "bulkhead-broad" and (.network.allow_domain | length > 1000
     (.domain | test("^[*][.][a-z0-9-]+$")) and
     ([.endpoints[].method] | sort == ["GET", "HEAD"])))' \
   nono-broad-profile.json > /dev/null || failed nono-broad-profile.json
+# bulkhead-loopback opens only port 0 (for listening) and one range,
+# the same range compart keeps forwarded ports out of.
+eph="$(sed -n 's/^eph_[lh][oi]=\([0-9]*\)$/\1/p' compart | tr '\n' ' ')"
+jq -e --arg eph "$eph" '.meta.name == "bulkhead-loopback" and
+    (keys == ["meta", "network"]) and (.network | keys == ["listen_port", "open_port_range"]) and
+    .network.listen_port == [0] and
+    ((.network.open_port_range | length) == 1) and
+    ("\(.network.open_port_range[0][0]) \(.network.open_port_range[0][1]) " == $eph)' \
+  nono-loopback-profile.json > /dev/null || failed "nono-loopback-profile.json (or compart's eph_lo and eph_hi)"
 jq -e '.extends == "nolabs-ai/claude" and (.network.allow_domain | length > 0)' \
   nono-claude-profile.json > /dev/null || failed nono-claude-profile.json
 # Claude's login: nono captures the real tokens (oauth_capture), and the
@@ -433,19 +442,21 @@ cargs() {
   shift
   (cd "$d" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" claude "$@" 2> /dev/null)
 }
-nono_head="nono|run|--profile|bulkhead-claude|--allow-cwd"
+nono_head="nono|run|--profile|bulkhead-claude|--allow-cwd|--extends|bulkhead-loopback"
 inout="--log-file|$d1/logs/nono.log|--read|$d1/inbox|--allow|$d1/outbox"
 [ "$(cargs "$fh/projects/p1" x)" = "--nono-profile|bulkhead-claude|$nono_head|--extends|bulkhead-broad|$inout|--|claude|x|" ] ||
   failed "compart: nono options: $(cargs "$fh/projects/p1" x)"
 # compart sh runs a command, or your $SHELL, under bulkhead-sh.
 (cd "$fh/projects/p1" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" sh ls -l 2> /dev/null) |
-  grep -qF -- "nono|run|--profile|bulkhead-sh|--allow-cwd|" || failed "compart sh: profile"
+  grep -qF -- "nono|run|--profile|bulkhead-sh|--allow-cwd|--extends|bulkhead-loopback|" || failed "compart sh: profile"
 (cd "$fh/projects/p1" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" sh ls -l 2> /dev/null) |
   grep -q -- '|--|ls|-l|$' || failed "compart sh: command"
 (cd "$fh/projects/p1" && wsenv PATH="$wst/bin:$PATH" SHELL=/bin/myshell "$SCRIPT_DIR/compart" sh 2> /dev/null) |
   grep -q -- '|--|/bin/myshell|$' || failed "compart sh: \$SHELL"
 case "$(cargs "$fh/sensitive/s1")" in
   *bulkhead-broad*) failed "compart used bulkhead-broad under ~/sensitive" ;;
+  *"|--extends|bulkhead-loopback|"*) ;;
+  *) failed "compart didn't use bulkhead-loopback under ~/sensitive" ;;
 esac
 cp "$d1/policy/local-ports" "$wst/local-ports"
 cp "$d1/policy/expose-ports" "$wst/expose-ports"
