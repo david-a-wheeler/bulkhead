@@ -77,7 +77,13 @@ your full access.
 
 ## What isn't even recorded
 
-These change often for harmless reasons, so `git-config-entries.awk`
+Repositories below a directory named `.tmp` aren't searched for at
+all. That's where a compartment puts its `/tmp`, so tools (and our own
+tests) leave scratch repositories there, often with risky settings.
+To run git in one, you'd have to go into it on purpose, so they'd only
+bury a warning that matters.
+
+Some keys change often for harmless reasons, so `git-config-entries.awk`
 skips them:
 the keys `git init` and `git clone` write in every repository (e.g.,
 `core.filemode` and `remote.NAME.fetch`), and the keys `push-to`

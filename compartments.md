@@ -158,7 +158,8 @@ is cheap insurance against surprise commands, not a boundary:
 - **Approved repository settings.** Pins can't cover keys whose names
   a repository picks, so `compart` runs `bulkhead-git-check` before
   each session and again when it ends. It records, for each `.git`
-  (directory or file) anywhere in the workspace, where git keeps the
+  (directory or file) anywhere in the workspace (except below a `.tmp`,
+  a compartment's `/tmp`), where git keeps the
   repository (so a planted `.git` file or `.git/commondir` shows), its
   local and worktree config as git reads it (`git config --list
   --show-scope --includes`, so included files count), and each hook's

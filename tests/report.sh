@@ -18,7 +18,9 @@ report_status=0
 # dossier (scratch/), outside the workspace, where agents can't write.
 # Inside one (a compartment or nono), the dossier isn't writable, so
 # it's in the TMPDIR we have; with no dossier (e.g., GitHub's CI), the
-# system's temporary directory. A test that another runs (e.g., ci.sh)
+# system's temporary directory. Either way, it's BASE/NAME/XXXXXX, so
+# you can remove all of a test's leftovers at once. A test that another
+# runs (e.g., ci.sh)
 # shares the outer test's directory; the one that made it removes it
 # after a pass (see report_clean).
 report_own_tmpdir=""
@@ -31,7 +33,8 @@ report_begin() {
     [ -d "$report_dossier" ] && mkdir -p "$report_dossier/scratch"; then
     report_base="$report_dossier/scratch"
   fi
-  report_own_tmpdir="$(mktemp -d "$report_base/$1.XXXXXX")"
+  mkdir -p "$report_base/$1"
+  report_own_tmpdir="$(mktemp -d "$report_base/$1/XXXXXX")"
   # While we run, we hold this lock (on fd 8, which children inherit),
   # so a pass elsewhere won't remove our files (see report_sweep).
   if command -v flock > /dev/null 2>&1; then
@@ -63,9 +66,9 @@ report_on_exit() {
   return 0
 }
 
-# report_track PATH...: note scratch directories (made by mktemp)
-# outside the TMPDIR report_begin made, so that if this run fails or
-# stops, a later pass can remove them too.
+# report_track PATH...: note scratch directories outside the TMPDIR
+# report_begin made, so that if this run fails or stops, a later pass
+# can remove them too.
 report_tracked=""
 report_track() {
   [ -n "$report_own_tmpdir" ] || return 0
@@ -78,24 +81,20 @@ report_track() {
 
 # report_sweep: quietly remove what earlier runs of this test kept
 # (their TMPDIRs, and the paths they tracked), except any still running
-# (holding its lock). A TMPDIR from before the locks has none, so we
-# leave it alone if it changed in the last 10 minutes. We only remove a
-# tracked path that looks like one this run tracked (the same mktemp
-# template), so a planted list can't send us elsewhere.
+# (holding its lock). We remove only a directory with a lock, so
+# anything else in BASE/NAME stays, and only a tracked path beside one
+# this run tracked, so a planted list can't send us elsewhere.
 report_sweep() {
   [ -n "$report_own_tmpdir" ] && command -v flock > /dev/null 2>&1 || return 0
-  for report_old in "${report_own_tmpdir%.*}".*; do
-    [ -d "$report_old" ] && [ ! -L "$report_old" ] || continue
-    if [ -f "$report_old/.report-lock" ] && [ ! -L "$report_old/.report-lock" ]; then
+  for report_old in "${report_own_tmpdir%/*}"/*; do
+    [ -d "$report_old" ] && [ ! -L "$report_old" ] &&
+      [ -f "$report_old/.report-lock" ] && [ ! -L "$report_old/.report-lock" ] &&
       flock -n "$report_old/.report-lock" true 2> /dev/null || continue
-    elif [ -n "$(find "$report_old" -prune -mmin -10)" ]; then
-      continue
-    fi
     if [ -f "$report_old/.report-paths" ] && [ ! -L "$report_old/.report-paths" ]; then
       while IFS= read -r report_path; do
-        case "${report_path##*.}" in "" | */*) continue ;; esac
+        case "${report_path##*/}" in "" | . | ..) continue ;; esac
         printf '%s' "$report_tracked" | while IFS= read -r report_mine; do
-          if [ "${report_path%.*}" = "${report_mine%.*}" ] && [ -d "$report_path" ] && [ ! -L "$report_path" ]; then
+          if [ "${report_path%/*}" = "${report_mine%/*}" ] && [ -d "$report_path" ] && [ ! -L "$report_path" ]; then
             rm -rf "$report_path"
           fi
         done

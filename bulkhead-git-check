@@ -23,7 +23,10 @@
 # reach, and show you a risky change and ask you to approve it (see
 # git-config-risks); we record any other change without a word.
 #
-# For each .git (directory or file) anywhere in the workspace, we
+# For each .git (directory or file) anywhere in the workspace, except
+# below a directory named .tmp (a compartment's /tmp, full of scratch
+# repositories you'd have to go into to run git in, so they'd only bury
+# real news), we
 # record where git keeps the repository, its local and worktree config
 # (as "git config --list --show-scope --includes" gives it, so files it
 # includes count too; see git-config-entries.awk), and the SHA-256
@@ -131,7 +134,7 @@ trap 'exit 1' HUP INT TERM
 mkdir "$work/repos"
 # A directory find can't search could hide a repository, so that's a
 # change too.
-if ! find "$root" -name .git -prune -exec "$0" --repo "$root" "$work/repos" {} + 2> /dev/null; then
+if ! find "$root" \( -name .tmp -type d -path "$root/*" \) -prune -o -name .git -prune -exec "$0" --repo "$root" "$work/repos" {} + 2> /dev/null; then
   printf '.\terror\tcould not search all of the workspace\n' > "$work/repos/find-error"
 fi
 cat "$work/repos"/* > "$work/current" 2> /dev/null || : > "$work/current"

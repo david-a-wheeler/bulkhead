@@ -203,22 +203,25 @@ step "workspaces (bulkhead-workspace, bulkhead-compartment --dry-run, compart)"
 # A fake HOME with projects/, sensitive/, and directories outside both,
 # without needing bwrap. Its workspaces can't be in TMPDIR when that's
 # in a dossier or /tmp, since workspace-forbidden refuses both. So
-# outside a sandbox, it's in ~/.local/state/bulkhead (which no agent can
-# write, either); with no dossier, in the repo's .tmp (e.g., in
-# GitHub's CI, where no agent runs).
+# outside a sandbox, it's in ~/.local/state/bulkhead/ci.sh (which no
+# agent can write, either); with no dossier, in the repo's .tmp/ci.sh
+# (e.g., in GitHub's CI, where no agent runs).
 case "$TMPDIR" in
   *.dossier/* | /tmp/*)
     if [ -z "${BULKHEAD_COMPARTMENT:-}${NONO_CAP_FILE:-}" ] && [ "${TMPDIR#/tmp/}" = "$TMPDIR" ]; then
-      wsbase="$HOME/.local/state/bulkhead"
+      wsbase="$HOME/.local/state/bulkhead/ci.sh"
     else
-      wsbase="$SCRIPT_DIR/.tmp"
+      wsbase="$SCRIPT_DIR/.tmp/ci.sh"
     fi
+    mkdir -p "$wsbase"
+    wst="$(mktemp -d "$wsbase/XXXXXX")"
+    report_track "$wst"
     ;;
-  *) wsbase="$TMPDIR" ;;
+  *)
+    wst="$TMPDIR/ws"
+    mkdir "$wst"
+    ;;
 esac
-mkdir -p "$wsbase"
-wst="$(mktemp -d "$wsbase/ci-workspaces.XXXXXX")"
-report_track "$wst"
 trap 'report_on_exit; report_clean "${tmp:?}" "${wst:?}"' EXIT
 fh="$wst/home"
 mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$fh/.claude" "$fh/.ssh"
@@ -503,12 +506,12 @@ for c in weston bwrap; do
 done
 chmod 755 "$wst/dbin/"*
 # A socket's path is at most 108 bytes, so a short runtime directory:
-# in a sandbox, the repo's .tmp (where only this sandbox's agents could
-# change it), else beside the workspaces.
-if [ -n "${BULKHEAD_COMPARTMENT:-}${NONO_CAP_FILE:-}" ]; then drb="$SCRIPT_DIR/.tmp"; else drb="$wsbase"; fi
-mkdir -p "$drb"
-dr="$(mktemp -d "$drb/dr.XXXXXX")"
-report_track "$dr"
+# in TMPDIR, unless that's in a (long-named) dossier.
+case "$TMPDIR" in
+  *.dossier/*) dr="$wst/dr" ;;
+  *) dr="$TMPDIR/dr" ;;
+esac
+mkdir "$dr"
 trap 'report_on_exit; report_clean "${tmp:?}" "${wst:?}" "${dr:?}"' EXIT
 # It drops the display settings compart gives a session, so it works
 # when run in one.
@@ -590,6 +593,12 @@ gcheck --yes > /dev/null
 git init -q "$g/sub/inner"
 printf '#!/bin/sh\n' > "$g/.git/hooks/pre-commit"
 out="$(gcheck)" && [ -z "$out" ] || failed "git check: spoke of a new repository and hook: $out"
+# A repository below a .tmp (a compartment's /tmp) isn't searched for,
+# however risky: you'd have to go into it to run git there.
+git init -q "$g/sub/.tmp/scratch"
+git -C "$g/sub/.tmp/scratch" config alias.st '!true'
+out="$(gcheck)" && [ -z "$out" ] || failed "git check: spoke of a repository in .tmp: $out"
+grep -q scratch "$gapproved" && failed "git check: recorded a repository in .tmp"
 git -C "$g" config remote.other.mirror true
 out="$(gcheck)" && failed "git check: accepted a mirroring remote"
 printf '%s\n' "$out" | grep -qF 'RISKY:     . config remote.other.mirror=true' || failed "git check: showed a mirroring remote"
@@ -932,15 +941,14 @@ out="$(sh -c 'set -e; . ./tests/report.sh; report_begin demo; trap "report_on_ex
 # track itself.
 if command -v flock > /dev/null; then
   sb="$tmp/sweep"
-  mkdir -p "$sb/demo.old" "$sb/demo.live" "$sb/demo.new" "$sb/demo.prelock" "$sb/out.old" "$sb/other.old"
-  : > "$sb/demo.old/.report-lock"
-  printf '%s\n' "$sb/out.old" "$sb/other.old" > "$sb/demo.old/.report-paths"
-  : > "$sb/demo.live/.report-lock"
-  touch -t 202001010000 "$sb/demo.prelock"
-  flock "$sb/demo.live/.report-lock" env -u BULKHEAD_TEST_TMPDIR TMPDIR="$sb" sh -c 'set -e; . ./tests/report.sh; report_begin demo "$1"
-    o="$(mktemp -d "$1/out.XXXXXX")"; report_track "$o"; trap "report_on_exit; report_clean \"\$o\"" EXIT; report_end 0 1' sh "$sb" > /dev/null
-  left="$(cd "$sb" && echo *)"
-  [ "$left" = "demo.live demo.new other.old" ] || failed "tests/report.sh: a pass left $left"
+  mkdir -p "$sb/demo/old" "$sb/demo/live" "$sb/demo/nolock" "$sb/out/old" "$sb/other/old"
+  : > "$sb/demo/old/.report-lock"
+  printf '%s\n' "$sb/out/old" "$sb/other/old" "$sb/out/.." > "$sb/demo/old/.report-paths"
+  : > "$sb/demo/live/.report-lock"
+  flock "$sb/demo/live/.report-lock" env -u BULKHEAD_TEST_TMPDIR TMPDIR="$sb" sh -c 'set -e; . ./tests/report.sh; report_begin demo "$1"
+    o="$1/out/new"; mkdir "$o"; report_track "$o"; trap "report_on_exit; report_clean \"\$o\"" EXIT; report_end 0 1' sh "$sb" > /dev/null
+  left="$(cd "$sb" && echo demo/* out/* other/*)"
+  [ "$left" = "demo/live demo/nolock out/* other/old" ] || failed "tests/report.sh: a pass left $left"
 fi
 
 step "compart (usage and unknown harnesses)"
