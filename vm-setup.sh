@@ -574,7 +574,9 @@ goose_have="v$(/usr/local/bin/goose --version 2> /dev/null | tr -d ' ')"
 if [ "$goose_have" = "$goose_tag" ]; then
   echo "goose $goose_tag is already installed."
 else
-  goose_file="goose-$(uname -m)-unknown-linux-gnu.tar.bz2"
+  # The .tar.gz, not the .tar.bz2: same binary, also attested, and it
+  # unpacks in about 1 second instead of 9 (measured 2026-11-24).
+  goose_file="goose-$(uname -m)-unknown-linux-gnu.tar.gz"
   fetch_asset aaif-goose/goose "$goose_tag" "$goose_file" ||
     die "can't download goose $goose_tag's $goose_file."
   goose_gh_token="$(secrets-client --context "vm-setup.sh: check goose's build" --get GH_PUBLIC_TOKEN)" ||
@@ -583,10 +585,10 @@ else
     --repo aaif-goose/goose --source-ref "refs/tags/$goose_tag" \
     --signer-workflow aaif-goose/goose/.github/workflows/release.yml > /dev/null ||
     die "GitHub doesn't attest that goose's release workflow built $goose_file for $goose_tag."
-  tar tjf "$release_tmp/$goose_file" > "$release_tmp/names"
+  tar tzf "$release_tmp/$goose_file" > "$release_tmp/names"
   archive_names_ok < "$release_tmp/names" || die "$goose_file has an unsafe file name."
   mkdir "$release_tmp/unpack"
-  tar xjf "$release_tmp/$goose_file" -C "$release_tmp/unpack"
+  tar xzf "$release_tmp/$goose_file" -C "$release_tmp/unpack"
   unpacked_tree_ok "$release_tmp/unpack" || die "$goose_file has an unsafe file."
   [ -f "$release_tmp/unpack/goose" ] || die "$goose_file has no goose."
   sudo install -m 755 "$release_tmp/unpack/goose" /usr/local/bin/goose
