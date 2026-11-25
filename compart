@@ -50,6 +50,18 @@ die() {
   exit 1
 }
 
+# runs_code HARNESS: whether HARNESS runs code in the compartment (each
+# harness, and compart sh), unlike compart's own commands (e.g., check
+# and dossier). Only these get what a running compartment needs, such as
+# its display (see bulkhead-display). Add each new harness here; one
+# left out just gets no display.
+runs_code() {
+  case "$1" in
+    sh | claude | pi | goose) return 0 ;;
+  esac
+  return 1
+}
+
 # refuse_real_login FILE: stop if the Claude credentials FILE holds a
 # real refresh token (anything but nono's phantoms, nono_...), which
 # agents could read (see compartments.md, "Claude's login").
@@ -354,7 +366,7 @@ fi
 # socket isn't there.
 display=""
 desktop_wayland="${WAYLAND_DISPLAY:-}"
-if [ -z "${BULKHEAD_NO_COMPARTMENT:-}" ]; then
+if [ -z "${BULKHEAD_NO_COMPARTMENT:-}" ] && runs_code "$harness"; then
   display="$("$bin/bulkhead-display" dir)" || display=""
   unset DISPLAY
   if [ -n "$display" ]; then

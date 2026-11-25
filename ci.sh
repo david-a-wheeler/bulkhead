@@ -522,6 +522,12 @@ if ! command -v systemd-socket-activate > /dev/null || [ "${#dsock}" -gt 96 ]; t
   echo "SKIPPED: compart's display (no systemd-socket-activate, or $dsock is too long for a socket)."
 else
   python3 -I -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$dr/wayland-0"
+  # compart's own commands run no code in the compartment, so no display.
+  for c in check dossier; do
+    (cd "$fh/projects/p1" && wsenv XDG_RUNTIME_DIR="$dr" WAYLAND_DISPLAY=wayland-0 PATH="$wst/dbin:$PATH" \
+      "$SCRIPT_DIR/compart" "$c" > /dev/null 2>&1) || :
+  done
+  [ ! -e "$dr/bulkhead-display" ] || failed "display: given to compart check or dossier"
   out="$(dcompart env WAYLAND_DISPLAY=wayland-0)"
   case "$out" in *"|--display-dir|$dsock|"*) ;; *) failed "display: compartment option: $out" ;; esac
   case "$out" in *"|--allow-unix-socket-dir|$dsock|"*) ;; *) failed "display: nono option: $out" ;; esac
