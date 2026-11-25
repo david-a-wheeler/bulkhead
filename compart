@@ -345,6 +345,32 @@ if [ "$harness" = goose ]; then
       "GOOSE_PROVIDER: openai" > "$goose_dir/config.yaml"
   fi
 fi
+# A display for the compartment's GUI programs: its own nested weston
+# window, shared by its sessions, which bulkhead-display starts when a
+# program first connects (see compartments.md, "GUI programs"). Only
+# Wayland: no session has DISPLAY (X11), and these variables steer
+# toolkits that might try it to Wayland. With no display (e.g., over SSH),
+# the compartment gets no WAYLAND_DISPLAY either, since your desktop's
+# socket isn't there.
+display=""
+desktop_wayland="${WAYLAND_DISPLAY:-}"
+if [ -z "${BULKHEAD_NO_COMPARTMENT:-}" ]; then
+  display="$("$bin/bulkhead-display" dir)" || display=""
+  unset DISPLAY
+  if [ -n "$display" ]; then
+    WAYLAND_DISPLAY="$display/wayland-0"
+    XDG_SESSION_TYPE=wayland
+    GDK_BACKEND=wayland
+    QT_QPA_PLATFORM=wayland
+    SDL_VIDEODRIVER=wayland
+    MOZ_ENABLE_WAYLAND=1
+    ELECTRON_OZONE_PLATFORM_HINT=wayland
+    export WAYLAND_DISPLAY XDG_SESSION_TYPE GDK_BACKEND QT_QPA_PLATFORM \
+      SDL_VIDEODRIVER MOZ_ENABLE_WAYLAND ELECTRON_OZONE_PLATFORM_HINT
+  else
+    unset WAYLAND_DISPLAY
+  fi
+fi
 # Claude's ~/.claude, as the agent will see it: the compartment's private
 # copy (named as bulkhead-compartment names it), or, with
 # BULKHEAD_NO_COMPARTMENT, your own.
@@ -358,10 +384,11 @@ fi
 
 # The rest of the command line, besides the harness's own part:
 #   anon-access --nono-profile PROFILE [--forward-port P]... [--expose-port P]...
+#       [--display-dir DIR]
 #     nono run --profile PROFILE --allow-cwd --extends bulkhead-loopback
 #       [--extends bulkhead-broad]
 #       [--log-file LOG] --read INBOX --allow OUTBOX [--open-port P]...
-#       HARNESS-NONO-OPTIONS -- COMMAND...
+#       [--allow-unix-socket-dir DIR] HARNESS-NONO-OPTIONS -- COMMAND...
 # anon-access strips secrets, then runs bulkhead-compartment with the
 # same arguments. That takes the options and runs, nested:
 #   pasta: a private network namespace, passing only those ports;
@@ -374,11 +401,15 @@ fi
 compartment_opts="--nono-profile $profile"
 for p in $forward; do compartment_opts="$compartment_opts --forward-port $p"; done
 for p in $expose_ports; do compartment_opts="$compartment_opts --expose-port $p"; done
+# bulkhead-display's directory has no spaces (it checks).
+[ -z "$display" ] || compartment_opts="$compartment_opts --display-dir $display"
 # The workspace's local ports (and exposed ones, which its agents use
 # too) are on the compartment's own loopback, but nono still refuses any
 # port not opened.
 open_opts=""
 for p in $local_ports $expose_ports; do open_opts="$open_opts --open-port $p"; done
+# The display's socket: a directory, since a new launcher makes a new one.
+[ -z "$display" ] || open_opts="$open_opts --allow-unix-socket-dir $display"
 # bulkhead-loopback (nono-loopback-profile.json) also opens port 0 and
 # Linux's ephemeral range, so programs that let the kernel pick a port
 # (e.g., chromedriver, Capybara) work. That's harmless only because the
@@ -429,10 +460,17 @@ trap : INT QUIT
 # knows not to run meanwhile. The session doesn't get the descriptor.
 exec 9> "$dossier/logs/sessions.lock"
 flock -s 9
+# While we hold that lock, so the last session can't stop the display
+# meanwhile.
+[ -z "$display" ] || WAYLAND_DISPLAY="$desktop_wayland" "$bin/bulkhead-display" start ||
+  echo "compart: continuing without a display (see above)." >&2
 status=0
 anon-access "$@" 9>&- || status=$?
 exec 9>&-
 trap - INT QUIT
+# The last session here stops the display: an exclusive lock is ours
+# only once no other session holds its shared one.
+[ -z "$display" ] || flock -n "$dossier/logs/sessions.lock" "$bin/bulkhead-display" stop || :
 # A blank line sets our report apart from the session's last output.
 echo >&2
 check_workspace true || :

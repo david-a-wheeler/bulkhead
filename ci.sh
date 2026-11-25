@@ -55,7 +55,7 @@ else
 fi
 
 # Plain scripts: no @@VAR@@ templating, safe to check as-is.
-PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-snapshot bulkhead-grant-check bulkhead-copy-claude-history tests/compartment-test.sh"
+PLAIN_SCRIPTS="config.sh common.sh host-backend.sh host-models.sh host-install.sh host-setup.sh infer-check.sh infer-doctor.sh manage-models.sh install-models.sh vm-setup.sh install-nono-deb.sh vm-piper-install.sh vm-speech-setup.sh speechd-piper compart claude-unsandboxed noclaude nopi my-gen-image host-secrets.sh infer-access.sh rotate-github-pat.sh rotate-heroku-key.sh anon-access heroku-session gh-session vm-git-helper check-prose-style.sh git-commit-msg git-hook-passthrough make-git-safety-env tests/test_git_safety_env.sh tests/sleep-test.sh tests/stand-in-curl.sh tests/agent-network-test.sh update-broad-profile.sh bulkhead-compartment bulkhead-workspace bulkhead-git-check bulkhead-snapshot bulkhead-grant-check bulkhead-copy-claude-history bulkhead-display tests/compartment-test.sh"
 
 step "shellcheck (plain scripts)"
 # shellcheck disable=SC2086
@@ -423,6 +423,13 @@ for bad in 80x 010 ''; do
   (cd "$fh/projects/p1/sub" && wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run \
     --expose-port "$bad" cmd) > /dev/null 2>&1 && failed "compartment exposed the port '$bad'"
 done
+# The display's socket directory is bound read-only; only absolute.
+(cd "$fh/projects/p1/sub" && wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run \
+  --display-dir /run/user/9/d/socket cmd) | tr '\n' '|' |
+  grep -qF -- "|--ro-bind|/run/user/9/d/socket|/run/user/9/d/socket|" ||
+  failed "compartment binds the display directory read-only"
+(cd "$fh/projects/p1/sub" && wsenv "$SCRIPT_DIR/bulkhead-compartment" --dry-run \
+  --display-dir d/socket cmd) > /dev/null 2>&1 && failed "compartment took a relative display directory"
 
 # compart's command line, with a stand-in anon-access that prints its
 # arguments: nono's options for the workspace (the inbox read-only, the
@@ -474,6 +481,60 @@ for bad in 80x 0 010 65536 3000-3002 ' 8089' '8089 # web'; do
 done
 cp "$wst/local-ports" "$d1/policy/local-ports"
 cp "$wst/expose-ports" "$d1/policy/expose-ports"
+
+# compart's display (bulkhead-display). The title names the workspace,
+# with only plain characters, since it goes into weston.ini.
+[ "$(run_ws "$fh/projects/p1" bulkhead-display title)" = "Weston Compositor - WL Compartment p1" ] ||
+  failed "display: title"
+mkdir -p "$fh/projects/a\$(x);b"
+[ "$(run_ws "$fh/projects/a\$(x);b" bulkhead-display title)" = "Weston Compositor - WL Compartment a__x__b" ] ||
+  failed "display: title kept odd characters"
+# Without a desktop's socket, there's no display, and no WAYLAND_DISPLAY
+# or DISPLAY in the compartment.
+mkdir -p "$wst/dbin"
+printf '#!/bin/sh\nprintf "%%s|" "$@" "W=${WAYLAND_DISPLAY-unset}" "D=${DISPLAY-unset}" "G=${GDK_BACKEND-unset}"\n' > "$wst/dbin/anon-access"
+# Stand-ins: they'd run only when a program connects, which none does.
+for c in weston bwrap; do
+  printf '#!/bin/sh\nexit 1\n' > "$wst/dbin/$c"
+done
+chmod 755 "$wst/dbin/"*
+# A socket's path is at most 108 bytes, so a short runtime directory:
+# in a sandbox, the repo's .tmp (where only this sandbox's agents could
+# change it), else beside the workspaces.
+if [ -n "${BULKHEAD_COMPARTMENT:-}${NONO_CAP_FILE:-}" ]; then drb="$SCRIPT_DIR/.tmp"; else drb="$wsbase"; fi
+mkdir -p "$drb"
+dr="$(mktemp -d "$drb/dr.XXXXXX")"
+trap 'report_on_exit; report_clean "${tmp:?}" "${wst:?}" "${dr:?}"' EXIT
+dcompart() {
+  (cd "$fh/projects/p1" && wsenv XDG_RUNTIME_DIR="$dr" DISPLAY=:0 PATH="$wst/dbin:$PATH" "$@" "$SCRIPT_DIR/compart" claude 2> /dev/null)
+}
+case "$(dcompart env WAYLAND_DISPLAY=wayland-0)" in
+  *--display-dir* | *--allow-unix-socket-dir*) failed "display: given with no desktop" ;;
+  *"|W=unset|D=unset|G=unset|") ;;
+  *) failed "display: variables with no desktop: $(dcompart env WAYLAND_DISPLAY=wayland-0)" ;;
+esac
+# With one, each launch gets the compartment's own socket directory,
+# read-only (bulkhead-compartment) and for nono to connect in, and the
+# Wayland variables. The last session stops the display's launcher;
+# another session (here, holding the lock around compart) keeps it.
+dsock="$dr/bulkhead-display/$(printf '%s' projects-p1 | sha256sum | cut -c 1-16)/socket"
+if ! command -v systemd-socket-activate > /dev/null || [ "${#dsock}" -gt 96 ]; then
+  echo "SKIPPED: compart's display (no systemd-socket-activate, or $dsock is too long for a socket)."
+else
+  python3 -I -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$dr/wayland-0"
+  out="$(dcompart env WAYLAND_DISPLAY=wayland-0)"
+  case "$out" in *"|--display-dir|$dsock|"*) ;; *) failed "display: compartment option: $out" ;; esac
+  case "$out" in *"|--allow-unix-socket-dir|$dsock|"*) ;; *) failed "display: nono option: $out" ;; esac
+  case "$out" in *"|W=$dsock/wayland-0|D=unset|G=wayland|") ;; *) failed "display: variables: $out" ;; esac
+  grep -q "waiting for a program" "$d1/logs/display.log" 2> /dev/null || failed "display: never started"
+  [ ! -e "$dsock/wayland-0" ] || failed "display: the last session didn't stop it"
+  dcompart flock -s "$d1/logs/sessions.lock" env WAYLAND_DISPLAY=wayland-0 > /dev/null
+  [ -S "$dsock/wayland-0" ] || failed "display: stopped while another session ran"
+  (cd "$fh/projects/p1" && wsenv XDG_RUNTIME_DIR="$dr" WAYLAND_DISPLAY=wayland-0 PATH="$wst/dbin:$PATH" \
+    "$SCRIPT_DIR/bulkhead-display" stop) || failed "display: stop"
+  [ ! -e "$dsock/wayland-0" ] || failed "display: stop left the socket"
+  flock -n "${dsock%/socket}/run.lock" true || failed "display: stop left the launcher running"
+fi
 
 # bulkhead-git-check: the first run records a workspace's repositories'
 # settings; then any change (here, run with no terminal) makes it

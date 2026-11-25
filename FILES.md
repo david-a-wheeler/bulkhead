@@ -193,6 +193,13 @@ What each file in this repository does. For what bulkhead is, see
   VM's `127.0.0.1` to the agent. It fails rather than run without a
   compartment; `BULKHEAD_NO_COMPARTMENT=1` skips it.
   `tests/compartment-test.sh` (run by hand, outside nono) checks it.
+- `bulkhead-display`: gives a compartment its own display, a nested
+  `weston` window on your desktop titled with the compartment's name,
+  shared by the compartment's sessions. `compart` runs it: it starts
+  the compartment's launcher (`systemd-socket-activate`, which starts
+  `weston` in its own bwrap sandbox when a program first connects), and
+  stops it when the compartment's last session ends. See
+  `compartments.md`, "GUI programs".
 - `bulkhead-git-check`: run by `compart` before and after each
   session; notices any change to the settings a workspace's git
   repositories give git (config, includes, hooks, where each

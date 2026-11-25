@@ -459,6 +459,13 @@ One `weston` per compartment, started by `compart`:
   `QT_QPA_PLATFORM=wayland`, and `ELECTRON_OZONE_PLATFORM_HINT=wayland`)
   and leave `DISPLAY` unset.
 
+Built as `bulkhead-display` (see `compartments.md`, "GUI programs").
+Instead of a file per session, the last session is the one that can
+take the dossier's `sessions.lock` exclusively, since each session
+holds it shared; so a session that crashed can't look alive. CI tests
+the launcher's start and stop with stand-ins for `weston` and bwrap,
+but not a real window; not yet tested on a desktop.
+
 ## Sources
 
 - `cage`: its [README](https://github.com/cage-kiosk/cage), [man

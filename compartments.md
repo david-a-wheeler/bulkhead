@@ -42,6 +42,9 @@ An agent in a compartment **can**:
   `policy/expose-ports` to let you reach them from the VM.
 - Reach a VM port its harness needs (e.g., `compart pi`'s local AI
   engine tunnel), and only that one.
+- Show GUI programs (Wayland only) in its own window on your desktop,
+  titled with the compartment's name, when you start it from a
+  terminal on that desktop (see "GUI programs").
 
 An agent in a compartment **can't**:
 
@@ -56,6 +59,8 @@ An agent in a compartment **can't**:
   `~/.agents` read-write), or write nono's profile drafts.
 - Read the rest of your home directory, beyond what the nono profiles
   grant.
+- Reach your desktop session: its clipboard, other windows, input, or
+  screen. Its GUI programs show only inside its own `weston` window.
 - See or reach the VM's local services (e.g., sshd, or other agents'
   servers). It has its own
   loopback, and `/proc/self/net` lists only its own sockets.
@@ -495,6 +500,56 @@ that the agent controls everything that server sends you:
   other `localhost` ports. Browsers' same-origin rules keep it from
   reading their replies, but not from sending them.
 - Treat its downloads as you'd treat any untrusted download.
+
+### GUI programs
+
+When you start `compart` from a terminal on your desktop (so
+`WAYLAND_DISPLAY` is set), its compartment gets a display of its own:
+a nested `weston` window, titled "Weston Compositor - WL Compartment
+NAME" (NAME is `FOO` for `~/projects/FOO`). Nothing shows until a
+program in the compartment opens a window; then `weston` starts, and
+every GUI program in that compartment, from any of its sessions, shows
+inside that one window. You move and resize it by its title bar and
+edges; inside it, you move a program's window by its own title bar, or
+with Alt and drag. If you close it, its programs lose their display,
+and the next one to start opens a new window. When the compartment's
+last session ends, `compart` closes it.
+
+For example, in `compart sh`, `gnome-text-editor &` opens the editor in
+the compartment's window. A browser works too (e.g., Chromium with
+`--ozone-platform=wayland`), but treat it as a test browser, not one
+for general browsing: Chrome's own sandbox can't run inside a
+compartment, so it prints a warning about `--no-sandbox`, and the
+compartment is its only sandbox.
+
+How it works, and what it means:
+
+- `bulkhead-display` (which `compart` runs) keeps each compartment's
+  socket in `$XDG_RUNTIME_DIR/bulkhead-display/`, named by a hash of the
+  compartment's key, and the compartment sees only that socket's
+  directory, read-only. `systemd-socket-activate` holds the socket and
+  starts `weston` when a program first connects; `weston`'s own
+  `systemd-notify` module then serves it, and every later program.
+- `weston` runs beside the compartment, not in it, in its own bwrap
+  sandbox: read-only `/usr`, your desktop's socket, and none of your
+  files. It draws its window's frame and title itself, so nothing in
+  the compartment can change them, though a program can draw anything
+  inside the window, including something that looks like a title bar.
+- Programs in one compartment share its `weston`, so they share its
+  clipboard and drag and drop. That adds little, since they share
+  files anyway. Programs in different compartments never share one.
+- There's no clipboard between the compartment's window and the rest of
+  your desktop, in either direction; so nothing in the compartment can
+  read what you copy elsewhere.
+- Wayland only: `compart` unsets `DISPLAY`, and sets variables that
+  steer toolkits to Wayland (`GDK_BACKEND`, `QT_QPA_PLATFORM`,
+  `SDL_VIDEODRIVER`, `MOZ_ENABLE_WAYLAND`, and
+  `ELECTRON_OZONE_PLATFORM_HINT`).
+- Its log is the dossier's `logs/display.log`.
+- Set `BULKHEAD_NO_DISPLAY=1` for no display, and, e.g.,
+  `BULKHEAD_DISPLAY_SIZE=1280x720` for a window size other than
+  1024x700. Over SSH (no `WAYLAND_DISPLAY`), there's no display, and
+  the compartment gets no `WAYLAND_DISPLAY` either.
 
 ### Snapshots
 
@@ -1031,8 +1086,10 @@ Use these only to work around a breakage.
 
 - An agent's own sockets must be in its workspace or `/tmp`; one
   elsewhere needs a `unix_socket` entry in a profile.
-- Without `/run/user/UID/wayland-0`, a harness can't use your
-  clipboard (e.g., Claude's `/copy`).
+- A compartment can't use your desktop's clipboard (e.g., Claude's
+  `/copy`), and you can't copy and paste between its `weston` window
+  and the rest of your desktop.
+- GUI programs must speak Wayland; there's no X11 (Xwayland).
 - nono still refuses loopback ports that aren't opened, even though
   the namespace is private, because it doesn't know that.
   `bulkhead-loopback` opens port 0 and the ephemeral range, but you

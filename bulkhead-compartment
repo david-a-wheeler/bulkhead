@@ -29,8 +29,12 @@
 #   policy/expose-ports): a connection to 127.0.0.1:PORT on the VM
 #   reaches the agent's server on PORT inside.
 #
+# --display-dir DIR (from bulkhead-display, which compart runs) binds
+# DIR, which holds the compartment's own display socket, read-only, at
+# the same path.
+#
 # Usage: bulkhead-compartment [--dry-run] [--forward-port PORT]...
-#          [--expose-port PORT]... COMMAND [ARG...]
+#          [--expose-port PORT]... [--display-dir DIR] COMMAND [ARG...]
 #        bulkhead-compartment --tidy
 # --dry-run prints the compartment's key and the pasta and bwrap
 # arguments instead of running anything (for tests). --tidy only tidies
@@ -41,12 +45,13 @@
 # BULKHEAD_NO_COMPARTMENT=1.
 set -eu
 
-usage="Usage: bulkhead-compartment [--dry-run] [--nono-profile PROFILE] [--forward-port PORT]... [--expose-port PORT]... COMMAND [ARG...], or bulkhead-compartment --tidy"
+usage="Usage: bulkhead-compartment [--dry-run] [--nono-profile PROFILE] [--forward-port PORT]... [--expose-port PORT]... [--display-dir DIR] COMMAND [ARG...], or bulkhead-compartment --tidy"
 dry_run=false
 nono_profile=""
 tidy_only=false
 forward=""
 expose=""
+display_dir=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=true ;;
@@ -54,6 +59,14 @@ while [ "$#" -gt 0 ]; do
     --nono-profile)
       [ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
       nono_profile="$2"
+      shift
+      ;;
+    --display-dir)
+      [ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
+      case "$2" in
+        /*) display_dir="$2" ;;
+        *) echo "bulkhead-compartment: --display-dir needs an absolute path, not $2" >&2; exit 2 ;;
+      esac
       shift
       ;;
     --forward-port | --expose-port)
@@ -260,6 +273,11 @@ EOF
 for keep in "$root" "$dossier/inbox" "$dossier/outbox" "$dossier/logs"; do
   set -- "$@" --bind "$keep" "$keep"
 done
+# The display's socket directory (after XDG_RUNTIME_DIR, which it's in).
+# Read-only, so agents can't replace the socket; connecting to it works
+# anyway. A directory, not the socket, since a new weston launcher makes
+# a new socket.
+[ -z "$display_dir" ] || set -- "$@" --ro-bind "$display_dir" "$display_dir"
 # glibc tries nscd's socket on every user or group lookup, then reads
 # /etc/passwd itself. That socket doesn't exist, and nono reports each
 # connect it blocks, so every session would end with a useless warning.

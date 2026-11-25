@@ -1,0 +1,204 @@
+#!/bin/sh
+# bulkhead-display: give the current directory's compartment its own
+# display, a nested weston window on your desktop titled with the
+# compartment's name, so its GUI programs can run without reaching
+# your desktop session (its clipboard, other windows, or input). compart
+# runs this; see compartments.md, "GUI programs".
+#
+# Each compartment gets one weston, shared by all its sessions, which
+# starts only when a program first connects. Until then, a small
+# launcher (systemd-socket-activate) holds the socket and nothing shows.
+# If you close weston's window, the next program to connect opens a new
+# one. weston runs beside the compartment, not in it, in its own
+# bubblewrap sandbox: read-only /usr, your desktop's socket, and none of
+# your files. Programs in one compartment share its weston (and so its
+# clipboard and drag and drop), which adds little, since they share
+# files anyway; programs in different compartments never do.
+#
+# Usage:
+#   bulkhead-display dir    print the directory holding the compartment's
+#                           socket (wayland-0), or nothing if this
+#                           session has no Wayland desktop to show on
+#   bulkhead-display start  start the compartment's launcher, unless it's
+#                           running (compart does this once a session
+#                           holds the dossier's sessions lock); like dir,
+#                           it needs your desktop's WAYLAND_DISPLAY
+#   bulkhead-display stop   stop it, and its weston (compart does this
+#                           when the last session ends)
+#   bulkhead-display title  print the window's title
+#
+# Set BULKHEAD_NO_DISPLAY=1 for no display, and BULKHEAD_DISPLAY_SIZE
+# (e.g., 1280x720) for another size than 1024x700.
+set -eu
+
+usage="Usage: bulkhead-display dir|start|stop|title"
+[ "$#" -eq 1 ] || { echo "$usage" >&2; exit 2; }
+say() { echo "bulkhead-display: $*" >&2; }
+
+ws="$(dirname "$0")/bulkhead-workspace"
+key="$("$ws" key)"
+root="$("$ws" root)"
+
+# The window's title. weston titles it "Weston Compositor - NAME", where
+# NAME is its output's name, which must start with "WL". The name goes
+# into weston.ini, so only plain characters: a newline could add a line
+# there (e.g., a program for weston to start).
+# The root is a real path (no symlinks), so we compare it to HOME's.
+home="$(cd "$HOME" && pwd -P)"
+name="$root"
+tilde="~"
+case "$root" in
+  "$home/projects/"*) name="${root#"$home/projects/"}" ;;
+  "$home/"*) name="$tilde/${root#"$home/"}" ;;
+esac
+name="$(printf '%s' "$name" | LC_ALL=C tr -c 'A-Za-z0-9._~/+@-' '_')"
+title="WL Compartment $name"
+if [ "$1" = title ]; then
+  printf 'Weston Compositor - %s\n' "$title"
+  exit 0
+fi
+
+# Under XDG_RUNTIME_DIR (only yours, and gone when you log out), not the
+# workspace, which its agents could change, nor the dossier, whose path
+# can be too long for a socket's (108 bytes). Named by a hash of the
+# compartment's key, which can be long, too.
+[ -n "${XDG_RUNTIME_DIR:-}" ] || exit 0
+base="$XDG_RUNTIME_DIR/bulkhead-display"
+d="$base/$(printf '%s' "$key" | sha256sum | cut -c 1-16)"
+# The compartment sees only $d/socket (read-only); the rest is ours.
+sock="$d/socket"
+
+# Your desktop's socket. We give a display only in a Wayland session's
+# own terminals (where WAYLAND_DISPLAY is set), not, e.g., over SSH.
+# Stopping needs none of this, e.g., after your desktop is gone.
+if [ "$1" != stop ]; then
+  [ -z "${BULKHEAD_NO_DISPLAY:-}" ] && [ -n "${WAYLAND_DISPLAY:-}" ] || exit 0
+  case "$WAYLAND_DISPLAY" in
+    /*) parent="$WAYLAND_DISPLAY" ;;
+    *) parent="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ;;
+  esac
+  [ -S "$parent" ] || exit 0
+  for c in weston systemd-socket-activate bwrap flock; do
+    command -v "$c" > /dev/null || {
+      say "no $c, so this compartment has no display; run vm-setup.sh."
+      exit 0
+    }
+  done
+  case "$sock" in
+    *[[:space:]]*) say "$sock has a space, so this compartment has no display."; exit 0 ;;
+  esac
+fi
+
+case "$1" in
+  dir)
+    for p in "$base" "$d" "$sock"; do
+      [ -d "$p" ] || mkdir -m 700 "$p"
+    done
+    printf '%s\n' "$sock"
+    ;;
+  start)
+    [ -d "$sock" ] || { say "no $sock; run \"bulkhead-display dir\" first."; exit 1; }
+    # One start at a time, so only one launcher removes an old socket and
+    # makes a new one.
+    exec 8> "$d/start.lock"
+    flock 8
+    # The launcher holds run.lock while it runs.
+    flock -n "$d/run.lock" true || exit 0
+    size="${BULKHEAD_DISPLAY_SIZE:-1024x700}"
+    case "$size" in
+      [1-9]*x[1-9]*) ;;
+      *) say "BULKHEAD_DISPLAY_SIZE must be WIDTHxHEIGHT, not $size."; exit 1 ;;
+    esac
+    width="${size%x*}"
+    height="${size#*x}"
+    case "$width$height" in *[!0-9]*) say "BULKHEAD_DISPLAY_SIZE must be WIDTHxHEIGHT, not $size."; exit 1 ;; esac
+    # The pointer's image: the default theme is a symlink into
+    # /etc/alternatives, which weston's sandbox lacks, so name GNOME's.
+    cursor_theme="$(gsettings get org.gnome.desktop.interface cursor-theme 2> /dev/null | tr -cd 'A-Za-z0-9._-')" || :
+    cursor_size="$(gsettings get org.gnome.desktop.interface cursor-size 2> /dev/null | tr -cd '0-9')" || :
+    # No panel (its launchers would run programs outside the
+    # compartment), no screen lock, and Alt (not GNOME's Super) for
+    # weston's own window keys.
+    printf '%s\n' '[core]' 'idle-time=0' \
+      '[shell]' 'panel-position=none' 'locking=false' 'binding-modifier=alt' \
+      'background-color=0xff303030' \
+      "cursor-theme=${cursor_theme:=Adwaita}" "cursor-size=${cursor_size:=24}" \
+      '[output]' "name=$title" "mode=${width}x$height" > "$d/weston.ini"
+    log="$("$ws" dossier)/logs/display.log"
+    if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt 1000000 ]; then
+      mv -f "$log" "$log.1"
+    fi
+    links=""
+    for l in bin sbin lib lib64 lib32; do
+      [ ! -L "/$l" ] || links="$links --symlink $(readlink "/$l") /$l"
+    done
+    fonts=""
+    for f in /etc/fonts /var/cache/fontconfig; do
+      [ ! -d "$f" ] || fonts="$fonts --ro-bind $f $f"
+    done
+    rm -f "$sock/wayland-0"
+    # systemd-socket-activate makes the socket and, when a program first
+    # connects, runs weston (in bwrap) with it as file descriptor 3.
+    # weston's systemd-notify module listens on it, but only if
+    # LISTEN_PID is weston's own PID, which only a shell inside bwrap's
+    # PID namespace knows. weston's own socket goes in its private
+    # XDG_RUNTIME_DIR. When weston exits (e.g., you close its window),
+    # the loop starts a new launcher, which waits for the next program.
+    # setsid: its own process group (which stop kills) and no terminal.
+    # It mustn't inherit descriptor 9 (compart's hold on the sessions
+    # lock), or no session would ever look like the last.
+    # shellcheck disable=SC2086,SC2016 # $links and $fonts split on purpose; the inner shells expand the rest.
+    setsid flock -n -o "$d/run.lock" sh -c '
+      d="$1"
+      shift
+      echo "$$" > "$d/pid"
+      while :; do
+        echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ): waiting for a program"
+        "$@" || :
+        sleep 1
+      done' sh "$d" \
+      systemd-socket-activate --listen="$sock/wayland-0" \
+      bwrap --unshare-all --die-with-parent --new-session --clearenv \
+      --ro-bind /usr /usr $links --ro-bind /etc/ld.so.cache /etc/ld.so.cache $fonts \
+      --ro-bind "$d/weston.ini" /run/weston.ini \
+      --proc /proc --dev /dev --tmpfs /tmp \
+      --dir /run/parent --bind "$parent" /run/parent/wayland-0 \
+      --perms 0700 --dir /run/weston \
+      --setenv PATH /usr/bin --setenv HOME /tmp --setenv XDG_RUNTIME_DIR /run/weston \
+      --setenv WAYLAND_DISPLAY /run/parent/wayland-0 \
+      --setenv XCURSOR_PATH /usr/share/icons --setenv XCURSOR_THEME "$cursor_theme" \
+      --setenv XCURSOR_SIZE "$cursor_size" --setenv LANG "${LANG:-C.UTF-8}" \
+      --setenv LISTEN_FDS 1 \
+      -- sh -c 'LISTEN_PID=$$ exec "$0" "$@"' \
+      weston --config=/run/weston.ini --renderer=pixman \
+      --width="$width" --height="$height" --modules=systemd-notify.so \
+      < /dev/null >> "$log" 2>&1 8>&- 9>&- &
+    i=0
+    while [ ! -S "$sock/wayland-0" ] && [ "$i" -lt 50 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+    [ -S "$sock/wayland-0" ] || {
+      say "the display's launcher didn't start; see $log."
+      exit 1
+    }
+    ;;
+  stop)
+    [ -d "$d" ] || exit 0
+    if ! flock -n "$d/run.lock" true; then
+      pid="$(cat "$d/pid" 2> /dev/null)" || pid=""
+      pgid="$(ps -o pgid= -p "${pid:-0}" 2> /dev/null | tr -d ' ')" || pgid=""
+      # Only the launcher's own group, never ours. "env kill": dash's
+      # own kill can't signal a group.
+      if [ -n "$pgid" ] && [ "$pgid" != "$(ps -o pgid= -p "$$" | tr -d ' ')" ]; then
+        env kill -TERM -- "-$pgid" 2> /dev/null || :
+      fi
+      flock -w 5 "$d/run.lock" true || { say "the display's launcher didn't stop."; exit 1; }
+    fi
+    rm -f "$d/pid" "$sock/wayland-0"
+    ;;
+  *)
+    echo "$usage" >&2
+    exit 2
+    ;;
+esac
