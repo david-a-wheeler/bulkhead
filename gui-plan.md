@@ -431,9 +431,15 @@ is set.
 - **Noise:** nono refused the system D-Bus to the editor and Chromium,
   as before. `weston` logged "Detected an unmapped surface or view in
   the layer list, which should not occur" once, without visible effect.
-- **Not tested:** copying and pasting between two programs in the same
-  `weston`, spaces in the output's name, goose desktop, and `weston`
-  under nono.
+- **Not tested:** goose desktop, and `weston` under nono.
+- **Later (2026-11-25), with `bulkhead-display`:** copying and pasting
+  works between two programs in one compartment's `weston`, even when
+  they're started by different `compart sh` sessions. The window kept
+  the size we gave it (70% of the monitor) instead of GNOME maximizing
+  it. Spaces in the output's name work ("WL Compartment bulkhead").
+  The "WL" stays: a nested `weston` ignores an `[output]` section whose
+  name doesn't start with it, and then titles its window "Weston
+  Compositor - wayland0", which doesn't say which compartment it is.
 
 ### The design this suggests
 
@@ -464,7 +470,8 @@ Instead of a file per session, the last session is the one that can
 take the dossier's `sessions.lock` exclusively, since each session
 holds it shared; so a session that crashed can't look alive. CI tests
 the launcher's start and stop with stand-ins for `weston` and bwrap,
-but not a real window; not yet tested on a desktop.
+but not a real window; we've tested that by hand on GNOME (see
+Results above).
 
 ## Sources
 
