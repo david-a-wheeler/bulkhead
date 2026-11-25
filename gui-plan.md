@@ -382,6 +382,83 @@ What's still awkward:
 - Not tested: goose desktop (Electron) in `cage`, and running `cage`
   under nono instead of bare bwrap.
 
+## A third experiment: nested `weston`
+
+We ran `weston` 14.0.2 the same way as `cage` (its own bwrap sandbox,
+the same fixes), with `--renderer=pixman --width=1024 --height=700` and
+a generated `weston.ini` (`[shell] panel-position=none`,
+`locking=false`, `binding-modifier=alt`; `[core] idle-time=0`; and the
+cursor theme). It picks its Wayland backend because `WAYLAND_DISPLAY`
+is set.
+
+### Results (2026-11-25)
+
+- **A better window than `cage`'s:** `weston` draws its own frame, so
+  you move its window by the title bar, resize it by an edge, and
+  maximize it. Inside, each program gets its own movable window, so the
+  calculator and editor can sit side by side. The calculator kept its
+  normal size instead of filling the window.
+- **The title:** `weston` titles its window "Weston Compositor - NAME",
+  where NAME is its output's name, set by `[output] name=`. The prefix
+  is built in, and `weston` uses only `[output]` sections whose names
+  start with "WL". We used `name=WL-gui-test`. Since `weston` draws the
+  frame from outside the compartment, nothing inside can change it.
+- **The same as `cage`:** the calculator, editor, its dialog, and
+  Chromium all worked, and the compartment's `wl-paste` got nothing
+  from GNOME's clipboard. `weston` has no clipboard bridge to its
+  parent at all.
+- **Starting only when needed:** `systemd-socket-activate
+  --listen=SOCKET` makes the compartment's socket, with nothing running.
+  When the first program connects, it starts `weston`, passing the
+  socket as file descriptor 3. `weston --modules=systemd-notify.so`
+  (part of the `weston` package) listens on it, logging "add 1
+  socket(s) provided by systemd". Later programs join that same
+  `weston`, which we confirmed in GNOME: one `weston` served the
+  calculator, editor, and Chromium. Details that matter:
+  - `sd_listen_fds` wants `LISTEN_PID` to be `weston`'s own process ID,
+    which only something inside bwrap's process namespace knows. So
+    bwrap passes `LISTEN_FDS=1` and runs `sh -c 'LISTEN_PID=$$ exec
+    weston ...'`.
+  - `weston` makes its own socket too, so it needs `--socket=` with
+    another name. Otherwise it may take `wayland-0`'s lock and replace
+    our socket.
+  - Without the module, `weston` can't take over a listening socket.
+    `WAYLAND_SERVER_SOCKET` is one already-connected client, and
+    `weston` exits when that client does ("Primary client died").
+    With `systemd-socket-activate --accept` that gives one `weston` per
+    connection, which we rejected: programs couldn't share a window,
+    clipboard, or drag and drop.
+- **Noise:** nono refused the system D-Bus to the editor and Chromium,
+  as before. `weston` logged "Detected an unmapped surface or view in
+  the layer list, which should not occur" once, without visible effect.
+- **Not tested:** copying and pasting between two programs in the same
+  `weston`, spaces in the output's name, goose desktop, and `weston`
+  under nono.
+
+### The design this suggests
+
+One `weston` per compartment, started by `compart`:
+
+- **A socket per compartment,** outside the workspace (e.g., under
+  `$XDG_RUNTIME_DIR`), named by its compartment. `compart` binds it into
+  every launch there and sets `WAYLAND_DISPLAY`. Programs in one
+  compartment share its `weston`, and its clipboard and drag and drop,
+  which adds little risk since they already share files. Programs in
+  different compartments never share one.
+- **Started on demand:** the first `compart` launch starts
+  `systemd-socket-activate` with `weston` as a sibling of the
+  compartment, not inside it. No window shows until a program connects.
+- **Titled by compartment:** "Compartment FOO" for `~/projects/FOO`, as
+  far as the fixed prefix allows.
+- **Stopped with the last session:** each `compart` session records
+  itself in the dossier, and when a session ends and finds no other
+  live session there, it stops that compartment's `weston`. A lock
+  (`flock`) keeps two launches from starting two `weston`s.
+- **Wayland only for now:** no Xwayland. `compart` can set variables
+  that steer programs to Wayland (e.g., `GDK_BACKEND=wayland`,
+  `QT_QPA_PLATFORM=wayland`, and `ELECTRON_OZONE_PLATFORM_HINT=wayland`)
+  and leave `DISPLAY` unset.
+
 ## Sources
 
 - `cage`: its [README](https://github.com/cage-kiosk/cage), [man
@@ -400,6 +477,9 @@ What's still awkward:
   wlroots compositors and KWin support it and mutter doesn't.
 - goose's desktop app: the `.deb` for v1.60.0 (its file list, and
   strings in its `app.asar`), unpacked 2026-11-24.
+- `weston` 14.0.2 on our VM (2026-11-25): `weston --help`, its logs,
+  the symbols its `systemd-notify.so` uses (`sd_listen_fds` and
+  `wl_display_add_socket_fd`), and headless tests in my sandbox.
 - nono 0.82.0's `nono run --help`, and its `--dry-run` with 28,232
   `--open-port` options.
 
