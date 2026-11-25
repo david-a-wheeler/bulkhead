@@ -473,6 +473,23 @@ the launcher's start and stop with stand-ins for `weston` and bwrap,
 but not a real window; we've tested that by hand on GNOME (see
 Results above).
 
+## Future directions
+
+- **Per-compartment app state.** GUI programs want to keep settings
+  and data in your home directory (e.g., gnome-text-editor tries to
+  create `~/.config/enchant` and `~/.local/share/org.gnome.TextEditor`),
+  which nono refuses. `compartment-paths` already gives a compartment
+  `private` copies of directories, so the likely fix is a private
+  `~/.config` and `~/.local/share` (or the parts apps use), granted
+  read-write in the shared nono profile. Then settings would last
+  between runs in that compartment but never reach another. dconf
+  could then work too, if it gets a per-compartment
+  `$XDG_RUNTIME_DIR` (instead of `GSETTINGS_BACKEND=memory`).
+- **Qt and Electron apps, quietly, without GNOME.** We've tested only
+  GTK programs and Chromium. Qt and Electron apps need a test, aiming
+  for no warnings and no denials, and for nothing that needs GNOME's
+  own services.
+
 ## Sources
 
 - `cage`: its [README](https://github.com/cage-kiosk/cage), [man
