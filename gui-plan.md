@@ -1,8 +1,7 @@
 # GUIs in compartments: what we know, and options
 
-Status (2026-11-24): notes only; nothing here is built. We paused
-bulkhead work here, so this records what we learned so far, to pick up
-later. The VMs run GNOME 50 on Wayland, with Xwayland (`DISPLAY=:0`).
+Status (2026-11-24): notes only; nothing here is built. This records
+what we've learned, two targets, and two experiments to try. The VMs run GNOME 50 on Wayland, with Xwayland (`DISPLAY=:0`).
 
 ## Why GUIs don't work in a compartment today
 
@@ -53,8 +52,8 @@ has focus, set the clipboard (e.g., to a command you'd then paste into
 a terminal), draw look-alike windows (e.g., a fake password prompt),
 pass data to another compartment through the clipboard, and reach the
 compositor, which runs as you, outside any sandbox. Flatpak narrows
-this with Wayland's security-context protocol; I don't know whether
-GNOME supports it yet.
+this with Wayland's security-context protocol (`wp_security_context_v1`),
+but GNOME doesn't support it (see "GNOME and security-context" below).
 
 ## Options, most isolated first
 
@@ -72,10 +71,11 @@ GNOME supports it yet.
    clipboard sharing, no drag and drop, and some key combinations may go
    to GNOME instead. Latency is unnoticeable, since it's all on the VM's
    loopback. **This is the one to try first.**
-3. **A nested compositor** (e.g., `cage` or `weston` as a client of
-   GNOME), giving the compartment only the nested compositor's socket.
-   Nearly native, and it decides whether the clipboard crosses; more
-   parts to get right than 2.
+3. **A nested compositor** (e.g., `cage`, as a client of GNOME),
+   giving the compartment only the nested compositor's socket, with the
+   compositor in its own small sandbox. Nearly native, and it decides
+   whether the clipboard crosses; more parts to get right than 2 (see
+   "A nested compositor: `cage`" below).
 4. **The real Wayland socket.** Most convenient, least isolated (see
    above); only for apps you trust more than agents.
 
@@ -145,7 +145,164 @@ Open questions for that experiment:
 - GUI harnesses such as goose's Electron desktop app would need the same
   as Chromium (3 to 5).
 
+## Two targets
+
+1. **The badge project's tests**, driving headless Chromium against its
+   own Rails server. No display, no proxy, and no CA needed (it all
+   stays on the compartment's loopback), but random loopback ports
+   (Capybara's server, chromedriver, and Chrome's DevTools port), which
+   nono refuses unless opened.
+2. **goose's desktop app, entirely in the compartment.** It's an
+   Electron window (`/usr/lib/goose/Goose` in its `.deb`) that starts
+   the same `goose` binary as our CLI as its backend (`goose serve
+   --host 127.0.0.1 --port PORT`, with PORT random). It can instead use
+   a backend you start (`GOOSE_EXTERNAL_BACKEND`, `GOOSE_PORT`, and
+   `GOOSE_SERVER__SECRET_KEY`), but that's from its bundled code, not
+   its documentation, so it may change. Its `.deb` links `/usr/bin/goose`
+   to the app, which would collide with our CLI, so we'd install its
+   files ourselves.
+
+The aim is for programs to work without options of their own: the
+environment, set up once in shared code, should make them work.
+
+## Random loopback ports
+
+nono's `--open-port` takes one port, not a range (`--open-port
+32768-60999` fails: "invalid digit found in string"). But a dry run
+with every port in the VM's `ip_local_port_range` (32768 to 60999)
+given separately took 0.04 s. Since a compartment has its own network
+namespace, opening all of its loopback ports gives nothing away. To
+test it for real (`compart` turns each `local-ports` line into an
+`--open-port`; the Python binds a random port, as Capybara or
+chromedriver would, then connects to it), keep a copy of
+`local-ports`, then:
+
+```
+seq 32768 60999 >> "$(compart dossier)/policy/local-ports"
+compart sh python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(); socket.create_connection(s.getsockname()); print("ok", s.getsockname()[1])'
+```
+
+If that works, programs that pick random ports need no setup. Ask nono
+for a way to allow every loopback port in a namespace it didn't make,
+either way.
+
+## GNOME and security-context
+
+GNOME 50 doesn't support the security-context protocol, and nothing
+shows it coming:
+
+- Ubuntu's mutter 50.1 (`libmutter-18.so.0`) has about 90 Wayland
+  interfaces compiled in, including recent ones such as
+  `wp_color_manager_v1` and `xdg_toplevel_tag_manager_v1`, but not
+  `wp_security_context_manager_v1`.
+- mutter's `src/meson.build` on `main` (checked at commit
+  30405578e2c9, 2026-11-24) lists every protocol it builds, and
+  `security-context` isn't one.
+- A web search found no mutter issue or merge request for it. (GNOME's
+  GitLab refuses anonymous API searches, so I couldn't search there
+  directly.)
+- mutter's service channel (`src/core/meta-service-channel.c`) grants
+  *extra* rights to trusted clients, such as portal backends; nothing
+  restricts a sandboxed one.
+
+As I understand it, GNOME keeps privileged operations (e.g., screen
+capture, clipboard managers) off Wayland and behind portals, so a
+client on GNOME's socket can't do those anyway. But the risks in "What
+a display would expose" remain, so a compartment shouldn't get GNOME's
+socket.
+
+## A nested compositor: `cage`
+
+`cage` is a small Wayland "kiosk" compositor (MIT, built on wlroots)
+that runs full-screen in one window. Started inside GNOME, it opens as
+a window there. Upstream is at 0.3.1 (2026-06-30); Ubuntu 26.04 has
+0.2.1 in universe. Options: `-d` (no client-side decorations), `-m
+last|extend` (outputs), `-s` (VT switching), `-D` (debug log). On
+`master`, the program to run is optional (`cage [OPTIONS] [--]
+[APPLICATION...]`), and without one it runs until stopped; I don't
+know which release added that.
+
+**Windows** (from `view.c`, `xdg_shell.c`, and `seat.c` on `master`):
+
+- A window with a parent (a dialog or modal) is centered on top of
+  the others; menus and tooltips are drawn attached to their window. So
+  an app with a modal works as you'd expect.
+- A window with no parent (another main window, or another program)
+  is maximized over the rest. There's no key to switch windows (its
+  only bindings are quit, in debug builds, and VT switching), so you
+  see the newest until it closes. E.g., if goose's app starts a
+  browser, the browser inherits `WAYLAND_DISPLAY`, joins the same
+  `cage`, and covers goose.
+
+If that's a problem: a nested compositor that manages several windows
+(e.g., labwc or sway, also built on wlroots, so they'd sandbox the same
+way; not yet checked nested), or a compartment `xdg-open` that hands
+you the URL (e.g., in the outbox) instead of starting a browser.
+
+**Its own sandbox.** `cage` needs little: read access to its libraries
+and keyboard maps (`/usr/share/X11/xkb`, maybe cursor themes), a
+connection to GNOME's `wayland-0`, one directory for its own socket,
+no network, and (with `WLR_RENDERER=pixman`, I believe) no GPU. Its
+input comes from GNOME, so no `/dev/input`. Then an agent's program
+that exploits `cage` lands in a sandbox that can reach only GNOME's
+socket, which is no worse than any Wayland client.
+
+It can't be the compartment's parent, though: a sandbox's limits pass
+to its children, and bwrap can't run inside nono. So `compart` would
+start them as siblings:
+
+1. Start `cage` in its own sandbox (nono with a small profile and
+   `--block-net`, or bwrap with `--unshare-all`), with no program (or,
+   on 0.2.1, `sleep infinity`), and its socket in a dossier directory
+   no agent can reach (e.g., `gui/`).
+2. Start the compartment as usual, with `bulkhead-compartment` binding
+   just that socket into its runtime directory and setting
+   `WAYLAND_DISPLAY` (and nono's socket mediation allowing it).
+3. Stop `cage` when the session ends.
+
+Xwayland can wait: `cage` would start it in its own sandbox, and its X
+socket would be one more thing to pass in. Chromium and Electron can
+use Wayland directly (whether they choose it on their own is to be
+tested; I believe recent Electron does with
+`ELECTRON_OZONE_PLATFORM_HINT=auto`).
+
+## A second experiment: `cage` in its own sandbox
+
+1. Install `cage` (Ubuntu's is fine to try).
+2. Start it in a nono sandbox with `--block-net`, read-only system
+   paths, its socket in a scratch directory, and `WLR_RENDERER=pixman`.
+3. In a separate `compart sh`, with that socket bound in, run a
+   simple Wayland program, then Chromium (the snap wrapper) with
+   `--ozone-platform=wayland`.
+
+Check that:
+
+- a window appears, including for a program `cage` didn't start;
+- a dialog shows over its parent, and a second main window covers the
+  first;
+- the program can't read GNOME's clipboard (I believe `cage` doesn't
+  pass it through, but its documentation doesn't say);
+- `cage` runs with no network and no GPU; and
+- nono's log shows no surprise denials for either sandbox.
+
 ## Sources
+
+- `cage`: its [README](https://github.com/cage-kiosk/cage), [man
+  page](https://raw.githubusercontent.com/cage-kiosk/cage/master/cage.1.scd),
+  [releases](https://github.com/cage-kiosk/cage/releases), source on
+  `master` (`view.c`, `xdg_shell.c`, `seat.c`, `cage.c`), and
+  [Ubuntu's package](https://packages.ubuntu.com/resolute/cage), all
+  read 2026-11-24.
+- Security-context: [the protocol](https://wayland.app/protocols/security-context-v1);
+  mutter's [`src/meson.build`](https://github.com/GNOME/mutter/blob/main/src/meson.build)
+  and [`src/core/meta-service-channel.c`](https://github.com/GNOME/mutter/blob/main/src/core/meta-service-channel.c);
+  the strings in Ubuntu's `libmutter-18.so.0`; and, secondhand, the
+  [snugmo/apse README](https://github.com/snugmo/apse), which says
+  wlroots compositors and KWin support it and mutter doesn't.
+- goose's desktop app: the `.deb` for v1.60.0 (its file list, and
+  strings in its `app.asar`), unpacked 2026-11-24.
+- nono 0.82.0's `nono run --help`, and its `--dry-run` with 28,232
+  `--open-port` options.
 
 - The OpenSSF Best Practices badge project's `snap-chromium-bp-badge`
   (the copy in this workspace, `,snap-chromium-bp-badge`).
