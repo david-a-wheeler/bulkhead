@@ -485,6 +485,27 @@ Results above).
   between runs in that compartment but never reach another. dconf
   could then work too, if it gets a per-compartment
   `$XDG_RUNTIME_DIR` (instead of `GSETTINGS_BACKEND=memory`).
+- **Input methods (ibus), per compartment.** A quick test
+  (2026-11-25, in a nono session with a display) says it's feasible.
+  `ibus-daemon --address=unix:path=SOCKET --panel=disable
+  --emoji-extension=disable --config=/usr/libexec/ibus-memconf` runs
+  in the sandbox, with no session D-Bus and no dconf (`ibus-memconf`
+  keeps its settings in memory). Clients find it through
+  `IBUS_ADDRESS`, not the usual address file (whose name ibus builds
+  from `WAYLAND_DISPLAY`, an absolute path here, so it can't make it).
+  `ibus list-engine` listed the engines, `ibus engine table:cangjie5`
+  switched to one, and gnome-text-editor (with `GTK_IM_MODULE=ibus`)
+  connected to the daemon's socket. Not tested: typing through it.
+  What it would take: start a daemon per compartment, beside its
+  `weston` (and stopped with it), with its socket in the display's
+  directory; set `IBUS_ADDRESS` and `GTK_IM_MODULE=ibus` (and
+  `QT_IM_MODULE=ibus`) instead of turning input methods off; and give
+  engines somewhere to write, since ibus-table insists on
+  `~/.local/share/ibus-table` (it ignores `XDG_DATA_HOME`), which is
+  the per-compartment state above. Clients still warn that
+  `/var/lib/dbus/machine-id` is missing, which nono hides; granting
+  `/etc/machine-id` would quiet that but give agents an identifier
+  shared by every compartment on the VM.
 - **Qt and Electron apps, quietly, without GNOME.** We've tested only
   GTK programs and Chromium. Qt and Electron apps need a test, aiming
   for no warnings and no denials, and for nothing that needs GNOME's
