@@ -218,6 +218,7 @@ case "$TMPDIR" in
 esac
 mkdir -p "$wsbase"
 wst="$(mktemp -d "$wsbase/ci-workspaces.XXXXXX")"
+report_track "$wst"
 trap 'report_on_exit; report_clean "${tmp:?}" "${wst:?}"' EXIT
 fh="$wst/home"
 mkdir -p "$fh/projects/p1/sub" "$fh/sensitive/s1" "$fh/other" "$fh/junk/sub" "$fh/.claude" "$fh/.ssh"
@@ -507,9 +508,13 @@ chmod 755 "$wst/dbin/"*
 if [ -n "${BULKHEAD_COMPARTMENT:-}${NONO_CAP_FILE:-}" ]; then drb="$SCRIPT_DIR/.tmp"; else drb="$wsbase"; fi
 mkdir -p "$drb"
 dr="$(mktemp -d "$drb/dr.XXXXXX")"
+report_track "$dr"
 trap 'report_on_exit; report_clean "${tmp:?}" "${wst:?}" "${dr:?}"' EXIT
+# It drops the display settings compart gives a session, so it works
+# when run in one.
 dcompart() {
-  (cd "$fh/projects/p1" && wsenv XDG_RUNTIME_DIR="$dr" DISPLAY=:0 PATH="$wst/dbin:$PATH" "$@" "$SCRIPT_DIR/compart" claude 2> /dev/null)
+  (cd "$fh/projects/p1" && wsenv env -u XDG_SESSION_TYPE -u GDK_BACKEND -u QT_QPA_PLATFORM -u SDL_VIDEODRIVER \
+    -u MOZ_ENABLE_WAYLAND -u ELECTRON_OZONE_PLATFORM_HINT XDG_RUNTIME_DIR="$dr" DISPLAY=:0 PATH="$wst/dbin:$PATH" "$@" "$SCRIPT_DIR/compart" claude 2> /dev/null)
 }
 case "$(dcompart env WAYLAND_DISPLAY=wayland-0)" in
   *--display-dir* | *--allow-unix-socket-dir*) failed "display: given with no desktop" ;;
@@ -550,6 +555,7 @@ fi
 # refuse, explaining what it can do, until you approve it. setsid
 # drops the terminal, so it can't ask.
 [ -d "$d1/git" ] || failed "prepare made git/"
+gfail="$fail"
 TAB="$(printf '\t')"
 g="$fh/projects/g1"
 mkdir -p "$g"
@@ -650,6 +656,9 @@ git -C "$g" config --unset remote.y.mirror
 printf '#!/bin/sh\necho hi\n' > "$wst/plant-bin/anon-access"
 out="$(cd "$g" && wsenv PATH="$wst/plant-bin:$PATH" setsid -w "$SCRIPT_DIR/compart" sh true 2> /dev/null)"
 [ "$out" = hi ] || failed "compart sh: stdout holds only the command's output: $out"
+# g1's settings are risky on purpose, so if a later step fails, a kept
+# g1 would just set off your own git checks; keep it only if it failed.
+[ "$fail" -ne "$gfail" ] || rm -rf "$g" "$g.dossier"
 
 # bulkhead-snapshot: saves tracked files' exact bytes (no repository
 # attributes apply), skips a snapshot when nothing changed, writes no
@@ -918,6 +927,21 @@ mkdir -p "$tmp/report-kept"
 out="$(sh -c 'set -e; . ./tests/report.sh; report_begin demo; trap "report_on_exit; report_clean \"$1\"" EXIT; report_end 0 3' sh "$tmp/report-kept")"
 [ "$out" = "PASSED: demo: all 3 checks passed." ] || failed "tests/report.sh: a pass said: $out"
 [ ! -e "$tmp/report-kept" ] || failed "tests/report.sh: a pass kept its files"
+# A pass also removes what earlier runs kept, and what they tracked,
+# except runs still going (holding their lock) and paths it wouldn't
+# track itself.
+if command -v flock > /dev/null; then
+  sb="$tmp/sweep"
+  mkdir -p "$sb/demo.old" "$sb/demo.live" "$sb/demo.new" "$sb/demo.prelock" "$sb/out.old" "$sb/other.old"
+  : > "$sb/demo.old/.report-lock"
+  printf '%s\n' "$sb/out.old" "$sb/other.old" > "$sb/demo.old/.report-paths"
+  : > "$sb/demo.live/.report-lock"
+  touch -t 202001010000 "$sb/demo.prelock"
+  flock "$sb/demo.live/.report-lock" env -u BULKHEAD_TEST_TMPDIR TMPDIR="$sb" sh -c 'set -e; . ./tests/report.sh; report_begin demo "$1"
+    o="$(mktemp -d "$1/out.XXXXXX")"; report_track "$o"; trap "report_on_exit; report_clean \"\$o\"" EXIT; report_end 0 1' sh "$sb" > /dev/null
+  left="$(cd "$sb" && echo *)"
+  [ "$left" = "demo.live demo.new other.old" ] || failed "tests/report.sh: a pass left $left"
+fi
 
 step "compart (usage and unknown harnesses)"
 ./compart --help | grep -q '^Usage: compart HARNESS' || failed "compart --help"
