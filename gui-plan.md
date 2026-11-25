@@ -192,9 +192,10 @@ loopback; outside one (e.g., a bare `nono run`), they'd let the sandbox
 reach any of your own programs listening on an ephemeral port, so they
 belong only where `compart` adds them. So `compart` now adds the
 `bulkhead-loopback` profile to every launch (see `compartments.md`'s
-"Ports"). Still to check: the same test through `compart sh` (pasta and
-bwrap). It'd still help to ask nono for a way to allow every loopback
-port in a namespace it didn't make.
+"Ports"). Through `compart sh` (pasta, bwrap, and nono), the same test
+printed "ok, port 40221" (2026-11-25), so the profile's `listen_port:
+[0]` works as `--listen-port 0` does. It'd still help to ask nono for a
+way to allow every loopback port in a namespace it didn't make.
 
 ## GNOME and security-context
 
