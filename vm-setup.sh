@@ -85,12 +85,13 @@ echo "== Installing base packages =="
 # project's own setup, not here. "apt-get install -y" is naturally
 # idempotent (a no-op once everything's already at the latest version), so
 # this one line covers first install and every later re-run. weston
-# is each compartment's display (see bulkhead-display).
+# is each compartment's display (see bulkhead-display), and
+# wayland-utils' wayland-info tells it your monitor's size.
 apt_get update
 apt_get install -y openssh-server avahi-daemon nftables curl cups \
   qemu-guest-agent git shellcheck make build-essential vim python3 jq \
   ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv bubblewrap passt \
-  gawk weston
+  gawk weston wayland-utils
 
 echo "== Enabling services =="
 sudo systemctl enable --now ssh avahi-daemon nftables cups qemu-guest-agent

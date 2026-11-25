@@ -28,7 +28,8 @@
 #   bulkhead-display title  print the window's title
 #
 # Set BULKHEAD_NO_DISPLAY=1 for no display, and BULKHEAD_DISPLAY_SIZE
-# (e.g., 1280x720) for another size than 1024x700.
+# (e.g., 1280x720) for a size other than 70% of your monitor each way,
+# which keeps GNOME from maximizing it.
 set -eu
 
 usage="Usage: bulkhead-display dir|start|stop|title"
@@ -104,7 +105,23 @@ case "$1" in
     flock 8
     # The launcher holds run.lock while it runs.
     flock -n "$d/run.lock" true || exit 0
-    size="${BULKHEAD_DISPLAY_SIZE:-1024x700}"
+    # GNOME (mutter) maximizes a new window that's nearly as big as the
+    # screen, and weston's frame adds about 76 pixels of width and 97 of
+    # height to the size we ask for. So we ask for 70% of your monitor
+    # each way (its logical size, which the compositor reports through
+    # xdg-output), which fits with the frame. If wayland-info can't tell,
+    # 896x560 fits a 1280x800 screen.
+    size="${BULKHEAD_DISPLAY_SIZE:-}"
+    if [ -z "$size" ]; then
+      size="$(wayland-info 2> /dev/null | awk '
+        /logical_width:/ && /logical_height:/ {
+          w = $0; sub(/.*logical_width: */, "", w); sub(/[^0-9].*/, "", w)
+          h = $0; sub(/.*logical_height: */, "", h); sub(/[^0-9].*/, "", h)
+          w = int(w * 0.7 / 2) * 2; h = int(h * 0.7 / 2) * 2
+          if (w >= 640 && h >= 480) { printf "%dx%d\n", w, h; exit }
+        }')"
+      [ -n "$size" ] || size=896x560
+    fi
     case "$size" in
       [1-9]*x[1-9]*) ;;
       *) say "BULKHEAD_DISPLAY_SIZE must be WIDTHxHEIGHT, not $size."; exit 1 ;;

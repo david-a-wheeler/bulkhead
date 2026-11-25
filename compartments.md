@@ -547,9 +547,11 @@ How it works, and what it means:
   `ELECTRON_OZONE_PLATFORM_HINT`).
 - Its log is the dossier's `logs/display.log`.
 - Set `BULKHEAD_NO_DISPLAY=1` for no display, and, e.g.,
-  `BULKHEAD_DISPLAY_SIZE=1280x720` for a window size other than
-  1024x700. Over SSH (no `WAYLAND_DISPLAY`), there's no display, and
-  the compartment gets no `WAYLAND_DISPLAY` either.
+  `BULKHEAD_DISPLAY_SIZE=1280x720` for another size. By default, it's
+  70% of your monitor each way (from `wayland-info`), since GNOME
+  maximizes a new window nearly as big as the screen. Over SSH (no
+  `WAYLAND_DISPLAY`), there's no display, and the compartment gets no
+  `WAYLAND_DISPLAY` either.
 
 ### Snapshots
 
