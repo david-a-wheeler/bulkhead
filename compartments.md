@@ -546,6 +546,14 @@ How it works, and what it means:
   steer toolkits to Wayland (`GDK_BACKEND`, `QT_QPA_PLATFORM`,
   `SDL_VIDEODRIVER`, `MOZ_ENABLE_WAYLAND`, and
   `ELECTRON_OZONE_PLATFORM_HINT`).
+- No desktop settings or input methods: a compartment can't reach
+  your desktop's dconf or ibus, so `compart` sets
+  `GSETTINGS_BACKEND=memory` and `GTK_IM_MODULE=simple`, and unsets
+  `QT_IM_MODULE`, `QT_IM_MODULES`, and `XMODIFIERS`. Otherwise GTK
+  programs try to write `/run/user/UID/dconf` and `~/.config/ibus`,
+  which nono refuses, and you'd get many warnings and a list of
+  denials to review when the session ends. A program's settings last
+  only while it runs.
 - Its log is the dossier's `logs/display.log`.
 - Set `BULKHEAD_NO_DISPLAY=1` for no display, and, e.g.,
   `BULKHEAD_DISPLAY_SIZE=1280x720` for another size. By default, it's

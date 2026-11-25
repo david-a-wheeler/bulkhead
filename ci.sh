@@ -499,7 +499,7 @@ mkdir -p "$fh/projects/a\$(x);b"
 # Without a desktop's socket, there's no display, and no WAYLAND_DISPLAY
 # or DISPLAY in the compartment.
 mkdir -p "$wst/dbin"
-printf '#!/bin/sh\nprintf "%%s|" "$@" "W=${WAYLAND_DISPLAY-unset}" "D=${DISPLAY-unset}" "G=${GDK_BACKEND-unset}"\n' > "$wst/dbin/anon-access"
+printf '#!/bin/sh\nprintf "%%s|" "$@" "W=${WAYLAND_DISPLAY-unset}" "D=${DISPLAY-unset}" "G=${GDK_BACKEND-unset}" "S=${GSETTINGS_BACKEND-unset}" "I=${GTK_IM_MODULE-unset}" "Q=${QT_IM_MODULE-unset}"\n' > "$wst/dbin/anon-access"
 # Stand-ins: they'd run only when a program connects, which none does.
 for c in weston bwrap; do
   printf '#!/bin/sh\nexit 1\n' > "$wst/dbin/$c"
@@ -517,11 +517,12 @@ trap 'report_on_exit; report_clean "${tmp:?}" "${wst:?}" "${dr:?}"' EXIT
 # when run in one.
 dcompart() {
   (cd "$fh/projects/p1" && wsenv env -u XDG_SESSION_TYPE -u GDK_BACKEND -u QT_QPA_PLATFORM -u SDL_VIDEODRIVER \
-    -u MOZ_ENABLE_WAYLAND -u ELECTRON_OZONE_PLATFORM_HINT XDG_RUNTIME_DIR="$dr" DISPLAY=:0 PATH="$wst/dbin:$PATH" "$@" "$SCRIPT_DIR/compart" claude 2> /dev/null)
+    -u MOZ_ENABLE_WAYLAND -u ELECTRON_OZONE_PLATFORM_HINT -u GSETTINGS_BACKEND -u GTK_IM_MODULE \
+    -u QT_IM_MODULE -u QT_IM_MODULES -u XMODIFIERS XDG_RUNTIME_DIR="$dr" DISPLAY=:0 PATH="$wst/dbin:$PATH" "$@" "$SCRIPT_DIR/compart" claude 2> /dev/null)
 }
 case "$(dcompart env WAYLAND_DISPLAY=wayland-0)" in
   *--display-dir* | *--allow-unix-socket-dir*) failed "display: given with no desktop" ;;
-  *"|W=unset|D=unset|G=unset|") ;;
+  *"|W=unset|D=unset|G=unset|S=unset|I=unset|Q=unset|") ;;
   *) failed "display: variables with no desktop: $(dcompart env WAYLAND_DISPLAY=wayland-0)" ;;
 esac
 # With one, each launch gets the compartment's own socket directory,
@@ -539,10 +540,10 @@ else
       "$SCRIPT_DIR/compart" "$c" > /dev/null 2>&1) || :
   done
   [ ! -e "$dr/bulkhead-display" ] || failed "display: given to compart check or dossier"
-  out="$(dcompart env WAYLAND_DISPLAY=wayland-0)"
+  out="$(dcompart env WAYLAND_DISPLAY=wayland-0 QT_IM_MODULE=ibus)"
   case "$out" in *"|--display-dir|$dsock|"*) ;; *) failed "display: compartment option: $out" ;; esac
   case "$out" in *"|--allow-unix-socket-dir|$dsock|"*) ;; *) failed "display: nono option: $out" ;; esac
-  case "$out" in *"|W=$dsock/wayland-0|D=unset|G=wayland|") ;; *) failed "display: variables: $out" ;; esac
+  case "$out" in *"|W=$dsock/wayland-0|D=unset|G=wayland|S=memory|I=simple|Q=unset|") ;; *) failed "display: variables: $out" ;; esac
   grep -q "waiting for a program" "$d1/logs/display.log" 2> /dev/null || failed "display: never started"
   [ ! -e "$dsock/wayland-0" ] || failed "display: the last session didn't stop it"
   dcompart flock -s "$d1/logs/sessions.lock" env WAYLAND_DISPLAY=wayland-0 > /dev/null

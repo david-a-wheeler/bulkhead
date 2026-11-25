@@ -363,7 +363,11 @@ fi
 # Wayland: no session has DISPLAY (X11), and these variables steer
 # toolkits that might try it to Wayland. With no display (e.g., over SSH),
 # the compartment gets no WAYLAND_DISPLAY either, since your desktop's
-# socket isn't there.
+# socket isn't there. A compartment can't reach your desktop's dconf
+# (settings) or ibus (input methods), so we keep GTK and Qt from trying:
+# otherwise they write to directories nono refuses (e.g.,
+# /run/user/UID/dconf and ~/.config/ibus), and you get a screenful of
+# warnings and a list of denials to review when the session ends.
 display=""
 desktop_wayland="${WAYLAND_DISPLAY:-}"
 if [ -z "${BULKHEAD_NO_COMPARTMENT:-}" ] && runs_code "$harness"; then
@@ -377,8 +381,12 @@ if [ -z "${BULKHEAD_NO_COMPARTMENT:-}" ] && runs_code "$harness"; then
     SDL_VIDEODRIVER=wayland
     MOZ_ENABLE_WAYLAND=1
     ELECTRON_OZONE_PLATFORM_HINT=wayland
+    GSETTINGS_BACKEND=memory
+    GTK_IM_MODULE=simple
     export WAYLAND_DISPLAY XDG_SESSION_TYPE GDK_BACKEND QT_QPA_PLATFORM \
-      SDL_VIDEODRIVER MOZ_ENABLE_WAYLAND ELECTRON_OZONE_PLATFORM_HINT
+      SDL_VIDEODRIVER MOZ_ENABLE_WAYLAND ELECTRON_OZONE_PLATFORM_HINT \
+      GSETTINGS_BACKEND GTK_IM_MODULE
+    unset QT_IM_MODULE QT_IM_MODULES XMODIFIERS
   else
     unset WAYLAND_DISPLAY
   fi
