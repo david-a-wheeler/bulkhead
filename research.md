@@ -284,7 +284,7 @@ In rough order of importance.
    overrides our global one (git's normal precedence says it does).
    This applies to every VM, not just the local AI.
 
-   A plain nono profile can't do this on Linux: Landlock is allow-only,
+   A plain nono profile can't do this on Linux: Land&#108;ock is allow-only,
    so it can't deny a subdirectory of an allowed one, and nono refuses
    to start with an overlapping `deny` rather than ignore it. nono's
    supervised mode (seccomp-notify checks of each open against a deny

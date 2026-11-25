@@ -19,6 +19,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # apt/systemctl/etc. produce confusing errors on a machine without them.
 linux_only "vm-setup.sh"
 
+# apt_get ARGS...: sudo apt-get, but if another apt or dpkg holds its
+# lock (e.g., unattended-upgrades, often just after boot), wait up to
+# 15 minutes for it instead of failing. apt says it's waiting, and why.
+apt_get() {
+  sudo apt-get -o DPkg::Lock::Timeout=900 "$@"
+}
+
 # Local tempdir, not /tmp: same reasoning as anon-access's TMPDIR (/tmp is
 # shared across every user/process on the VM). Only defaults TMPDIR if the
 # caller hasn't already set one; an already-set TMPDIR (e.g. from a caller
@@ -78,8 +85,8 @@ echo "== Installing base packages =="
 # project's own setup, not here. "apt-get install -y" is naturally
 # idempotent (a no-op once everything's already at the latest version), so
 # this one line covers first install and every later re-run.
-sudo apt-get update
-sudo apt-get install -y openssh-server avahi-daemon nftables curl cups \
+apt_get update
+apt_get install -y openssh-server avahi-daemon nftables curl cups \
   qemu-guest-agent git shellcheck make build-essential vim python3 jq \
   ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv bubblewrap passt \
   gawk
@@ -108,8 +115,8 @@ sudo install -m 644 "$TMPDIR/githubcli-archive-keyring.gpg" \
 rm -f "$TMPDIR/githubcli-archive-keyring.gpg"
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
   | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y gh
+apt_get update
+apt_get install -y gh
 # This installs the gh binary only; nothing here ever runs "gh auth login".
 # That command persists a long-lived token into this VM (a system keyring
 # if one's running, else a plaintext file), exactly the kind of resident
@@ -445,7 +452,7 @@ key_dir="$(dirname "$INFER_KEY_FILE")"
 [ ! -f "$INFER_KEY_FILE" ] || chmod 600 "$INFER_KEY_FILE"
 pi_package=@earendil-works/pi-coding-agent
 # pi needs Node.js (Claude Code, above, doesn't).
-sudo apt-get install -y nodejs npm
+apt_get install -y nodejs npm
 npm_cache="$TMPDIR/npm-cache"
 
 # Which pi (see config.sh): the newest release that's at least

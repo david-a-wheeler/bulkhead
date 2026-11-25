@@ -14,7 +14,7 @@
 # checks the file against the sha256 digest GitHub reports for it, which
 # catches a damaged download (not a compromised release). It does
 # nothing if the latest version is already installed. Needs curl, jq,
-# dpkg, and sha256sum (vm-setup.sh installs them).
+# dpkg, apt-get, and sha256sum (vm-setup.sh installs them).
 set -eu
 
 release_api=https://api.github.com/repos/nolabs-ai/nono/releases/latest
@@ -57,7 +57,11 @@ echo "Downloading and installing nono $version${installed:+ (replacing $installe
 curl -fsSL "$url" -o "$deb"
 echo "${digest#sha256:}  $deb" | sha256sum -c --quiet - ||
   { echo "$0: $url doesn't match its sha256 digest; not installing." >&2; exit 1; }
-sudo dpkg -i "$deb"
+# apt-get, not dpkg -i, so that if another apt or dpkg holds the lock
+# (e.g., unattended-upgrades), we wait up to 15 minutes instead of
+# failing. The file is ours and already checked, so apt needn't drop
+# to its _apt user to read it (which it can't, in our private TMPDIR).
+sudo apt-get -o DPkg::Lock::Timeout=900 -o APT::Sandbox::User=root install -y "$deb"
 
 if [ -n "$installed" ]; then
   echo "Updated nono: $installed -> $version"
