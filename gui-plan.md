@@ -167,24 +167,32 @@ environment, set up once in shared code, should make them work.
 
 ## Random loopback ports
 
-nono's `--open-port` takes one port, not a range (`--open-port
-32768-60999` fails: "invalid digit found in string"). But a dry run
-with every port in the VM's `ip_local_port_range` (32768 to 60999)
-given separately took 0.04 s. Since a compartment has its own network
-namespace, opening all of its loopback ports gives nothing away. To
-test it for real (`compart` turns each `local-ports` line into an
-`--open-port`; the Python binds a random port, as Capybara or
-chromedriver would, then connects to it), keep a copy of
-`local-ports`, then:
+Programs such as Capybara and chromedriver bind port 0, i.e., they let
+the kernel pick a free port, and nono refuses that by default. We
+tested this on 2026-11-25 (nono 0.82.0, kernel 7.0, `nono run` with a
+profile extending `bulkhead-sh`, and a Python line that binds port 0
+and connects to it):
 
-```
-seq 32768 60999 >> "$(compart dossier)/policy/local-ports"
-compart sh python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(); socket.create_connection(s.getsockname()); print("ok", s.getsockname()[1])'
-```
+- One `--open-port` per port in `ip_local_port_range` (32768 to 60999)
+  doesn't work through `compart`: bwrap stops with "Exceeded maximum
+  number of arguments 9000", after `compart`'s shell spends about 190 s
+  building the list. (`--open-port 32768-60999` fails too: "invalid
+  digit found in string".)
+- The profile field `open_port_range: [[32768, 60999]]` starts in
+  0.1 s, and nono's proxy port (which falls in that range) didn't
+  conflict with it. But `bind()` to port 0 is still refused: Land&#108;ock
+  checks it against a rule for port 0 itself, not the port the kernel
+  picks (the comment on `port` in the kernel's Land&#108;ock header).
+- `open_port_range` plus `--listen-port 0` (or `listen_port: [0]` in a
+  profile) works. `--open-port 0` doesn't: nono says it's macOS-only.
 
-If that works, programs that pick random ports need no setup. Ask nono
-for a way to allow every loopback port in a namespace it didn't make,
-either way.
+So two profile entries let such programs work unchanged. A
+compartment has its own network namespace, so they open only its own
+loopback; outside one (e.g., a bare `nono run`), they'd let the sandbox
+reach any of your own programs listening on an ephemeral port, so they
+belong only where `compart` adds them. Still to check: the same test
+through `compart sh` (pasta and bwrap). It'd still help to ask nono for
+a way to allow every loopback port in a namespace it didn't make.
 
 ## GNOME and security-context
 
