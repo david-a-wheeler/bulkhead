@@ -359,7 +359,7 @@ fi
 # The rest of the command line, besides the harness's own part:
 #   anon-access --nono-profile PROFILE [--forward-port P]... [--expose-port P]...
 #     nono run --profile PROFILE --allow-cwd [--extends bulkhead-broad]
-#       [--log-file LOG] --read INBOX --write OUTBOX [--open-port P]...
+#       [--log-file LOG] --read INBOX --allow OUTBOX [--open-port P]...
 #       HARNESS-NONO-OPTIONS -- COMMAND...
 # anon-access strips secrets, then runs bulkhead-compartment with the
 # same arguments. That takes the options and runs, nested:
@@ -400,12 +400,12 @@ if [ -z "${NONO_LOG_FILE:-}" ]; then
   fi
 fi
 # The inbox holds files you give the agent (it can't change them); the
-# outbox, files the agent gives you (it can't read them back).
+# outbox, files the agent gives you (read-write, so it can revise them).
 export BULKHEAD_INBOX="$dossier/inbox" BULKHEAD_OUTBOX="$dossier/outbox"
 # shellcheck disable=SC2086 # $compartment_opts and $open_opts split on purpose.
 set -- $compartment_opts \
   nono run --profile "$profile" --allow-cwd ${broad:+--extends "$broad"} \
-  ${log:+--log-file "$log"} --read "$BULKHEAD_INBOX" --write "$BULKHEAD_OUTBOX" \
+  ${log:+--log-file "$log"} --read "$BULKHEAD_INBOX" --allow "$BULKHEAD_OUTBOX" \
   $open_opts "$@"
 
 # We don't exec, so we can check the workspace when the session ends. A

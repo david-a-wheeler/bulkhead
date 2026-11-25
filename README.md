@@ -97,7 +97,7 @@ beside the workspace (e.g., `~/projects/NAME.dossier`). An agent
 reaches only the parts it needs, and only in the way each needs: its
 harness's private state (e.g., its own `~/.claude`), files you give it
 (`inbox/`, read-only), and files it leaves for you (`outbox/`,
-write-only, so it can't read them back). It can't reach the rest,
+read-write, so it can revise them). It can't reach the rest,
 such as its policy, the git settings you've approved, or nono's log.
 `compart` also watches for risky changes to the workspace's git
 settings (e.g., a planted filter that would run a program the next

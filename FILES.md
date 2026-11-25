@@ -241,7 +241,7 @@ What each file in this repository does. For what bulkhead is, see
   `~/sensitive`, `--log-file` with the workspace's log (so nono's
   warnings don't land on the harness's screen; `nono.log` is rotated to
   `nono.log.1` at launch once it passes 1 MB), the dossier's `inbox/`
-  (read-only) and `outbox/` (write-only), and an `--open-port` for each
+  (read-only) and `outbox/` (read-write), and an `--open-port` for each
   of its local and exposed ports. It runs `bulkhead-git-check` before
   the session, and all of `compart check`'s checks after it.
   `compart check` runs a launch's checks (the dossier, port lists, and

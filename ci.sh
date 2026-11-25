@@ -417,7 +417,7 @@ done
 
 # compart's command line, with a stand-in anon-access that prints its
 # arguments: nono's options for the workspace (the inbox read-only, the
-# outbox write-only, and local ports), and bulkhead-compartment's.
+# outbox read-write, and local ports), and bulkhead-compartment's.
 d1="$fhp/projects/p1.dossier"
 [ -d "$d1/inbox" ] && [ -d "$d1/outbox" ] || failed "prepare made inbox and outbox"
 for f in local-ports expose-ports; do
@@ -434,7 +434,7 @@ cargs() {
   (cd "$d" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" claude "$@" 2> /dev/null)
 }
 nono_head="nono|run|--profile|bulkhead-claude|--allow-cwd"
-inout="--log-file|$d1/logs/nono.log|--read|$d1/inbox|--write|$d1/outbox"
+inout="--log-file|$d1/logs/nono.log|--read|$d1/inbox|--allow|$d1/outbox"
 [ "$(cargs "$fh/projects/p1" x)" = "--nono-profile|bulkhead-claude|$nono_head|--extends|bulkhead-broad|$inout|--|claude|x|" ] ||
   failed "compart: nono options: $(cargs "$fh/projects/p1" x)"
 # compart sh runs a command, or your $SHELL, under bulkhead-sh.

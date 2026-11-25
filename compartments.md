@@ -21,8 +21,8 @@ An agent in a compartment **can**:
 
 - Read and write its own workspace (the directory it started in and
   below, as the harness's nono profile grants).
-- Read the files you put in the dossier's `inbox/`, and write files
-  for you in its `outbox/`.
+- Read the files you put in the dossier's `inbox/`, and read and
+  write files for you in its `outbox/`.
 - Keep its own harness state: its own `/tmp`, `~/.claude` (transcripts,
   history, todos, its config file), `~/.cache`, Claude's sockets, and
   pi's agent directory (its sessions and trust decisions). These persist between runs in the same compartment.
@@ -49,8 +49,7 @@ An agent in a compartment **can't**:
   `/dev`, with only its own ptys, and its own empty `/dev/shm` (where,
   e.g., Python's `multiprocessing` makes its semaphores).
 - Read or change its own dossier, except `inbox/` (read only) and
-  `outbox/` (write only). So it can't change its own policy, read back
-  what it gave you, or erase its own log.
+  `outbox/`. So it can't change its own policy or erase its own log.
 - Change your shared harness setup (it's read-only inside), even when a
   harness's pack grants it write access (e.g., `nolabs-ai/goose` grants
   `~/.agents` read-write), or write nono's profile drafts.
@@ -292,7 +291,7 @@ binds its grants at start, so a directory made later stays denied.
 | `git/` | none | `approved`: the repositories' git settings you've approved (see `bulkhead-git-check`) |
 | `snapshots/` | none | snapshots of the workspace's tracked files (see "Snapshots") |
 | `inbox/` | read-only (nono `--read`) | files you give the agent |
-| `outbox/` | write-only (nono `--write`) | files the agent gives you |
+| `outbox/` | read-write (nono `--allow`) | files the agent gives you |
 
 nono grants the workspace (`--allow-cwd`) and its profiles' paths, and
 none of those covers a sibling or `~/.local/state/bulkhead/dossiers`,
@@ -400,10 +399,12 @@ e.g., a proposed PR description. `compart` sets `BULKHEAD_INBOX` and
 `BULKHEAD_OUTBOX`, and the global instructions (`agents-AGENTS.md`)
 tell agents about them.
 
-The agent can create files in `outbox/` but can't list, read, or delete
-them, so it can't read back what it gave you. It *can* overwrite a file
-it wrote, since write-only access includes writing; so don't treat an
-outbox file as final until the session's over.
+The agent can read and change files in `outbox/`, so it can revise a
+draft with you over a session; so don't treat an outbox file as final
+until the session's over. Each outbox belongs to one workspace's
+dossier, and no other compartment can reach it, so this shares nothing
+new. (It used to be write-only, which kept an agent from checking or
+revising what it wrote, for no security gain.)
 
 ### Ports: local-ports and expose-ports
 
@@ -577,7 +578,7 @@ at or above `~`, or one that holds another workspace's dossier.
 
 - `--extends bulkhead-broad` outside `~/sensitive` (broad GET and HEAD).
 - `--log-file` in the dossier's `logs/`, outside every sandbox grant.
-- `--read DOSSIER/inbox`, `--write DOSSIER/outbox`, and an
+- `--read DOSSIER/inbox`, `--allow DOSSIER/outbox`, and an
   `--open-port` for each port in `DOSSIER/policy/local-ports` and
   `expose-ports`.
 
@@ -835,7 +836,7 @@ Files:
   reading it can't reveal another compartment's files. nono alone
   grants only write there, so tools that hard-code `/tmp` (ignoring
   `TMPDIR`) couldn't read back their own files.
-- `inbox/` read-only, `outbox/` write-only, and nothing else in the
+- `inbox/` read-only, `outbox/` read-write, and nothing else in the
   dossier.
 
 Network:

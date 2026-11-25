@@ -54,7 +54,7 @@ You are running in an Ubuntu Linux VM running on top of a MacOS host via UTM.
 * If `$BULKHEAD_INBOX` is set, it's a directory of files I've given you
   for this workspace; you can read them but not change them. Put things
   you want me to review that don't belong in the workspace (e.g., a
-  proposed PR description) in `$BULKHEAD_OUTBOX`; you can write files
-  there but not read them back.
+  proposed PR description) in `$BULKHEAD_OUTBOX`; you can read and
+  revise them there.
 
 Thanks!
