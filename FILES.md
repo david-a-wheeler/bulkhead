@@ -320,8 +320,10 @@ What each file in this repository does. For what bulkhead is, see
   CLI and checked the same way, unless `GOOSE_DESKTOP` in `config.sh`
   isn't `yes`. It runs with `--no-sandbox`, since Chromium's own sandbox
   can't start in a compartment (see `gui-plan.md`). You choose the
-  model in the app, from the list goose gets from llama-swap; it starts
-  with the engine's default. Set `GOOSE_MODEL` to fix one instead.
+  model in the app, from what llama-swap serves (`compart` gives the
+  app that list, made by `goose-models.jq`, with each model's context
+  window); it starts with the engine's default. Set `GOOSE_MODEL` to fix
+  one instead.
 - `pi-prose-style.js`: a pi extension that checks the text pi writes
   with `check-prose-style`, as Claude Code's hook does, and blocks a
   write or edit that breaks the rules. `vm-setup.sh` installs it in

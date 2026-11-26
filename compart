@@ -343,6 +343,12 @@ case "$harness" in
     LLAMA_SWAP_API_KEY="$INFER_API_KEY"
     GOOSE_DISABLE_KEYRING=1
     export GOOSE_PROVIDER LLAMA_SWAP_HOST LLAMA_SWAP_API_KEY GOOSE_DISABLE_KEYRING
+    # The app's model picker lists these (see goose-models.jq).
+    if [ "$harness" = goose-desktop ]; then
+      GOOSE_PREDEFINED_MODELS="$(printf '%s' "$models" | jq -c -f "$LIB_DIR/goose-models.jq")" ||
+        die "can't make goose's list of models (see above)."
+      export GOOSE_PREDEFINED_MODELS
+    fi
     # goose takes settings from its environment before its config.yaml,
     # so a model set here can't be changed in the app (it saves your
     # choice, then goes on using this one). So the app gets a model here
