@@ -934,6 +934,17 @@ nothing listens on (nono insists an allowed socket be a real one),
 which the profiles allow, and the kernel refuses the connect at once. The lesson: check what a sandbox really enforces, from inside it, rather
 than what its policy says.
 
+nono splits an `--allow` path at each comma (it also reads
+`NONO_ALLOW`, a list), but not a `--read` or `--write` path. So
+`--allow ~/projects/,x.dossier/outbox` once granted `~/projects/`
+read-write, which let an agent write its inbox and logs. `compart` now
+grants the outbox as `--read` plus `--write`, which nono merges into
+one read-write grant. `compartment-test.sh` caught it only because its
+workspaces' names start with a comma, and because its sweep plants
+markers in the grants nono actually made, not the ones we asked for.
+The lessons: test with names holding characters a tool might treat
+specially, and check the grants that result.
+
 nono's job is to limit what the agent can touch, from policy written as
 data. It runs inside bwrap and sandboxes the harness with Land&#108;ock and
 seccomp, using its shared `default` profile (`nono-default-profile.json`)
