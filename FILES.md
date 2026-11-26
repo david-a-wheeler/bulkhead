@@ -200,6 +200,10 @@ What each file in this repository does. For what bulkhead is, see
   `weston` in its own bwrap sandbox when a program first connects), and
   stops it when the compartment's last session ends. See
   `compartments.md`, "GUI programs".
+- `bulkhead-display-copy`: copies text you copy in a compartment's
+  `weston` window to your desktop's clipboard (one way), using
+  `xclip` on `weston`'s Xwayland and your desktop's.
+  `bulkhead-display` runs it in its own bwrap sandbox.
 - `bulkhead-git-check`: run by `compart` before and after each
   session; notices any change to the settings a workspace's git
   repositories give git (config, includes, hooks, where each

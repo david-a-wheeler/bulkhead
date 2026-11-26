@@ -1,0 +1,39 @@
+#!/bin/sh
+# bulkhead-display-copy: copy the text that programs in a compartment's
+# weston put on its clipboard to your desktop's clipboard. It's one way:
+# nothing here reads your desktop's clipboard. bulkhead-display runs
+# this in its own bubblewrap sandbox, which has only two X servers:
+# weston's (WESTON_DISPLAY) and your desktop's Xwayland
+# (DESKTOP_DISPLAY). See compartments.md, "GUI programs".
+#
+# weston (run with --xwayland) puts each new clipboard of its own on its
+# X server's CLIPBOARD, and GNOME takes CLIPBOARD from any X program, so
+# xclip does the work at both ends. We learn of each new copy by holding
+# weston's clipboard ourselves (with the same text): xclip -quiet returns
+# when a program there takes it. So we don't poll, except while
+# weston's clipboard has no text we copy (e.g., an image, or text over
+# $max bytes, which we skip rather than cut).
+set -u
+max=1048576
+f="${TMPDIR:-/tmp}/clipboard"
+: > "$f"
+while :; do
+  if [ -s "$f" ]; then
+    xclip -display "$WESTON_DISPLAY" -selection clipboard -t UTF8_STRING \
+      -i -quiet < "$f" > /dev/null 2>&1 || sleep 1
+  else
+    sleep 1
+  fi
+  xclip -display "$WESTON_DISPLAY" -selection clipboard -t UTF8_STRING \
+    -o 2> /dev/null | head -c "$((max + 1))" > "$f.new"
+  size="$(wc -c < "$f.new")"
+  if [ "$size" -gt 0 ] && [ "$size" -le "$max" ]; then
+    mv -f "$f.new" "$f"
+    # xclip stays in the background, serving the text, until something
+    # else takes your desktop's clipboard.
+    xclip -display "$DESKTOP_DISPLAY" -selection clipboard -t UTF8_STRING \
+      -i < "$f" > /dev/null 2>&1 || :
+  else
+    : > "$f"
+  fi
+done

@@ -439,6 +439,10 @@ fi
 # warnings and a list of denials to review when the session ends.
 display=""
 desktop_wayland="${WAYLAND_DISPLAY:-}"
+# For bulkhead-display's copying out (to your desktop's Xwayland), not
+# for the session.
+desktop_x="${DISPLAY:-}"
+desktop_xauth="${XAUTHORITY:-}"
 if [ -z "${BULKHEAD_NO_COMPARTMENT:-}" ] && runs_code "$harness"; then
   display="$("$bin/bulkhead-display" dir)" || display=""
   unset DISPLAY
@@ -557,7 +561,8 @@ exec 9> "$dossier/logs/sessions.lock"
 flock -s 9
 # While we hold that lock, so the last session can't stop the display
 # meanwhile.
-[ -z "$display" ] || WAYLAND_DISPLAY="$desktop_wayland" "$bin/bulkhead-display" start ||
+[ -z "$display" ] || WAYLAND_DISPLAY="$desktop_wayland" DISPLAY="$desktop_x" XAUTHORITY="$desktop_xauth" \
+  "$bin/bulkhead-display" start ||
   echo "compart: continuing without a display (see above)." >&2
 status=0
 anon-access "$@" 9>&- || status=$?

@@ -546,9 +546,22 @@ How it works, and what it means:
 - Programs in one compartment share its `weston`, so they share its
   clipboard and drag and drop. That adds little, since they share
   files anyway. Programs in different compartments never share one.
-- There's no clipboard between the compartment's window and the rest of
-  your desktop, in either direction; so nothing in the compartment can
-  read what you copy elsewhere.
+- Text you copy in the compartment's window goes to your desktop's
+  clipboard too, so you can paste it elsewhere. It's one way: nothing in
+  the compartment can read what you copy elsewhere, and you can't paste
+  into the window from outside. The catch: `weston` lets any program
+  set its clipboard at any time, with no keypress, so a program in the
+  compartment could replace your clipboard (e.g., with a command you'd
+  then paste into a terminal). Look before you paste into a terminal,
+  or set `BULKHEAD_DISPLAY_COPY=no` (before `compart`) to turn copying
+  off. It copies only text, up to 1 MB.
+- How copying works: `weston` runs with Xwayland, which only it can
+  reach, and puts each new clipboard of its own on Xwayland's
+  clipboard. `bulkhead-display-copy`, in its own bwrap sandbox with
+  only that X server and your desktop's Xwayland (`DISPLAY`), copies
+  it across with `xclip`. To learn of a new copy, it holds `weston`'s
+  clipboard itself (with the same text), so pasting within the window
+  gives plain text, not formatting.
 - Wayland only: `compart` unsets `DISPLAY`, and sets variables that
   steer toolkits to Wayland (`GDK_BACKEND`, `QT_QPA_PLATFORM`,
   `SDL_VIDEODRIVER`, `MOZ_ENABLE_WAYLAND`, and
@@ -1132,8 +1145,8 @@ Use these only to work around a breakage.
 - An agent's own sockets must be in its workspace or `/tmp`; one
   elsewhere needs a `unix_socket` entry in a profile.
 - A compartment can't use your desktop's clipboard (e.g., Claude's
-  `/copy`), and you can't copy and paste between its `weston` window
-  and the rest of your desktop.
+  `/copy`), and you can't paste into its `weston` window from the rest
+  of your desktop (copying out works).
 - GUI programs must speak Wayland; there's no X11 (Xwayland).
 - nono still refuses loopback ports that aren't opened, even though
   the namespace is private, because it doesn't know that.

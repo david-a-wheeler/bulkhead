@@ -589,6 +589,30 @@ sandbox. So:
   `compart goose-desktop` chats with a model you pick under Llama Swap,
   and `compart goose run` still works.
 
+## Copying out of `weston` (2026-11-26)
+
+A nested `weston` has no clipboard link to your desktop, and neither
+it nor GNOME 50's mutter has a data-control protocol (the one
+`wl-paste --watch` needs), so no Wayland client can follow either
+clipboard without keyboard focus. X can, at both ends:
+
+- `weston --xwayland` puts each new clipboard of its own on Xwayland's
+  `CLIPBOARD` (`weston_wm_set_selection`, `xwayland/selection.c`). It
+  doesn't check who set it: `data_device_set_selection`
+  (`libweston/data-device.c`) has a "FIXME" where a serial check would
+  go. So any program in the compartment can set it at any time.
+- mutter takes `CLIPBOARD` from any X program, with no focus check
+  (`meta_x11_selection_handle_xfixes_selection_notify`,
+  `src/x11/meta-x11-selection.c` at 50.1).
+
+So `bulkhead-display-copy` runs `xclip` on both, in its own bwrap
+sandbox with only the two X servers. Copying is one way, which keeps
+what you copy elsewhere (e.g., a password) from the compartment. The
+human chose to turn it on by default, with `BULKHEAD_DISPLAY_COPY=no`
+to opt out, knowing the compartment could replace their clipboard.
+I couldn't test it in a compartment (nono there refuses binding a
+socket, so Xwayland can't start); the human tests it on the desktop.
+
 ## Future directions
 
 - **Per-compartment app state.** GUI programs want to keep settings
@@ -663,6 +687,15 @@ sandbox. So:
 - `weston` 14.0.2 on our VM (2026-11-25): `weston --help`, its logs,
   the symbols its `systemd-notify.so` uses (`sd_listen_fds` and
   `wl_display_add_socket_fd`), and headless tests in my sandbox.
+- Copying out (read 2026-11-26): weston 14.0's
+  [`xwayland/selection.c`](https://github.com/wayland-mirror/weston/blob/14.0/xwayland/selection.c),
+  [`libweston/data-device.c`](https://github.com/wayland-mirror/weston/blob/14.0/libweston/data-device.c),
+  and [`frontend/xwayland.c`](https://github.com/wayland-mirror/weston/blob/14.0/frontend/xwayland.c)
+  (from a GitHub mirror, since freedesktop.org's GitLab refused my
+  fetches); mutter 50.1's
+  [`src/meson.build`](https://github.com/GNOME/mutter/blob/50.1/src/meson.build)
+  (no data-control) and
+  [`src/x11/meta-x11-selection.c`](https://github.com/GNOME/mutter/blob/50.1/src/x11/meta-x11-selection.c).
 - nono 0.82.0's `nono run --help`, and its `--dry-run` with 28,232
   `--open-port` options.
 

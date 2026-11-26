@@ -85,13 +85,14 @@ echo "== Installing base packages =="
 # project's own setup, not here. "apt-get install -y" is naturally
 # idempotent (a no-op once everything's already at the latest version), so
 # this one line covers first install and every later re-run. weston
-# is each compartment's display (see bulkhead-display), and
-# wayland-utils' wayland-info tells it your monitor's size.
+# is each compartment's display (see bulkhead-display),
+# wayland-utils' wayland-info tells it your monitor's size, and xwayland
+# and xclip copy what you copy there to your desktop's clipboard.
 apt_get update
 apt_get install -y openssh-server avahi-daemon nftables curl cups \
   qemu-guest-agent git shellcheck make build-essential vim python3 jq \
   ripgrep wl-clipboard speech-dispatcher alsa-utils python3-venv bubblewrap passt \
-  gawk weston wayland-utils
+  gawk weston wayland-utils xwayland xclip
 
 echo "== Enabling services =="
 sudo systemctl enable --now ssh avahi-daemon nftables cups qemu-guest-agent
@@ -298,12 +299,14 @@ sudo install -m 755 "$SCRIPT_DIR/heroku-session" "$SCRIPT_DIR/gh-session" "$SCRI
 # git-config-entries.awk and git-config-risks), bulkhead-snapshot
 # (which runs snapshot-feed.py), and bulkhead-grant-check (which reads
 # compartment-paths). compart runs bulkhead-display too, for each
-# compartment's own display. See compartments.md.
+# compartment's own display, and it runs bulkhead-display-copy. See
+# compartments.md.
 # bulkhead-copy-claude-history is transitional.
 sudo install -m 755 "$SCRIPT_DIR/bulkhead-compartment" \
   "$SCRIPT_DIR/bulkhead-workspace" "$SCRIPT_DIR/bulkhead-git-check" \
   "$SCRIPT_DIR/bulkhead-snapshot" "$SCRIPT_DIR/bulkhead-grant-check" \
-  "$SCRIPT_DIR/bulkhead-copy-claude-history" "$SCRIPT_DIR/bulkhead-display" /usr/local/bin/
+  "$SCRIPT_DIR/bulkhead-copy-claude-history" "$SCRIPT_DIR/bulkhead-display" \
+  "$SCRIPT_DIR/bulkhead-display-copy" /usr/local/bin/
 # The helpers bulkhead-workspace replaced.
 for f in bulkhead-compartment-info bulkhead-workspace-prepare \
   bulkhead-workspace-nono-args bulkhead-workspace-ports; do

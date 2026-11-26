@@ -5,6 +5,13 @@
 # your desktop session (its clipboard, other windows, or input). compart
 # runs this; see compartments.md, "GUI programs".
 #
+# The one exception: text copied in weston goes to your desktop's
+# clipboard (never the other way), through bulkhead-display-copy in its
+# own sandbox, unless you set BULKHEAD_DISPLAY_COPY=no. weston lets any
+# program set its clipboard at any time, so a program in the
+# compartment could replace your clipboard, e.g., with a command you'd
+# then paste into a terminal.
+#
 # Each compartment gets one weston, shared by all its sessions, which
 # starts only when a program first connects. Until then, a small
 # launcher (systemd-socket-activate) holds the socket and nothing shows.
@@ -22,9 +29,10 @@
 #   bulkhead-display start  start the compartment's launcher, unless it's
 #                           running (compart does this once a session
 #                           holds the dossier's sessions lock); like dir,
-#                           it needs your desktop's WAYLAND_DISPLAY
-#   bulkhead-display stop   stop it, and its weston (compart does this
-#                           when the last session ends)
+#                           it needs your desktop's WAYLAND_DISPLAY, and
+#                           its DISPLAY (and XAUTHORITY) for copying
+#   bulkhead-display stop   stop it, its weston, and the copying (compart
+#                           does this when the last session ends)
 #   bulkhead-display title  print the window's title
 #
 # Set BULKHEAD_NO_DISPLAY=1 for no display, and BULKHEAD_DISPLAY_SIZE
@@ -142,6 +150,28 @@ case "$1" in
       "cursor-theme=${cursor_theme:=Adwaita}" "cursor-size=${cursor_size:=24}" \
       '[output]' "name=$title" "mode=${width}x$height" > "$d/weston.ini"
     log="$("$ws" dossier)/logs/display.log"
+    # Copying out needs your desktop's Xwayland (e.g., DISPLAY=:0) and
+    # weston's own (--xwayland), whose socket weston makes in $d/x11.
+    copy=""
+    if [ "${BULKHEAD_DISPLAY_COPY:-yes}" != no ]; then
+      xnum="${DISPLAY:-}"
+      xnum="${xnum#:}"
+      xnum="${xnum%.*}"
+      xsock="/tmp/.X11-unix/X$xnum"
+      if [ "${DISPLAY:-}" = ":$xnum" ] || [ "${DISPLAY:-}" = ":$xnum.0" ]; then
+        case "$xnum" in "" | *[!0-9]*) xsock="" ;; esac
+      else
+        xsock=""
+      fi
+      if [ -z "$xsock" ] || [ ! -S "$xsock" ]; then
+        say "no X display (DISPLAY) to copy to, so what you copy in this compartment's window stays there."
+      elif ! command -v xclip > /dev/null || ! command -v Xwayland > /dev/null; then
+        say "no xclip or Xwayland, so what you copy in this compartment's window stays there; run vm-setup.sh."
+      else
+        copy=yes
+        [ -d "$d/x11" ] || mkdir -m 700 "$d/x11"
+      fi
+    fi
     if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt 1000000 ]; then
       mv -f "$log" "$log.1"
     fi
@@ -154,6 +184,8 @@ case "$1" in
       [ ! -d "$f" ] || fonts="$fonts --ro-bind $f $f"
     done
     rm -f "$sock/wayland-0"
+    xwayland=""
+    [ -z "$copy" ] || xwayland="--bind $d/x11 /tmp/.X11-unix"
     # systemd-socket-activate makes the socket and, when a program first
     # connects, runs weston (in bwrap) with it as file descriptor 3.
     # weston's systemd-notify module listens on it, but only if
@@ -164,13 +196,16 @@ case "$1" in
     # setsid: its own process group (which stop kills) and no terminal.
     # It mustn't inherit descriptor 9 (compart's hold on the sessions
     # lock), or no session would ever look like the last.
-    # shellcheck disable=SC2086,SC2016 # $links and $fonts split on purpose; the inner shells expand the rest.
+    # With copying, weston's X server's socket goes in $d/x11, as X0
+    # (it's the only X server in weston's sandbox).
+    # shellcheck disable=SC2086,SC2016 # $links, $fonts, and $xwayland split on purpose; the inner shells expand the rest.
     setsid flock -n -o "$d/run.lock" sh -c '
       d="$1"
       shift
       echo "$$" > "$d/pid"
       while :; do
         echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ): waiting for a program"
+        rm -f "$d/x11/X0"
         "$@" || :
         sleep 1
       done' sh "$d" \
@@ -178,7 +213,7 @@ case "$1" in
       bwrap --unshare-all --die-with-parent --new-session --clearenv \
       --ro-bind /usr /usr $links --ro-bind /etc/ld.so.cache /etc/ld.so.cache $fonts \
       --ro-bind "$d/weston.ini" /run/weston.ini \
-      --proc /proc --dev /dev --tmpfs /tmp \
+      --proc /proc --dev /dev --tmpfs /tmp $xwayland \
       --dir /run/parent --bind "$parent" /run/parent/wayland-0 \
       --perms 0700 --dir /run/weston \
       --setenv PATH /usr/bin --setenv HOME /tmp --setenv XDG_RUNTIME_DIR /run/weston \
@@ -187,9 +222,41 @@ case "$1" in
       --setenv XCURSOR_SIZE "$cursor_size" --setenv LANG "${LANG:-C.UTF-8}" \
       --setenv LISTEN_FDS 1 \
       -- sh -c 'LISTEN_PID=$$ exec "$0" "$@"' \
-      weston --config=/run/weston.ini --renderer=pixman \
+      weston --config=/run/weston.ini --renderer=pixman ${copy:+--xwayland} \
       --width="$width" --height="$height" --modules=systemd-notify.so \
       < /dev/null >> "$log" 2>&1 8>&- 9>&- &
+    # The copying, in its own sandbox and process group, with only the
+    # two X servers: yours as :XNUM, and weston's (through $d/x11, since
+    # weston makes a new socket each time it starts) as the next number.
+    # It waits while weston isn't running, and its loop restarts it if
+    # it ever fails.
+    if [ -n "$copy" ] && flock -n "$d/copy.lock" true; then
+      wnum=$((xnum + 1))
+      xauth=""
+      [ -z "${XAUTHORITY:-}" ] || [ ! -f "$XAUTHORITY" ] ||
+        xauth="--ro-bind $XAUTHORITY /run/xauthority --setenv XAUTHORITY /run/xauthority"
+      case "${XAUTHORITY:-}" in *[[:space:]]*) xauth="" ;; esac
+      echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ): copying this window's clipboard to DISPLAY :$xnum" >> "$log"
+      # shellcheck disable=SC2086,SC2016 # $links and $xauth split on purpose; the inner shell expands the rest.
+      setsid flock -n -o "$d/copy.lock" sh -c '
+        d="$1"
+        shift
+        echo "$$" > "$d/copy.pid"
+        while :; do
+          "$@" || :
+          sleep 1
+        done' sh "$d" \
+        bwrap --unshare-all --die-with-parent --new-session --clearenv \
+        --ro-bind /usr /usr $links --ro-bind /etc/ld.so.cache /etc/ld.so.cache \
+        --ro-bind "$(dirname "$0")/bulkhead-display-copy" /run/bulkhead-display-copy \
+        --proc /proc --dev /dev --tmpfs /tmp --dir /tmp/.X11-unix \
+        --bind "$xsock" "/tmp/.X11-unix/X$xnum" \
+        --bind "$d/x11" /run/weston-x11 --symlink /run/weston-x11/X0 "/tmp/.X11-unix/X$wnum" \
+        $xauth --setenv PATH /usr/bin --setenv HOME /tmp --setenv TMPDIR /tmp \
+        --setenv DESKTOP_DISPLAY ":$xnum" --setenv WESTON_DISPLAY ":$wnum" \
+        -- sh /run/bulkhead-display-copy \
+        < /dev/null >> "$log" 2>&1 8>&- 9>&- &
+    fi
     i=0
     while [ ! -S "$sock/wayland-0" ] && [ "$i" -lt 50 ]; do
       sleep 0.1
@@ -202,17 +269,27 @@ case "$1" in
     ;;
   stop)
     [ -d "$d" ] || exit 0
-    if ! flock -n "$d/run.lock" true; then
-      pid="$(cat "$d/pid" 2> /dev/null)" || pid=""
-      pgid="$(ps -o pgid= -p "${pid:-0}" 2> /dev/null | tr -d ' ')" || pgid=""
-      # Only the launcher's own group, never ours. "env kill": dash's
-      # own kill can't signal a group.
-      if [ -n "$pgid" ] && [ "$pgid" != "$(ps -o pgid= -p "$$" | tr -d ' ')" ]; then
-        env kill -TERM -- "-$pgid" 2> /dev/null || :
+    # The launcher (run.lock and pid), then the copying (copy.lock and
+    # copy.pid).
+    for g in run:pid:launcher copy:copy.pid:copying; do
+      lock="$d/${g%%:*}.lock"
+      pidf="${g#*:}"
+      what="${pidf#*:}"
+      pidf="$d/${pidf%:*}"
+      [ -e "$lock" ] || continue
+      if ! flock -n "$lock" true; then
+        pid="$(cat "$pidf" 2> /dev/null)" || pid=""
+        pgid="$(ps -o pgid= -p "${pid:-0}" 2> /dev/null | tr -d ' ')" || pgid=""
+        # Only that group, never ours. "env kill": dash's own kill can't
+        # signal a group.
+        if [ -n "$pgid" ] && [ "$pgid" != "$(ps -o pgid= -p "$$" | tr -d ' ')" ]; then
+          env kill -TERM -- "-$pgid" 2> /dev/null || :
+        fi
+        flock -w 5 "$lock" true || { say "the display's $what didn't stop."; exit 1; }
       fi
-      flock -w 5 "$d/run.lock" true || { say "the display's launcher didn't stop."; exit 1; }
-    fi
-    rm -f "$d/pid" "$sock/wayland-0"
+      rm -f "$pidf"
+    done
+    rm -f "$sock/wayland-0"
     ;;
   *)
     echo "$usage" >&2
