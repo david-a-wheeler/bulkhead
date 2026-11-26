@@ -463,7 +463,7 @@ cargs() {
   (cd "$d" && wsenv PATH="$wst/bin:$PATH" "$SCRIPT_DIR/compart" claude "$@" 2> /dev/null)
 }
 nono_head="nono|run|--profile|bulkhead-claude|--allow-cwd|--extends|bulkhead-loopback"
-inout="--log-file|$d1/logs/nono.log|--read|$d1/inbox|--allow|$d1/outbox"
+inout="--log-file|$d1/logs/nono.log|--read|$d1/inbox|--read|$d1/outbox|--write|$d1/outbox"
 [ "$(cargs "$fh/projects/p1" x)" = "--nono-profile|bulkhead-claude|$nono_head|--extends|bulkhead-broad|$inout|--|claude|x|" ] ||
   failed "compart: nono options: $(cargs "$fh/projects/p1" x)"
 # compart sh runs a command, or your $SHELL, under bulkhead-sh.

@@ -704,9 +704,10 @@ at or above `~`, or one that holds another workspace's dossier.
   see "Ports").
 - `--extends bulkhead-broad` outside `~/sensitive` (broad GET and HEAD).
 - `--log-file` in the dossier's `logs/`, outside every sandbox grant.
-- `--read DOSSIER/inbox`, `--allow DOSSIER/outbox`, and an
-  `--open-port` for each port in `DOSSIER/policy/local-ports` and
-  `expose-ports`.
+- `--read DOSSIER/inbox`, `--read DOSSIER/outbox` plus `--write
+  DOSSIER/outbox` (nono merges them into read-write; nono splits
+  `--allow`'s path at commas), and an `--open-port` for each port in
+  `DOSSIER/policy/local-ports` and `expose-ports`.
 
 It runs that through `anon-access`, with options for
 `bulkhead-compartment`: an `--expose-port` for each port in

@@ -252,12 +252,14 @@ check "an agent can't read its workspace's dossier" "$r" refused
 
 # run_agent DIR COMMAND [PORT]: run a shell command as an agent, with
 # the options compart adds (inbox and outbox), plus an exposed PORT.
-# COMMAND mustn't contain single quotes.
+# COMMAND mustn't contain single quotes. Our workspaces' names start with
+# a comma, so this catches a grant that nono splits at commas (as it
+# does --allow's; see compart).
 run_agent() {
   if [ -n "${3:-}" ]; then
-    run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd --read $1.dossier/inbox --allow $1.dossier/outbox --open-port $3 -- sh -c '$2'" --expose-port "$3"
+    run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd --read $1.dossier/inbox --read $1.dossier/outbox --write $1.dossier/outbox --open-port $3 -- sh -c '$2'" --expose-port "$3"
   else
-    run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd --read $1.dossier/inbox --allow $1.dossier/outbox -- sh -c '$2'"
+    run_in "$1" "nono run -s --profile nolabs-ai/pi --allow-cwd --read $1.dossier/inbox --read $1.dossier/outbox --write $1.dossier/outbox -- sh -c '$2'"
   fi
 }
 echo hi > "$a.dossier/inbox/given"
@@ -269,6 +271,8 @@ r=$(run_agent "$a" "echo x > $a.dossier/outbox/proposal 2>/dev/null && echo wrot
 check "an agent can write its outbox" "$r" wrote
 r=$(run_agent "$a" "cat $a.dossier/outbox/proposal 2>/dev/null || echo refused")
 check "an agent can read back its outbox" "$r" x
+r=$(run_agent "$a" "cd $a.dossier/outbox && echo y > ,new && mv ,new proposal && mkdir ,d && rmdir ,d && rm proposal && echo revised || echo refused")
+check "an agent can rename, replace, and remove in its outbox" "$r" revised
 cp "$repo/tests/net-probe.py" "$a/,net-probe.py"
 cp "$repo/tests/net-probe.py" "$b/,net-probe.py"
 r=$(run_agent "$a" "python3 ,net-probe.py connect22")
@@ -472,7 +476,7 @@ for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose; do
   # it plants a marker in every directory it may write, and neither the
   # VM nor another compartment may see one, but its outbox's.
   mark=",compartment-sweep-$$"
-  grants="--allow-cwd --read $a.dossier/inbox --allow $a.dossier/outbox"
+  grants="--allow-cwd --read $a.dossier/inbox --read $a.dossier/outbox --write $a.dossier/outbox"
   r=$(run_in "$a" "nono run -s --profile $prof $grants -- python3 ,compartment-sweep.py plant $mark $a $shared" --nono-profile "$prof")
     # The list stays outside every compartment, where we read it to
   # remove the markers; B gets a copy to check against.
@@ -489,7 +493,7 @@ for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose; do
     [ ! -e "$f" ] || leaked="$leaked $f"
   done < "$scratch/planted.list"
   check "$prof: nothing else it wrote shows outside its compartment" "$leaked" ""
-  b_grants="--allow-cwd --read $b.dossier/inbox --allow $b.dossier/outbox"
+  b_grants="--allow-cwd --read $b.dossier/inbox --read $b.dossier/outbox --write $b.dossier/outbox"
   r=$(run_in "$b" "nono run -s --profile $prof $b_grants -- python3 ,compartment-sweep.py seen ,planted.list" --nono-profile "$prof")
   check "$prof: another compartment sees nothing it wrote" "$r" ""
   # The markers outside are only the outbox's (and any leaks).

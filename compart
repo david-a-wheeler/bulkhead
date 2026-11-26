@@ -407,7 +407,8 @@ fi
 #       [--display-dir DIR]
 #     nono run --profile PROFILE --allow-cwd --extends bulkhead-loopback
 #       [--extends bulkhead-broad]
-#       [--log-file LOG] --read INBOX --allow OUTBOX [--open-port P]...
+#       [--log-file LOG] --read INBOX --read OUTBOX --write OUTBOX
+#       [--open-port P]...
 #       [--allow-unix-socket-dir DIR] HARNESS-NONO-OPTIONS -- COMMAND...
 # anon-access strips secrets, then runs bulkhead-compartment with the
 # same arguments. That takes the options and runs, nested:
@@ -464,11 +465,14 @@ if [ -z "${NONO_LOG_FILE:-}" ]; then
 fi
 # The inbox holds files you give the agent (it can't change them); the
 # outbox, files the agent gives you (read-write, so it can revise them).
+# We grant that as --read plus --write, which nono merges, since nono
+# splits --allow's path at each comma (e.g., ~/projects/,x.dossier would
+# grant ~/projects/ instead), but not --read's or --write's.
 export BULKHEAD_INBOX="$dossier/inbox" BULKHEAD_OUTBOX="$dossier/outbox"
 # shellcheck disable=SC2086 # $compartment_opts and $open_opts split on purpose.
 set -- $compartment_opts \
   nono run --profile "$profile" --allow-cwd --extends bulkhead-loopback ${broad:+--extends "$broad"} \
-  ${log:+--log-file "$log"} --read "$BULKHEAD_INBOX" --allow "$BULKHEAD_OUTBOX" \
+  ${log:+--log-file "$log"} --read "$BULKHEAD_INBOX" --read "$BULKHEAD_OUTBOX" --write "$BULKHEAD_OUTBOX" \
   $open_opts "$@"
 
 # We don't exec, so we can check the workspace when the session ends. A
