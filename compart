@@ -301,7 +301,8 @@ case "$harness" in
     ;;
   goose | goose-desktop)
     # goose (see goose.md) runs against the Mac's local AI models (see
-    # engine_setup), through its OpenAI-compatible provider, set up
+    # engine_setup), which is llama-swap, through goose's own llama_swap
+    # provider (which speaks llama-swap's OpenAI-compatible API), set up
     # here. Each compartment has its own ~/.config/goose (see
     # compartment-paths), so goose asks its first-run questions (e.g.,
     # telemetry) in each. Set GOOSE_MODEL to use a model other than the
@@ -322,6 +323,7 @@ case "$harness" in
         die "goose's desktop app isn't installed on this VM; set GOOSE_DESKTOP=yes in config.local.sh, then run ./vm-setup.sh."
     fi
     engine_setup "$harness"
+    goose_user_model="${GOOSE_MODEL:-}"
     GOOSE_MODEL="${GOOSE_MODEL:-$default}"
     [ -n "$GOOSE_MODEL" ] ||
       die "there's no default model to use (see the warning above); set GOOSE_MODEL, or set a default on the Mac with ./manage-models.sh default."
@@ -329,16 +331,27 @@ case "$harness" in
       jq -r --arg m "$GOOSE_MODEL" '.models[] | select(.id == $m) | .context // empty')"
     [ -n "$GOOSE_CONTEXT_LIMIT" ] ||
       die "the engine serves no text model $GOOSE_MODEL (see infer-models)."
-    # Only these use a model.
+    # Only these use a model. The app may use another one (see below).
     case "$harness ${1:-session}" in
-      "goose run" | "goose session" | goose-desktop*) note_model="$GOOSE_MODEL" ;;
+      "goose run" | "goose session") note_model="$GOOSE_MODEL" ;;
+      goose-desktop*) [ -z "$goose_user_model" ] || note_model="$GOOSE_MODEL" ;;
     esac
-    GOOSE_PROVIDER=openai
-    OPENAI_HOST="http://127.0.0.1:$port"
-    OPENAI_API_KEY="$INFER_API_KEY"
+    # Not goose's openai provider, which would show the engine as
+    # "OpenAI". llama_swap's host is the engine's URL without /v1.
+    GOOSE_PROVIDER=llama_swap
+    LLAMA_SWAP_HOST="${url%/v1}"
+    LLAMA_SWAP_API_KEY="$INFER_API_KEY"
     GOOSE_DISABLE_KEYRING=1
-    export GOOSE_MODEL GOOSE_CONTEXT_LIMIT GOOSE_PROVIDER OPENAI_HOST OPENAI_API_KEY \
-      GOOSE_DISABLE_KEYRING
+    export GOOSE_PROVIDER LLAMA_SWAP_HOST LLAMA_SWAP_API_KEY GOOSE_DISABLE_KEYRING
+    # goose takes settings from its environment before its config.yaml,
+    # so a model set here can't be changed in the app (it saves your
+    # choice, then goes on using this one). So the app gets a model here
+    # only if you set GOOSE_MODEL; else it uses the one you choose in it,
+    # starting with the engine's default (see config.yaml below). Then
+    # goose works out the model's context size itself.
+    if [ "$harness" = goose ] || [ -n "$goose_user_model" ]; then
+      export GOOSE_MODEL GOOSE_CONTEXT_LIMIT
+    fi
     if [ "$harness" = goose ]; then
       profile=nolabs-ai/goose
       set -- --open-port "$port" -- /usr/local/bin/goose "$@"
@@ -372,19 +385,25 @@ launch_checks false || exit 1
 "$bin/bulkhead-snapshot" take ||
   die "not starting without a snapshot of the workspace (see above)."
 # Without a config.yaml, plain goose runs its whole first-time setup,
-# provider and all; with one that names the provider (compart goose
-# sets the rest), it asks only what's left, e.g., about telemetry. So we
-# give the compartment's own ~/.config/goose one (or, with
+# provider and all; with one that names the provider and model (compart
+# goose sets the rest), it asks only what's left, e.g., about telemetry.
+# So we give the compartment's own ~/.config/goose one (or, with
 # BULKHEAD_NO_COMPARTMENT, yours), unless it has one. That directory
-# is named as bulkhead-compartment names it.
+# is named as bulkhead-compartment names it. The model is a JSON
+# string, which is also YAML, since model names can hold colons.
 if [ "$harness" = goose ] || [ "$harness" = goose-desktop ]; then
   goose_dir="$HOME/.config/goose"
   [ -n "${BULKHEAD_NO_COMPARTMENT:-}" ] ||
     goose_dir="$dossier/state/$(printf '%s' "${goose_dir#/}" | tr '/' '%')"
-  if [ ! -e "$goose_dir/config.yaml" ]; then
+  # The agent can write this directory, and we run outside every
+  # sandbox, so we never follow or replace anything there: set -C (with
+  # O_EXCL) refuses an existing name, even a symlink. goose takes
+  # GOOSE_PROVIDER from its environment first, so an older config.yaml
+  # naming another provider doesn't matter.
+  if [ ! -e "$goose_dir/config.yaml" ] && [ ! -L "$goose_dir/config.yaml" ]; then
     [ -d "$goose_dir" ] || mkdir -m 700 "$goose_dir"
-    printf '%s\n' "# Written by compart goose, which sets the rest in goose's environment." \
-      "GOOSE_PROVIDER: openai" > "$goose_dir/config.yaml"
+    (set -C && printf '%s\n' "# Written by compart goose, which sets the rest in goose's environment." \
+      "GOOSE_PROVIDER: llama_swap" "GOOSE_MODEL: $(jq -n --arg m "$GOOSE_MODEL" '$m')" > "$goose_dir/config.yaml") || :
   fi
 fi
 # A display for the compartment's GUI programs: its own nested weston

@@ -300,7 +300,9 @@ What each file in this repository does. For what bulkhead is, see
   `compart goose` say so before starting, since the first reply then
   waits while the Mac loads it.
 - `compart goose` runs goose (see `goose.md`) like `compart pi` runs pi,
-  against the Mac's models, through goose's OpenAI-compatible provider.
+  against the Mac's models, through goose's own `llama_swap` provider
+  (llama-swap's OpenAI-compatible API), so goose names the engine as
+  what it is, not as OpenAI.
   It sets goose up through its environment, gives each compartment's own
   `~/.config/goose` a `config.yaml` naming the provider (so goose asks
   only its remaining first-run questions, e.g., about telemetry), and uses the engine's
@@ -317,7 +319,9 @@ What each file in this repository does. For what bulkhead is, see
   it in `/usr/local/lib/goose-desktop`, from the same release as the
   CLI and checked the same way, unless `GOOSE_DESKTOP` in `config.sh`
   isn't `yes`. It runs with `--no-sandbox`, since Chromium's own sandbox
-  can't start in a compartment (see `gui-plan.md`).
+  can't start in a compartment (see `gui-plan.md`). You choose the
+  model in the app, from the list goose gets from llama-swap; it starts
+  with the engine's default. Set `GOOSE_MODEL` to fix one instead.
 - `pi-prose-style.js`: a pi extension that checks the text pi writes
   with `check-prose-style`, as Claude Code's hook does, and blocks a
   write or edit that breaks the rules. `vm-setup.sh` installs it in
