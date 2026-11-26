@@ -585,7 +585,9 @@ sandbox. So:
   pick. goose gets each model's context size from
   llama-swap's `/v1/models` (llama.cpp's `meta.n_ctx`). Worth reporting
   upstream: the never-filled inventory, and the typing field.
-- Not yet checked: the app against the real local engine.
+- **Checked with the real engine (2026-11-26):** in a new compartment,
+  `compart goose-desktop` chats with a model you pick under Llama Swap,
+  and `compart goose run` still works.
 
 ## Future directions
 
