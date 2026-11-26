@@ -431,7 +431,7 @@ is set.
 - **Noise:** nono refused the system D-Bus to the editor and Chromium,
   as before. `weston` logged "Detected an unmapped surface or view in
   the layer list, which should not occur" once, without visible effect.
-- **Not tested:** goose desktop, and `weston` under nono.
+- **Not tested:** `weston` under nono. (goose desktop: see below.)
 - **Later (2026-11-25), with `bulkhead-display`:** copying and pasting
   works between two programs in one compartment's `weston`, even when
   they're started by different `compart sh` sessions. The window kept
@@ -472,6 +472,71 @@ holds it shared; so a session that crashed can't look alive. CI tests
 the launcher's start and stop with stand-ins for `weston` and bwrap,
 but not a real window; we've tested that by hand on GNOME (see
 Results above).
+
+## goose desktop in a compartment
+
+### First test (2026-11-25)
+
+I ran goose's desktop app 1.60.1 (`goose_1.60.1_arm64.deb`, whose
+SHA-256 matches the digest GitHub lists for it) from this workspace's
+own `compart claude` session, which has a display. I unpacked the
+`.deb` with `dpkg-deb -x`, installing nothing, and pointed the
+`XDG_*_HOME` variables at a scratch directory, since nono doesn't
+grant the app's real state directories yet. What I found:
+
+- **The `.deb`:** no maintainer scripts. It puts the app in
+  `/usr/lib/goose` (Electron 45.3.2), links `/usr/bin/goose` to it
+  (which would replace our CLI), and has a setuid-root
+  `chrome-sandbox`. It bundles `resources/bin/goose`, byte for byte
+  the attested CLI we install, plus `node`, `npx`, `uvx`, and `jbang`.
+  A packaged app always runs its bundled `goose`; it ignores
+  `GOOSE_BINARY` outside development builds.
+- **Chromium's sandbox can't start.** Without options, the app aborts
+  ("The SUID sandbox helper binary was found, but is not configured
+  correctly"). Its namespace sandbox can't work here: a compartment
+  can make a user namespace, but nono doesn't let it write
+  `/proc/self/uid_map`. The setuid helper can't work in any nono
+  session, since nono sets `NoNewPrivs`.
+- **With `--no-sandbox`, it works.** It started `goose serve --tls
+  --platform desktop --enable-scheduler --host 127.0.0.1 --port PORT`
+  (a random port, which `bulkhead-loopback` allows), its health check
+  passed, and the window's page loaded ("React ready"). It ran until
+  I stopped it, 44 seconds later.
+- **Its working directory** comes from `--dir DIR`, else the current
+  directory only if stdin is a terminal, else your home directory.
+  So a launcher must pass `--dir`.
+- **Its state:** Electron's in `~/.config/Goose` (from its product
+  name), goose's own in `~/.config/goose` and `~/.local/share/goose`
+  (as for the CLI), and an NSS database (`~/.pki/nssdb` without
+  `XDG_DATA_HOME`, which `nolabs-ai/goose` denies).
+- **Its updater does nothing here:** on Linux it checks only for an
+  AppImage ("APPIMAGE env is not defined") and stops. Its `.deb`
+  updater code (`pkexec dpkg -i`) never ran, and couldn't in a
+  compartment.
+- **Network:** at start it fetched a model catalog
+  (`models_dev_api.json`).
+- **Noise:** refusals of the system D-Bus, a netlink socket, udev, and
+  renderers' OOM scores (all the compartment working as designed),
+  no DRM device (so software rendering), and GTK warnings about
+  icons it couldn't load.
+
+Why `--no-sandbox` costs little here, I believe: Chromium's sandbox
+keeps a compromised renderer from getting the main process's rights.
+In a compartment, those are rights the agent's backend (`goose serve`,
+which runs shell commands for the model) already has. The compartment
+and nono confine both. A renderer showing hostile content still can't
+leave the compartment.
+
+### What's left
+
+- Install it: `vm-setup.sh` would fetch the `.deb` for the same
+  release as the CLI, check its digest (and attestation, if GitHub has
+  one for it), and unpack it under `/usr/local/lib`, without the
+  setuid helper or `/usr/bin/goose`.
+- Launch it: a `compart` case, sharing the CLI case's engine setup,
+  with `--no-sandbox` and `--dir`, and `~/.config/Goose` made the
+  compartment's own in `compartment-paths`.
+- Check it with the real paths, and against the local engine.
 
 ## Future directions
 
