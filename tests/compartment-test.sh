@@ -163,8 +163,8 @@ check "a compartment sees none of the VM's terminals" "$r" 0
 r=$(run_in "$a" "echo x > /dev/null && echo ok")
 check "a compartment's /dev/null works" "$r" ok
 # Its own /run: none of the VM's service sockets, only what
-# compartment-paths lists.
-for s in /run/docker.sock /run/dbus/system_bus_socket "\$XDG_RUNTIME_DIR/bus" \
+# compartment-paths lists (and the stand-in sockets; see below).
+for s in /run/docker.sock "\$XDG_RUNTIME_DIR/bus" \
   "\$XDG_RUNTIME_DIR/systemd/private" "\$XDG_RUNTIME_DIR/openssh_agent" "\$XDG_RUNTIME_DIR/gnupg"; do
   r=$(run_in "$a" "[ -e $s ] && echo seen || echo unseen")
   check "a compartment can't see $s" "$r" unseen
@@ -182,7 +182,7 @@ check "a compartment can't see another workspace" "$r" unseen
 # grants is.
 if [ "${BULKHEAD_VIEW:-allowlist}" = allowlist ]; then
   for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose bulkhead-goose-desktop; do
-    for p in /etc/shadow /var/log /run/docker.sock /run/dbus/system_bus_socket \
+    for p in /etc/shadow /var/log /run/docker.sock \
       "${XDG_RUNTIME_DIR:-/nonexistent}/bus" "$HOME/.ssh" "$HOME/.gnupg" \
       "$HOME/.bash_history" "$HOME/.local/share/keyrings"; do
       [ -e "$p" ] || continue
@@ -425,6 +425,16 @@ except OSError as e:
     print(errno.errorcode[e.errno])' /var/run/nscd/socket"
 r=$(run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c \"$nscd\"")
 check "nscd's socket is refused, not blocked" "$r" ECONNREFUSED
+# And so is SSSD's (in the allowlist view; see bulkhead-compartment).
+if [ "${BULKHEAD_VIEW:-allowlist}" = allowlist ]; then
+  sss="${nscd%/var/run/nscd/socket}/var/lib/sss/pipes/nss"
+  r=$(run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c \"$sss\"")
+  check "SSSD's socket is refused, not blocked" "$r" ECONNREFUSED
+fi
+# And so is the system D-Bus: a stand-in, never the VM's real bus.
+bus="${nscd%/var/run/nscd/socket}/run/dbus/system_bus_socket"
+r=$(run_in "$a" "nono run -s --profile bulkhead-sh --allow-cwd -- sh -c \"$bus\"")
+check "the system D-Bus is refused, not blocked (and not the VM's)" "$r" ECONNREFUSED
 # Another compartment's processes are invisible.
 # Killing run_in wouldn't stop the sleep inside the compartment, which
 # would then hold our output open (e.g., a pipe to tee) until it ended,

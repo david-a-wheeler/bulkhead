@@ -67,7 +67,9 @@
     ],
     "unix_socket": [
       "$XDG_RUNTIME_DIR/speech-dispatcher/speechd.sock",
-      "/run/nscd/socket"
+      "/run/nscd/socket",
+      "/var/lib/sss/pipes/nss",
+      "/run/dbus/system_bus_socket"
     ],
     "allow": [
       "/dev/shm"

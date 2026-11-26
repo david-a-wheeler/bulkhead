@@ -931,7 +931,11 @@ connect that's routine would be a useless warning, which trains you
 (and agents) to ignore warnings. glibc's connect to nscd's socket, on
 every user lookup, is one: so in a compartment that socket is one
 nothing listens on (nono insists an allowed socket be a real one),
-which the profiles allow, and the kernel refuses the connect at once. The lesson: check what a sandbox really enforces, from inside it, rather
+which the profiles allow, and the kernel refuses the connect at once.
+SSSD's socket (`/var/lib/sss/pipes/nss`, which glibc tries for a name
+`/etc/passwd` lacks) and the system D-Bus (which Chromium and Electron
+apps try) get the same stand-in. The VM's real ones are never behind
+it. The lesson: check what a sandbox really enforces, from inside it, rather
 than what its policy says.
 
 nono splits an `--allow` path at each comma (it also reads

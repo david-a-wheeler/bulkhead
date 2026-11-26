@@ -300,6 +300,15 @@ if ! "$dry_run" && [ ! -S "$nolisten" ]; then
   (cd "$comp" && python3 -I -c 'import socket; socket.socket(socket.AF_UNIX).bind("no-listener.sock")')
 fi
 set -- "$@" --ro-bind "$nolisten" /run/nscd/socket
+# glibc tries SSSD's socket too, for a name /etc/passwd doesn't have
+# (Ubuntu's nsswitch.conf lists sss), e.g., when Chromium starts, so it
+# gets the same stand-in. Only in the allowlist view, whose / is ours;
+# in the full view, /var/lib is the VM's, where we can't add it.
+[ "$view" != allowlist ] || set -- "$@" --ro-bind "$nolisten" /var/lib/sss/pipes/nss
+# Chromium and Electron apps (e.g., goose's) try the system D-Bus, many
+# times; that's the same stand-in too. /run is ours in either view, so
+# the VM's real system bus is never behind it.
+set -- "$@" --ro-bind "$nolisten" /run/dbus/system_bus_socket
 # Every key of ours is listed in /proc/keys (and counted in
 # /proc/key-users), so a key's name could carry data between
 # compartments. Each also gets its own session keyring (see

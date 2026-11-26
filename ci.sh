@@ -351,7 +351,8 @@ rm -r "$fh/.pi" "$fh/run"
 # Its own /dev, /run, and keyring, and no list of our keys.
 dry="$(printf '%s\n' "$out" | tr '\n' '|')"
 for want in "|--dev|/dev|--tmpfs|/dev/shm|" "|--tmpfs|/run|" "|--perms|0700|--dir|/run/user/9|" \
-  "|--ro-bind|$fhp/projects/p1.dossier/state/no-listener.sock|/run/nscd/socket|" "|--dev-bind|/dev/null|/proc/keys|" "|--dev-bind|/dev/null|/proc/key-users|" \
+  "|--ro-bind|$fhp/projects/p1.dossier/state/no-listener.sock|/run/nscd/socket|" \
+  "|--ro-bind|$fhp/projects/p1.dossier/state/no-listener.sock|/run/dbus/system_bus_socket|" "|--dev-bind|/dev/null|/proc/keys|" "|--dev-bind|/dev/null|/proc/key-users|" \
   "|--|$SCRIPT_DIR/new-session-keyring|cmd|a b|"; do
   case "$dry" in *"$want"*) ;; *) failed "compartment arguments lack $want" ;; esac
 done
@@ -403,6 +404,9 @@ case "$avout" in *"|--bind|$newtool|$fh/.newtool|"*) ;; *) failed "the allowlist
 case "$avout" in *"|$fh/.readonly|"*"|--bind|$fhp/projects/p1|$fhp/projects/p1|"*) ;; *) failed "the allowlist view binds the workspace before the grants: $avout" ;; esac
 case "$avout" in *"|--bind-try|$fh/.local/state/bulkhead/claude-credentials|"*) ;; *) failed "the allowlist view doesn't bind what's shared on purpose: $avout" ;; esac
 case "$avout" in *"-bind-try|/run|"*) failed "the allowlist view binds back the VM's /run: $avout" ;; esac
+# SSSD's socket gets the stand-in too, but only where / is ours.
+case "$avout" in *"|--ro-bind|$fhp/projects/p1.dossier/state/no-listener.sock|/var/lib/sss/pipes/nss|"*) ;; *) failed "the allowlist view lacks SSSD's stand-in socket: $avout" ;; esac
+case "$dry" in *"|/var/lib/sss/pipes/nss|"*) failed "the full view binds SSSD's stand-in socket into the VM's /var/lib" ;; esac
 # glibc reaches nscd through /var/run, so its symlink must be there
 # (where we can list /var, as bulkhead-compartment can outside a sandbox).
 if [ -L /var/run ] && ls /var > /dev/null 2>&1; then
