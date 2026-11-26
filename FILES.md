@@ -321,10 +321,12 @@ What each file in this repository does. For what bulkhead is, see
   isn't `yes`. It runs with `--no-sandbox`, since Chromium's own sandbox
   can't start in a compartment (see `gui-plan.md`). You choose the
   provider and model in the app; a new compartment starts with
-  `llama_swap` and the engine's default model. goose 1.60.1 lists
-  llama-swap's models only after you check that provider's connection
-  in its settings, once per compartment. Set `GOOSE_MODEL` to fix a
-  model instead.
+  `llama_swap` and the engine's default model. Since goose 1.60.1
+  lists a provider's models only after you check its connection in its
+  settings, `compart` writes goose's `llama_swap` provider, with the
+  models llama-swap serves, into `~/.config/goose/custom_providers`
+  (by `goose-llama-swap.jq`) at each launch. Set `GOOSE_MODEL` to fix
+  a model instead.
 - `pi-prose-style.js`: a pi extension that checks the text pi writes
   with `check-prose-style`, as Claude Code's hook does, and blocks a
   write or edit that breaks the rules. `vm-setup.sh` installs it in

@@ -574,7 +574,15 @@ sandbox. So:
   `"model":"q"`). Handing the app llama-swap's list as
   `GOOSE_PREDEFINED_MODELS` worked, but that mode hides the provider
   choice, and you want other providers (e.g., Claude and Gemini)
-  later, so we don't. goose gets each model's context size from
+  later, so we don't. Instead, `compart` writes a custom
+  `llama_swap.json` (by `goose-llama-swap.jq`) into your shared
+  `~/.config/goose/custom_providers` at each launch: goose's own
+  definition plus llama-swap's models. goose loads custom providers
+  after its built-in ones, so it replaces the built-in `llama_swap`,
+  and until goose refreshes the provider's list, the app shows those
+  models. Tested with a stand-in llama-swap: in a new compartment, the
+  picker offers every provider, lists the models, and sends the one you
+  pick. goose gets each model's context size from
   llama-swap's `/v1/models` (llama.cpp's `meta.n_ctx`). Worth reporting
   upstream: the never-filled inventory, and the typing field.
 - Not yet checked: the app against the real local engine.

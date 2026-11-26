@@ -138,6 +138,25 @@ pi_update_models() {
   fi
 }
 
+# goose_update_provider: rewrite goose's llama_swap provider
+# (~/.config/goose/custom_providers/llama_swap.json, by
+# goose-llama-swap.jq) from $models, if that changed, so goose's model
+# picker lists what the engine serves. That directory is your shared
+# goose setup, which compartments see read-only.
+goose_update_provider() {
+  provider_dir="$HOME/.config/goose/custom_providers"
+  mkdir -p "$provider_dir"
+  new="$(mktemp "$provider_dir/.llama_swap.json.XXXXXX")"
+  printf '%s' "$models" | jq -f "$LIB_DIR/goose-llama-swap.jq" > "$new" ||
+    { rm -f "$new"; exit 1; }
+  if cmp -s "$new" "$provider_dir/llama_swap.json"; then
+    rm -f "$new"
+  else
+    chmod 644 "$new"
+    mv "$new" "$provider_dir/llama_swap.json"
+  fi
+}
+
 # Each line of a policy file is a port number, except blank lines and
 # those starting with "#". A bad line is an error.
 ports() {
@@ -323,6 +342,7 @@ case "$harness" in
         die "goose's desktop app isn't installed on this VM; set GOOSE_DESKTOP=yes in config.local.sh, then run ./vm-setup.sh."
     fi
     engine_setup "$harness"
+    goose_update_provider
     goose_user_model="${GOOSE_MODEL:-}"
     GOOSE_MODEL="${GOOSE_MODEL:-$default}"
     [ -n "$GOOSE_MODEL" ] ||
