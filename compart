@@ -351,8 +351,13 @@ case "$harness" in
       # getting rights the agent's goose already has; the compartment
       # confines both (see gui-plan.md). --dir: else the app works in
       # your home directory unless stdin is a terminal.
+      # --disable-frame-rate-limit: the app shows its window only once
+      # Chromium has drawn it hidden, which, with no GPU (a compartment's
+      # /dev has none), it never does on Wayland, so no window appears.
+      # With this it draws only when something changes, as before.
       profile=bulkhead-goose-desktop
-      set -- --open-port "$port" -- "$goose_desktop" --no-sandbox --dir "$PWD" "$@"
+      set -- --open-port "$port" -- "$goose_desktop" --no-sandbox --disable-frame-rate-limit \
+        --dir "$PWD" "$@"
     fi
     ;;
   *)

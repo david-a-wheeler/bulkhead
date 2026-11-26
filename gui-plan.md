@@ -543,6 +543,23 @@ sandbox. So:
   `bulkhead-goose-desktop` (`nolabs-ai/goose` plus `~/.config/Goose`,
   which `compartment-paths` makes the compartment's own). It stops if
   there's no display.
+- **First run (2026-11-25): no window.** weston started, but nothing
+  showed in it. With `WAYLAND_DEBUG=1`, Chromium made a surface but
+  never an `xdg_toplevel`: the app creates its window hidden and shows
+  it on Electron's `ready-to-show`, which fires once Chromium has drawn
+  the hidden window. With software rendering on Wayland (a compartment
+  has no GPU), it never does. Patching a copy of the app to show the
+  window at once made one appear (its `OnlyLoadAppFromAsar` fuse is on,
+  so only a patch inside `app.asar` takes effect). Without a patch,
+  `--disable-frame-rate-limit` fixes it, and the window then drew 7
+  frames in 20 seconds, at about 5% CPU, so it draws only when
+  something changes. `--disable-gpu-vsync`,
+  `--disable-backgrounding-occluded-windows`,
+  `--disable-renderer-backgrounding`, `--in-process-gpu`, and
+  `--disable-gpu` didn't help. So `compart goose-desktop` passes
+  `--disable-frame-rate-limit`. I believe goose should show its window
+  after a timeout if `ready-to-show` never comes; that's worth
+  reporting upstream.
 - Not yet checked: the app with its real paths, against the local
   engine.
 
