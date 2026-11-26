@@ -336,27 +336,23 @@ case "$harness" in
       "goose run" | "goose session") note_model="$GOOSE_MODEL" ;;
       goose-desktop*) [ -z "$goose_user_model" ] || note_model="$GOOSE_MODEL" ;;
     esac
-    # Not goose's openai provider, which would show the engine as
-    # "OpenAI". llama_swap's host is the engine's URL without /v1.
-    GOOSE_PROVIDER=llama_swap
+    # goose's own llama_swap provider, not its openai one, which would
+    # show the engine as "OpenAI". Its host is the engine's URL without
+    # /v1. These set up only that provider.
     LLAMA_SWAP_HOST="${url%/v1}"
     LLAMA_SWAP_API_KEY="$INFER_API_KEY"
     GOOSE_DISABLE_KEYRING=1
-    export GOOSE_PROVIDER LLAMA_SWAP_HOST LLAMA_SWAP_API_KEY GOOSE_DISABLE_KEYRING
-    # The app's model picker lists these (see goose-models.jq).
-    if [ "$harness" = goose-desktop ]; then
-      GOOSE_PREDEFINED_MODELS="$(printf '%s' "$models" | jq -c -f "$LIB_DIR/goose-models.jq")" ||
-        die "can't make goose's list of models (see above)."
-      export GOOSE_PREDEFINED_MODELS
-    fi
+    export LLAMA_SWAP_HOST LLAMA_SWAP_API_KEY GOOSE_DISABLE_KEYRING
     # goose takes settings from its environment before its config.yaml,
-    # so a model set here can't be changed in the app (it saves your
-    # choice, then goes on using this one). So the app gets a model here
-    # only if you set GOOSE_MODEL; else it uses the one you choose in it,
-    # starting with the engine's default (see config.yaml below). Then
-    # goose works out the model's context size itself.
+    # so a provider or model set here can't be changed in the app (it
+    # saves your choice, then goes on using ours). So the CLI gets them
+    # here; the app gets a model only if you set GOOSE_MODEL, and
+    # otherwise uses what you choose in it, starting with llama_swap and
+    # the engine's default (see config.yaml below). goose gets a model's
+    # context size from llama-swap.
+    GOOSE_PROVIDER=llama_swap
     if [ "$harness" = goose ] || [ -n "$goose_user_model" ]; then
-      export GOOSE_MODEL GOOSE_CONTEXT_LIMIT
+      export GOOSE_PROVIDER GOOSE_MODEL GOOSE_CONTEXT_LIMIT
     fi
     if [ "$harness" = goose ]; then
       profile=nolabs-ai/goose
@@ -403,9 +399,7 @@ if [ "$harness" = goose ] || [ "$harness" = goose-desktop ]; then
     goose_dir="$dossier/state/$(printf '%s' "${goose_dir#/}" | tr '/' '%')"
   # The agent can write this directory, and we run outside every
   # sandbox, so we never follow or replace anything there: set -C (with
-  # O_EXCL) refuses an existing name, even a symlink. goose takes
-  # GOOSE_PROVIDER from its environment first, so an older config.yaml
-  # naming another provider doesn't matter.
+  # O_EXCL) refuses an existing name, even a symlink.
   if [ ! -e "$goose_dir/config.yaml" ] && [ ! -L "$goose_dir/config.yaml" ]; then
     [ -d "$goose_dir" ] || mkdir -m 700 "$goose_dir"
     (set -C && printf '%s\n' "# Written by compart goose, which sets the rest in goose's environment." \

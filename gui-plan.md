@@ -560,20 +560,23 @@ sandbox. So:
   `--disable-frame-rate-limit`. I believe goose should show its window
   after a timeout if `ready-to-show` never comes; that's worth
   reporting upstream.
-- **Models (2026-11-26).** goose's own `llama_swap` provider names
-  the engine as what it is (the `openai` one called it "OpenAI"). But
-  the app's model picker listed no models for it: the backend lists a
-  provider's models from a stored inventory, which it fills only when
-  the app asks (when you check the provider's connection in its
-  settings), and it treats a never-filled one as current. The field
-  for typing a model name instead kept only the first keystroke (a
-  stand-in llama-swap got `"model":"q"`). So `compart goose-desktop`
-  passes the list it already gets from llama-swap for pi, as
-  `GOOSE_PREDEFINED_MODELS` (`goose-models.jq`); with it, picking a
-  model works with no typing. goose gets each model's context size from
-  llama-swap's `/v1/models` (llama.cpp's `meta.n_ctx`), so that's right
-  too. Worth reporting upstream: the never-filled inventory, and the
-  typing field.
+- **Providers and models (2026-11-26).** goose's own `llama_swap`
+  provider names the engine as what it is (its `openai` one called it
+  "OpenAI"). goose reads its environment before its `config.yaml`, so a
+  provider or model `compart` set there couldn't be changed in the app;
+  now the app gets only `llama_swap`'s settings, and you choose in it.
+  But goose 1.60.1's picker listed no models for `llama_swap`: the
+  backend lists a provider's models from a stored inventory, which it
+  fills only when the app asks (when you check the provider's
+  connection in its settings), and it treats a never-filled one as
+  current (nothing refreshes a stale one either). Its field for typing
+  a model name kept only the first keystroke (a stand-in llama-swap got
+  `"model":"q"`). Handing the app llama-swap's list as
+  `GOOSE_PREDEFINED_MODELS` worked, but that mode hides the provider
+  choice, and you want other providers (e.g., Claude and Gemini)
+  later, so we don't. goose gets each model's context size from
+  llama-swap's `/v1/models` (llama.cpp's `meta.n_ctx`). Worth reporting
+  upstream: the never-filled inventory, and the typing field.
 - Not yet checked: the app against the real local engine.
 
 ## Future directions

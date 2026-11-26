@@ -527,8 +527,7 @@ elif [ "$(readlink "$pi_agents" 2> /dev/null)" != "$HOME/.agents/AGENTS.md" ]; t
   echo "WARNING: $pi_agents isn't a link to ~/.agents/AGENTS.md, so pi doesn't get the shared instructions." >&2
 fi
 sudo install -d -m 755 /usr/local/libexec/bulkhead
-sudo install -m 644 "$SCRIPT_DIR/infer-models.jq" "$SCRIPT_DIR/pi-models.jq" "$SCRIPT_DIR/goose-models.jq" \
-  /usr/local/libexec/bulkhead/
+sudo install -m 644 "$SCRIPT_DIR/infer-models.jq" "$SCRIPT_DIR/pi-models.jq" /usr/local/libexec/bulkhead/
 # pi's thinking defaults, unless you've set your own (pi saves the
 # level you pick): think at "high", with 32768 tokens for it instead of
 # pi's 16384. Qwen evaluated Qwen3.8-27B's coding with up to 32768

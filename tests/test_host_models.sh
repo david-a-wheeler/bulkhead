@@ -3,9 +3,9 @@
 # initial-models.yaml follows the list's rules, and llama-swap's config
 # from it has what pi and compart pi need; that infer_models_ok refuses each
 # kind of bad entry; that render_engine_config (host-install.sh) wants
-# every file a list names; and that infer-models, pi-models.jq, and
-# goose-models.jq handle llama-swap's real listing, and infer-models
-# refuses bad ones. Run by ci.sh.
+# every file a list names; and that infer-models and pi-models.jq handle
+# llama-swap's real listing, and infer-models refuses bad ones. Run by
+# ci.sh.
 # shellcheck disable=SC2016 # entries hold literal ${llama-server} etc.
 set -eu
 # shellcheck source=SCRIPTDIR/report.sh
@@ -322,9 +322,6 @@ got="$(printf '%s' "$listing" | infer_models_stdin | jq -f pi-models.jq | jq -c 
    ([.models[].thinkingLevelMap.high] | unique)]')"
 want='["http://127.0.0.1:'"$INFER_PORT"'/v1","${INFER_API_KEY}","thinking_budget_tokens","chat-template",["xhigh"]]'
 [ "$got" = "$want" ] || failed "pi-models.jq's provider settings are $got, not $want"
-got="$(printf '%s' "$listing" | infer_models_stdin | jq -c -f goose-models.jq)"
-want='[{"name":"qwen3.8-27b:instruct","provider":"llama_swap","alias":"Qwen3.8-27B Q8_0 (qwen3.8-27b:instruct)","context_limit":262144},{"name":"qwen3-0.6b","provider":"llama_swap","alias":"Qwen3-0.6B Q4_0 (tests)","context_limit":32768},{"name":"qwen3.8-27b","provider":"llama_swap","alias":"Qwen3.8-27B Q8_0","context_limit":262144}]'
-[ "$got" = "$want" ] || failed "goose-models.jq gave $got, not $want"
 got="$(printf '%s' '{"data": [{"id": "a", "context_length": 1, "meta": {"llamaswap": {"max_tokens": 1}}}]}' |
   infer_models_stdin | jq -c .default)"
 [ "$got" = null ] || failed "infer-models gave a default ($got) for a listing with none"
