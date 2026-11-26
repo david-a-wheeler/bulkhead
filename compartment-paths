@@ -63,6 +63,9 @@ ro ~/.config/goose/recipes
 ro ~/.config/goose/custom_providers
 private ~/.local/share/goose
 private ~/.local/state/goose
+# goose's desktop app (compart goose-desktop) keeps Electron's state
+# (e.g., cookies, local storage, and its logs) here, beside goose's own.
+private ~/.config/Goose
 
 # Claude Code. Transcripts, history, todos, plans, and its config file
 # (~/.claude/.claude.json, since bulkhead-claude sets CLAUDE_CONFIG_DIR)

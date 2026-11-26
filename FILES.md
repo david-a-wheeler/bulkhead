@@ -310,6 +310,14 @@ What each file in this repository does. For what bulkhead is, see
   GitHub's SHA-256 and goose's build attestation, after the same
   cooling period as the engine's releases (`GOOSE_MIN` and `GOOSE_PIN`
   in `config.sh`).
+- `compart goose-desktop` runs goose's desktop app instead, set up the
+  same way, in the compartment's own display. Its own copy of goose
+  shares the compartment's `~/.config/goose` with `compart goose`, so
+  both see the same settings and sessions there. `vm-setup.sh` installs
+  it in `/usr/local/lib/goose-desktop`, from the same release as the
+  CLI and checked the same way, unless `GOOSE_DESKTOP` in `config.sh`
+  isn't `yes`. It runs with `--no-sandbox`, since Chromium's own sandbox
+  can't start in a compartment (see `gui-plan.md`).
 - `pi-prose-style.js`: a pi extension that checks the text pi writes
   with `check-prose-style`, as Claude Code's hook does, and blocks a
   write or edit that breaks the rules. `vm-setup.sh` installs it in
@@ -385,6 +393,10 @@ What each file in this repository does. For what bulkhead is, see
   for the tools agents run (language runtimes, git's config), with a
   writable workspace, and bash's startup files (e.g., `~/.bashrc`)
   readable but not writable. So never put secrets in them.
+- `nono-goose-desktop-profile.json`: the `bulkhead-goose-desktop`
+  profile `compart goose-desktop` uses: `nolabs-ai/goose`, plus the
+  app's own state (`~/.config/Goose`), which `compartment-paths` makes
+  each compartment's own.
 - `claude-unsandboxed`: the last-resort failsafe, for when nono itself
   won't run: Claude Code with no sandbox, and its own real login in
   `~/.local/state/bulkhead/claude-unsandboxed`, which no sandbox can

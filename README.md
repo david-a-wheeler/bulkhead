@@ -75,7 +75,7 @@ Under both, an agent may write (e.g., POST) only where the policy
 lists it, such as its model's API.
 
 You start an agent with `compart`, e.g., `compart claude`, `compart pi`, or
-`compart goose`, and run code an agent wrote with `compart sh` (e.g.,
+`compart goose` (or its desktop app, `compart goose-desktop`), and run code an agent wrote with `compart sh` (e.g.,
 `compart sh make test`). Each launch nests these:
 
 1. **`anon-access`** strips your credentials and session handles from

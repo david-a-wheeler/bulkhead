@@ -300,7 +300,7 @@ fetch_asset() {
   fi
   curl -fsSL -o "$release_tmp/$3" "https://github.com/$1/releases/download/$2/$3" || return 1
   if [ "$(shasum -a 256 "$release_tmp/$3" | cut -d ' ' -f 1)" != "$sha256" ]; then
-    rm -f "${infer_tmp:?}/${3:?}"
+    rm -f "${release_tmp:?}/${3:?}"
     echo "ERROR: $3 from $1 $2 doesn't match its SHA-256." >&2
     return 1
   fi

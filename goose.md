@@ -63,6 +63,13 @@ So:
   `/tmp` (goose uses `/tmp/goose-UID`).
 - goose's `goose update` would replace its own binary; `vm-setup.sh`
   installs goose root-owned in `/usr/local/bin`, so no agent can.
+- goose's desktop app (`compart goose-desktop`) would update itself,
+  but only as an AppImage, so it doesn't try. `vm-setup.sh` installs
+  it root-owned too, without the `.deb`'s setuid `chrome-sandbox` or
+  its `/usr/bin/goose`, which would replace the CLI. It runs with
+  Chromium's sandbox off, which can't start in a compartment; the
+  compartment confines the app and the goose it starts alike (see
+  `gui-plan.md`, "goose desktop in a compartment").
 
 ## Other things worth knowing
 

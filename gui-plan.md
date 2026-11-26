@@ -527,16 +527,24 @@ which runs shell commands for the model) already has. The compartment
 and nono confine both. A renderer showing hostile content still can't
 leave the compartment.
 
-### What's left
+### Built (2026-11-25)
 
-- Install it: `vm-setup.sh` would fetch the `.deb` for the same
-  release as the CLI, check its digest (and attestation, if GitHub has
-  one for it), and unpack it under `/usr/local/lib`, without the
-  setuid helper or `/usr/bin/goose`.
-- Launch it: a `compart` case, sharing the CLI case's engine setup,
-  with `--no-sandbox` and `--dir`, and `~/.config/Goose` made the
-  compartment's own in `compartment-paths`.
-- Check it with the real paths, and against the local engine.
+We decided `--no-sandbox` is acceptable, since the compartment is the
+sandbox. So:
+
+- `vm-setup.sh` fetches the `.deb` for the same release as the CLI,
+  checks its SHA-256 and its attestation (the same `release.yml`
+  workflow attests it), and unpacks just the app into
+  `/usr/local/lib/goose-desktop`, root-owned, without the setuid helper
+  or `/usr/bin/goose`. So the CLI is untouched. `GOOSE_DESKTOP=no` in
+  `config.local.sh` removes it.
+- `compart goose-desktop` shares `compart goose`'s engine setup, and
+  runs the app with `--no-sandbox` and `--dir` under
+  `bulkhead-goose-desktop` (`nolabs-ai/goose` plus `~/.config/Goose`,
+  which `compartment-paths` makes the compartment's own). It stops if
+  there's no display.
+- Not yet checked: the app with its real paths, against the local
+  engine.
 
 ## Future directions
 

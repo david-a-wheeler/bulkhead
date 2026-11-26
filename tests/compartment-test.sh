@@ -181,7 +181,7 @@ check "a compartment can't see another workspace" "$r" unseen
 # profile may grant more than it seems, e.g., all of /run); what it
 # grants is.
 if [ "${BULKHEAD_VIEW:-allowlist}" = allowlist ]; then
-  for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose; do
+  for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose bulkhead-goose-desktop; do
     for p in /etc/shadow /var/log /run/docker.sock /run/dbus/system_bus_socket \
       "${XDG_RUNTIME_DIR:-/nonexistent}/bus" "$HOME/.ssh" "$HOME/.gnupg" \
       "$HOME/.bash_history" "$HOME/.local/share/keyrings"; do
@@ -466,7 +466,7 @@ r=$([ "$(wc -l < "$a/,sockets.list")" -gt 0 ] && echo some || echo none)
 check "the sweep listed the VM's sockets" "$r" some
 # Shared on purpose, as compartment-paths says.
 shared=$(awk -v home="$HOME" '$1 == "shared" { sub("^~", home, $2); print $2 }' "$repo/compartment-paths" | tr '\n' ' ')
-for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose; do
+for prof in bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose bulkhead-goose-desktop; do
   r=$(run_in "$a" "nono run -s --profile $prof --allow-cwd -- python3 ,compartment-sweep.py sockets ,sockets.list $spd" --nono-profile "$prof")
   check "$prof: no socket on the VM is reachable, but those allowed" "$(printf '%s\n' "$r" | grep '^CONNECTS' || :)" ""
   if [ -S "$spd" ]; then
@@ -502,7 +502,7 @@ done
 
 # Every path the installed profiles let agents write is covered.
 r=$(cd "$a" && BULKHEAD_COMPARTMENT_PATHS="$repo/compartment-paths" \
-  "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose 2>&1 && echo covered || :)
+  "$repo/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose bulkhead-goose-desktop 2>&1 && echo covered || :)
 check "compartment-paths covers every write the installed profiles grant" "$r" covered
 
 report_end "$fails" "$checks"

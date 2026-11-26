@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "name": "bulkhead-goose-desktop",
+    "description": "nolabs-ai/goose, plus the state of goose's desktop app (Electron's, in ~/.config/Goose), for compart goose-desktop (see gui-plan.md)"
+  },
+  "extends": "nolabs-ai/goose",
+  "filesystem": {
+    "allow": [
+      "$HOME/.config/Goose"
+    ]
+  }
+}

@@ -65,6 +65,10 @@ PI_MIN="1.3.0"
 PI_PIN=""
 GOOSE_MIN="v1.59.2"
 GOOSE_PIN=""
+# Whether vm-setup.sh installs goose's desktop app (for compart
+# goose-desktop), from the same release as the CLI: "yes" or "no" (which
+# removes it). It's about 490 MB installed, since it bundles Electron.
+GOOSE_DESKTOP="yes"
 
 # Port the local AI engine (llama-swap) listens on, on the Mac's
 # 127.0.0.1. A VM's SSH reverse tunnel forwards the same port on the VM's

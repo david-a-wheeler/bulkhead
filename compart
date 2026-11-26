@@ -41,7 +41,7 @@ LIB_DIR=/usr/local/libexec/bulkhead
 bin="$(dirname "$0")"
 
 usage() {
-  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude, pi, or goose; compart sh [COMMAND...]; compart dossier; or compart check"
+  echo "Usage: compart HARNESS [ARGUMENTS...], where HARNESS is claude, pi, goose, or goose-desktop; compart sh [COMMAND...]; compart dossier; or compart check"
   echo "Use compart sh to run code an agent wrote (e.g., compart sh make test); its exit status is COMMAND's."
 }
 
@@ -57,7 +57,7 @@ die() {
 # left out just gets no display.
 runs_code() {
   case "$1" in
-    sh | claude | pi | goose) return 0 ;;
+    sh | claude | pi | goose | goose-desktop) return 0 ;;
   esac
   return 1
 }
@@ -190,7 +190,7 @@ check_workspace() {
   fi
   # Every profile a case below uses. A pack update can add a path that
   # every compartment would share.
-  "$bin/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose || cw_ok=false
+  "$bin/bulkhead-grant-check" bulkhead-sh bulkhead-claude nolabs-ai/pi nolabs-ai/goose bulkhead-goose-desktop || cw_ok=false
   cw_orphans="$("$bin/bulkhead-workspace" orphans)"
   if [ -n "$cw_orphans" ]; then
     printf 'compart check: WARNING: these dossiers'"'"' workspaces are gone (see compartments.md, "Moving a workspace"):\n%s\n' "$cw_orphans" >&2
@@ -299,7 +299,7 @@ case "$harness" in
     profile=nolabs-ai/pi
     set -- --read "$pi_dir" --open-port "$port" -- /usr/local/bin/pi --provider mac-local "$@"
     ;;
-  goose)
+  goose | goose-desktop)
     # goose (see goose.md) runs against the Mac's local AI models (see
     # engine_setup), through its OpenAI-compatible provider, set up
     # here. Each compartment has its own ~/.config/goose (see
@@ -309,9 +309,19 @@ case "$harness" in
     # to set; they add to the compartment, but don't replace it.
     # GOOSE_DISABLE_KEYRING: a compartment has no keyring service, and
     # the key is in the environment anyway. vm-setup.sh installs goose.
-    [ -x /usr/local/bin/goose ] ||
-      die "goose isn't installed on this VM; run ./vm-setup.sh."
-    engine_setup goose
+    # compart goose-desktop runs goose's desktop app instead, which
+    # starts its own copy of the same goose (as "goose serve") with
+    # these settings, and shares the compartment's ~/.config/goose with
+    # the CLI, so both see the same settings and sessions there.
+    goose_desktop=/usr/local/lib/goose-desktop/Goose
+    if [ "$harness" = goose ]; then
+      [ -x /usr/local/bin/goose ] ||
+        die "goose isn't installed on this VM; run ./vm-setup.sh."
+    else
+      [ -x "$goose_desktop" ] ||
+        die "goose's desktop app isn't installed on this VM; set GOOSE_DESKTOP=yes in config.local.sh, then run ./vm-setup.sh."
+    fi
+    engine_setup "$harness"
     GOOSE_MODEL="${GOOSE_MODEL:-$default}"
     [ -n "$GOOSE_MODEL" ] ||
       die "there's no default model to use (see the warning above); set GOOSE_MODEL, or set a default on the Mac with ./manage-models.sh default."
@@ -320,15 +330,30 @@ case "$harness" in
     [ -n "$GOOSE_CONTEXT_LIMIT" ] ||
       die "the engine serves no text model $GOOSE_MODEL (see infer-models)."
     # Only these use a model.
-    case "${1:-session}" in run | session) note_model="$GOOSE_MODEL" ;; esac
+    case "$harness ${1:-session}" in
+      "goose run" | "goose session" | goose-desktop*) note_model="$GOOSE_MODEL" ;;
+    esac
     GOOSE_PROVIDER=openai
     OPENAI_HOST="http://127.0.0.1:$port"
     OPENAI_API_KEY="$INFER_API_KEY"
     GOOSE_DISABLE_KEYRING=1
     export GOOSE_MODEL GOOSE_CONTEXT_LIMIT GOOSE_PROVIDER OPENAI_HOST OPENAI_API_KEY \
       GOOSE_DISABLE_KEYRING
-    profile=nolabs-ai/goose
-    set -- --open-port "$port" -- /usr/local/bin/goose "$@"
+    if [ "$harness" = goose ]; then
+      profile=nolabs-ai/goose
+      set -- --open-port "$port" -- /usr/local/bin/goose "$@"
+    else
+      # bulkhead-goose-desktop (nono-goose-desktop-profile.json) adds
+      # the app's own state. --no-sandbox: Chromium's sandbox can't
+      # start in a compartment (it needs a setuid helper, which nono's
+      # NoNewPrivs stops, or a user namespace's uid_map, which nono
+      # refuses), and it would only keep a compromised window from
+      # getting rights the agent's goose already has; the compartment
+      # confines both (see gui-plan.md). --dir: else the app works in
+      # your home directory unless stdin is a terminal.
+      profile=bulkhead-goose-desktop
+      set -- --open-port "$port" -- "$goose_desktop" --no-sandbox --dir "$PWD" "$@"
+    fi
     ;;
   *)
     echo "compart: unknown harness: $harness" >&2
@@ -347,7 +372,7 @@ launch_checks false || exit 1
 # give the compartment's own ~/.config/goose one (or, with
 # BULKHEAD_NO_COMPARTMENT, yours), unless it has one. That directory
 # is named as bulkhead-compartment names it.
-if [ "$harness" = goose ]; then
+if [ "$harness" = goose ] || [ "$harness" = goose-desktop ]; then
   goose_dir="$HOME/.config/goose"
   [ -n "${BULKHEAD_NO_COMPARTMENT:-}" ] ||
     goose_dir="$dossier/state/$(printf '%s' "${goose_dir#/}" | tr '/' '%')"
@@ -391,6 +416,8 @@ if [ -z "${BULKHEAD_NO_COMPARTMENT:-}" ] && runs_code "$harness"; then
     unset WAYLAND_DISPLAY
   fi
 fi
+[ "$harness" != goose-desktop ] || [ -n "${WAYLAND_DISPLAY:-}" ] ||
+  die "goose-desktop needs a display; run it from a terminal on your desktop (or use compart goose)."
 # Claude's ~/.claude, as the agent will see it: the compartment's private
 # copy (named as bulkhead-compartment names it), or, with
 # BULKHEAD_NO_COMPARTMENT, your own.

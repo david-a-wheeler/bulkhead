@@ -201,6 +201,10 @@ install_unless_locally_newer "$SCRIPT_DIR/nono-claude-profile.json" \
 # bulkhead-sh (nono-sh-profile.json) is for compart sh.
 install_unless_locally_newer "$SCRIPT_DIR/nono-sh-profile.json" \
   "$HOME/.config/nono/profiles/bulkhead-sh.json"
+# bulkhead-goose-desktop (nono-goose-desktop-profile.json) is for
+# compart goose-desktop.
+install_unless_locally_newer "$SCRIPT_DIR/nono-goose-desktop-profile.json" \
+  "$HOME/.config/nono/profiles/bulkhead-goose-desktop.json"
 # bulkhead-broad (nono-broad-profile.json) allows GET and HEAD to the
 # whole web; compart adds it to every launch outside ~/sensitive.
 install_unless_locally_newer "$SCRIPT_DIR/nono-broad-profile.json" \
@@ -615,6 +619,57 @@ else
   sudo install -m 755 "$release_tmp/unpack/goose" /usr/local/bin/goose
   echo "Installed goose $goose_tag${goose_have:+ (was $goose_have)}."
 fi
+# goose's desktop app (compart goose-desktop), from the same release,
+# checked the same way. Its .deb links /usr/bin/goose to the app and
+# has a setuid-root chrome-sandbox, so we don't install the package:
+# we unpack just the app, without that helper (no nono session could
+# use it anyway; see gui-plan.md), into its own directory. So the CLI
+# above stays as it is. The app runs its bundled copy of the CLI, the
+# same file as the one above, which tells us its version.
+desktop_dir=/usr/local/lib/goose-desktop
+desktop_have="$("$desktop_dir/resources/bin/goose" --version 2> /dev/null | tr -d ' ')" || desktop_have=""
+desktop_have="${desktop_have:+v$desktop_have}"
+if [ "$GOOSE_DESKTOP" != yes ]; then
+  if [ -e "$desktop_dir" ]; then
+    echo "Removing goose's desktop app (GOOSE_DESKTOP isn't yes)..."
+    sudo rm -rf "${desktop_dir:?}"
+    echo "Removed goose's desktop app${desktop_have:+ $desktop_have}."
+  fi
+elif [ "$desktop_have" = "$goose_tag" ]; then
+  echo "goose's desktop app $goose_tag is already installed."
+else
+  echo "Downloading (about 150 MB), checking, and installing goose's desktop app $goose_tag${desktop_have:+ (replacing $desktop_have)}..."
+  desktop_file="goose_${goose_tag#v}_$(dpkg --print-architecture).deb"
+  fetch_asset aaif-goose/goose "$goose_tag" "$desktop_file" ||
+    die "can't download goose $goose_tag's $desktop_file."
+  goose_gh_token="$(secrets-client --context "vm-setup.sh: check goose's desktop build" --get GH_PUBLIC_TOKEN)" ||
+    die "can't get GH_PUBLIC_TOKEN, which gh needs to check goose's build."
+  GH_TOKEN="$goose_gh_token" gh attestation verify "$release_tmp/$desktop_file" \
+    --repo aaif-goose/goose --source-ref "refs/tags/$goose_tag" \
+    --signer-workflow aaif-goose/goose/.github/workflows/release.yml > /dev/null ||
+    die "GitHub doesn't attest that goose's release workflow built $desktop_file for $goose_tag."
+  dpkg-deb --fsys-tarfile "$release_tmp/$desktop_file" > "$release_tmp/desktop.tar"
+  rm "$release_tmp/$desktop_file"
+  tar tf "$release_tmp/desktop.tar" > "$release_tmp/names"
+  archive_names_ok < "$release_tmp/names" || die "$desktop_file has an unsafe file name."
+  mkdir "$release_tmp/desktop"
+  tar xf "$release_tmp/desktop.tar" -C "$release_tmp/desktop" --no-same-permissions ./usr/lib/goose
+  rm "$release_tmp/desktop.tar"
+  app="$release_tmp/desktop/usr/lib/goose"
+  rm -f "$app/chrome-sandbox"
+  unpacked_tree_ok "$app" || die "$desktop_file has an unsafe file."
+  [ -f "$app/Goose" ] && [ -f "$app/resources/bin/goose" ] ||
+    die "$desktop_file has no Goose app."
+  # Copied beside the old one, then swapped in, so a failure leaves the
+  # old one working. Root-owned, so no agent can change it.
+  sudo rm -rf "${desktop_dir:?}.new"
+  sudo cp -R "$app" "$desktop_dir.new"
+  sudo chown -R root:root "$desktop_dir.new"
+  sudo chmod -R go-w,u-s,g-s "$desktop_dir.new"
+  sudo rm -rf "${desktop_dir:?}"
+  sudo mv "$desktop_dir.new" "$desktop_dir"
+  echo "Installed goose's desktop app $goose_tag${desktop_have:+ (was $desktop_have)}."
+fi
 rm -rf "${release_tmp:?}"
 # goose reads the shared instructions (~/.agents/AGENTS.md) itself, so
 # remove the link to them we used to make, which made goose read them
@@ -624,5 +679,7 @@ if [ "$(readlink "$goose_agents" 2> /dev/null)" = "$HOME/.agents/AGENTS.md" ]; t
   rm "$goose_agents"
 fi
 echo "Once the Mac gives this VM access (./infer-access.sh shared), try: compart goose run --text 'Say hello in five words.'"
+[ "$GOOSE_DESKTOP" != yes ] ||
+  echo "Or, from a terminal on your desktop, in a workspace: compart goose-desktop"
 
 echo "== vm-setup.sh done =="
