@@ -439,6 +439,9 @@ What each file in this repository does. For what bulkhead is, see
   a first experiment (VNC) to try.
 - `snapshot-plan.md`: the design of `bulkhead-snapshot` (what it
   saves, when, how, and how long), and what it doesn't cover.
+- `threat-model.md`: a draft rethinking of compartments' threat model:
+  realistic security requirements (hard, soft, and deliberately not
+  required) and many ways to meet each.
 - `compartments.md`: what each agent's compartment can and can't do,
   each workspace's dossier (its layout, ports, inbox, and outbox) and
   where an agent may not start, and how `anon-access`, pasta, bwrap,
