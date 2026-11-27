@@ -234,7 +234,7 @@ case "$1" in
       wnum=$((xnum + 1))
       xauth=""
       [ -z "${XAUTHORITY:-}" ] || [ ! -f "$XAUTHORITY" ] ||
-        xauth="--ro-bind $XAUTHORITY /run/xauthority --setenv XAUTHORITY /run/xauthority"
+        xauth="--ro-bind $XAUTHORITY /run/xauthority --setenv DESKTOP_XAUTHORITY /run/xauthority"
       case "${XAUTHORITY:-}" in *[[:space:]]*) xauth="" ;; esac
       echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ): copying this window's clipboard to DISPLAY :$xnum" >> "$log"
       # shellcheck disable=SC2086,SC2016 # $links and $xauth split on purpose; the inner shell expands the rest.
