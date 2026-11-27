@@ -624,7 +624,8 @@ option for Xwayland's arguments, but `[xwayland] path=` in
 `weston.ini` can name a wrapper, so bulkhead-display's adds `-ac`.
 That's safe here: the socket's only way in is a directory only you
 can reach. Lesson: an X server in an isolated network namespace needs
-`-auth` or `-ac`.
+`-auth` or `-ac`. With that fix, the human confirmed (2026-11-27) that
+text copied in weston pastes on the desktop.
 
 ## Future directions
 
