@@ -16,9 +16,9 @@
 # $max bytes, which we skip rather than cut).
 set -u
 max=1048576
-# weston's X server has no cookies and refuses any we offer, and your
-# desktop's file can have one for weston's display number (e.g., our
-# VMs' GNOME has X servers :0 and :1), so each side gets its own.
+# weston's X server has no cookies (bulkhead-display turns off its
+# access control), and your desktop's cookies are none of its business,
+# so each side gets its own: none for weston's, your file for yours.
 weston() {
   XAUTHORITY=/dev/null xclip -display "$WESTON_DISPLAY" -selection clipboard -t UTF8_STRING "$@"
 }

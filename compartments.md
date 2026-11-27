@@ -555,8 +555,8 @@ How it works, and what it means:
   then paste into a terminal). Look before you paste into a terminal,
   or set `BULKHEAD_DISPLAY_COPY=no` (before `compart`) to turn copying
   off. It copies only text, up to 1 MB.
-- How copying works: `weston` runs with Xwayland, which only it can
-  reach, and puts each new clipboard of its own on Xwayland's
+- How copying works: `weston` runs with Xwayland, which only it (and
+  the copying) can reach, so Xwayland needs no cookies, and puts each new clipboard of its own on Xwayland's
   clipboard. `bulkhead-display-copy`, in its own bwrap sandbox with
   only that X server and your desktop's Xwayland (`DISPLAY`), copies
   it across with `xclip`. To learn of a new copy, it holds `weston`'s

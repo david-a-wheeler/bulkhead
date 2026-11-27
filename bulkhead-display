@@ -170,6 +170,16 @@ case "$1" in
       else
         copy=yes
         [ -d "$d/x11" ] || mkdir -m 700 "$d/x11"
+        # weston starts Xwayland without -auth, so it falls back to
+        # letting in local programs only if this machine has a network
+        # address besides loopback, which weston's sandbox lacks; it
+        # refuses everyone. So weston runs this instead, which turns off
+        # Xwayland's access control: its socket's only way in is $d/x11,
+        # which only you (and the copying) can reach.
+        printf '%s\n' '#!/bin/sh' 'exec /usr/bin/Xwayland -ac "$@"' > "$d/xwayland.new"
+        chmod 755 "$d/xwayland.new"
+        mv -f "$d/xwayland.new" "$d/xwayland"
+        printf '%s\n' '[xwayland]' 'path=/run/xwayland' >> "$d/weston.ini"
       fi
     fi
     if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt 1000000 ]; then
@@ -185,7 +195,7 @@ case "$1" in
     done
     rm -f "$sock/wayland-0"
     xwayland=""
-    [ -z "$copy" ] || xwayland="--bind $d/x11 /tmp/.X11-unix"
+    [ -z "$copy" ] || xwayland="--bind $d/x11 /tmp/.X11-unix --ro-bind $d/xwayland /run/xwayland"
     # systemd-socket-activate makes the socket and, when a program first
     # connects, runs weston (in bwrap) with it as file descriptor 3.
     # weston's systemd-notify module listens on it, but only if

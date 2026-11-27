@@ -613,6 +613,19 @@ to opt out, knowing the compartment could replace their clipboard.
 I couldn't test it in a compartment (nono there refuses binding a
 socket, so Xwayland can't start); the human tests it on the desktop.
 
+The first desktop test failed: weston's Xwayland refused `xclip`
+("Authorization required", or "Invalid MIT-MAGIC-COOKIE-1 key" when
+it offered your desktop's cookie). weston passes Xwayland no `-auth`,
+so X falls back to its host list, which lets local programs in only
+if the machine has a network address besides loopback. weston's
+bwrap has its own network namespace, with only `lo`, so Xwayland
+refuses everyone (Xvfb does the same with no network). weston has no
+option for Xwayland's arguments, but `[xwayland] path=` in
+`weston.ini` can name a wrapper, so bulkhead-display's adds `-ac`.
+That's safe here: the socket's only way in is a directory only you
+can reach. Lesson: an X server in an isolated network namespace needs
+`-auth` or `-ac`.
+
 ## Future directions
 
 - **Per-compartment app state.** GUI programs want to keep settings
